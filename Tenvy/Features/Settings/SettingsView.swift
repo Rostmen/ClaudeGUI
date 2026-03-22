@@ -37,6 +37,7 @@ struct SettingsView: View {
 
   var body: some View {
     Form {
+#if DEBUG
       // Features section
       Section {
         Toggle("File Browser", isOn: $settings.fileTreeEnabled)
@@ -51,7 +52,7 @@ struct SettingsView: View {
           .font(.caption)
           .foregroundColor(.secondary)
       }
-
+#endif
       // Hooks section
       Section {
         HStack {
@@ -143,13 +144,6 @@ struct SettingsView: View {
         Text("Hooks enable real-time status like \"Reading file...\" and \"Waiting\" in the sidebar")
           .font(.caption)
           .foregroundColor(.secondary)
-      }
-
-      // About section
-      Section("About") {
-        LabeledContent("Author", value: AppInfo.author)
-        LabeledContent("Version", value: AppInfo.version)
-        LabeledContent("Build", value: AppInfo.build)
       }
     }
     .formStyle(.grouped)

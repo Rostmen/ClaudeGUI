@@ -245,7 +245,7 @@ final class ContentViewModel {
         configureWindow(window, for: session)
       }
     } else if let window = currentWindow {
-      window.title = "ChatSessions"
+      window.title = "Tenvy"
       window.sessionId = nil
       windowConfigured = false
     }

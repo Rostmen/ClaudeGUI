@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install ChatSessions hooks for Claude Code
+# Install Tenvy hooks for Claude Code
 # This script installs the hook handler and updates Claude settings
 
 set -e
@@ -9,7 +9,7 @@ CLAUDE_DIR="${HOME}/.claude"
 HOOKS_DIR="${CLAUDE_DIR}/hooks"
 SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
 
-echo "Installing ChatSessions hooks..."
+echo "Installing Tenvy hooks..."
 
 # Create hooks directory
 mkdir -p "$HOOKS_DIR"

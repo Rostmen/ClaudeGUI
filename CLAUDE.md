@@ -1,4 +1,4 @@
-# ChatSessions
+# Tenvy
 
 macOS app for managing and resuming Claude Code CLI sessions with a native transparent UI.
 
@@ -18,9 +18,9 @@ macOS app for managing and resuming Claude Code CLI sessions with a native trans
 ## Architecture
 
 ```
-ChatSessions/
+Tenvy/
 ├── App/                            # App entry & shared state
-│   ├── ChatSessionsApp.swift       # App entry + AppDelegate + WindowAccessor
+│   ├── TenvyApp.swift       # App entry + AppDelegate + WindowAccessor
 │   ├── AppState.swift              # Shared singleton (sessions, runtime, registry)
 │   ├── ContentView.swift           # Main layout (UI only)
 │   └── ContentViewModel.swift      # Session selection & window coordination
@@ -81,7 +81,7 @@ ChatSessions/
 ## Building
 
 ```bash
-xcodebuild -scheme ChatSessions -destination 'platform=macOS'
+xcodebuild -scheme Tenvy -destination 'platform=macOS'
 ```
 
 Or open in Xcode and press Cmd+R.

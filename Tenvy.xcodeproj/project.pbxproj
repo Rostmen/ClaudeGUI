@@ -19,37 +19,37 @@
 			containerPortal = 96B0FC292F6DB5AB00B70D2B /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 96B0FC302F6DB5AB00B70D2B;
-			remoteInfo = ChatSessions;
+			remoteInfo = Tenvy;
 		};
 		96B0FC4B2F6DB5AC00B70D2B /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 96B0FC292F6DB5AB00B70D2B /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 96B0FC302F6DB5AB00B70D2B;
-			remoteInfo = ChatSessions;
+			remoteInfo = Tenvy;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		96B0FC312F6DB5AB00B70D2B /* ChatSessions.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ChatSessions.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		96B0FC402F6DB5AC00B70D2B /* ChatSessionsTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ChatSessionsTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		96B0FC4A2F6DB5AC00B70D2B /* ChatSessionsUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ChatSessionsUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		96B0FC312F6DB5AB00B70D2B /* Tenvy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Tenvy.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		96B0FC402F6DB5AC00B70D2B /* TenvyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TenvyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		96B0FC4A2F6DB5AC00B70D2B /* TenvyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TenvyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		96B0FC332F6DB5AB00B70D2B /* ChatSessions */ = {
+		96B0FC332F6DB5AB00B70D2B /* Tenvy */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = ChatSessions;
+			path = Tenvy;
 			sourceTree = "<group>";
 		};
-		96B0FC432F6DB5AC00B70D2B /* ChatSessionsTests */ = {
+		96B0FC432F6DB5AC00B70D2B /* TenvyTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = ChatSessionsTests;
+			path = TenvyTests;
 			sourceTree = "<group>";
 		};
-		96B0FC4D2F6DB5AC00B70D2B /* ChatSessionsUITests */ = {
+		96B0FC4D2F6DB5AC00B70D2B /* TenvyUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = ChatSessionsUITests;
+			path = TenvyUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -86,9 +86,9 @@
 		96B0FC282F6DB5AB00B70D2B = {
 			isa = PBXGroup;
 			children = (
-				96B0FC332F6DB5AB00B70D2B /* ChatSessions */,
-				96B0FC432F6DB5AC00B70D2B /* ChatSessionsTests */,
-				96B0FC4D2F6DB5AC00B70D2B /* ChatSessionsUITests */,
+				96B0FC332F6DB5AB00B70D2B /* Tenvy */,
+				96B0FC432F6DB5AC00B70D2B /* TenvyTests */,
+				96B0FC4D2F6DB5AC00B70D2B /* TenvyUITests */,
 				96B0FC322F6DB5AB00B70D2B /* Products */,
 			);
 			sourceTree = "<group>";
@@ -96,9 +96,9 @@
 		96B0FC322F6DB5AB00B70D2B /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				96B0FC312F6DB5AB00B70D2B /* ChatSessions.app */,
-				96B0FC402F6DB5AC00B70D2B /* ChatSessionsTests.xctest */,
-				96B0FC4A2F6DB5AC00B70D2B /* ChatSessionsUITests.xctest */,
+				96B0FC312F6DB5AB00B70D2B /* Tenvy.app */,
+				96B0FC402F6DB5AC00B70D2B /* TenvyTests.xctest */,
+				96B0FC4A2F6DB5AC00B70D2B /* TenvyUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -106,9 +106,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		96B0FC302F6DB5AB00B70D2B /* ChatSessions */ = {
+		96B0FC302F6DB5AB00B70D2B /* Tenvy */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 96B0FC542F6DB5AC00B70D2B /* Build configuration list for PBXNativeTarget "ChatSessions" */;
+			buildConfigurationList = 96B0FC542F6DB5AC00B70D2B /* Build configuration list for PBXNativeTarget "Tenvy" */;
 			buildPhases = (
 				96B0FC2D2F6DB5AB00B70D2B /* Sources */,
 				96B0FC2E2F6DB5AB00B70D2B /* Frameworks */,
@@ -119,22 +119,22 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				96B0FC332F6DB5AB00B70D2B /* ChatSessions */,
+				96B0FC332F6DB5AB00B70D2B /* Tenvy */,
 			);
-			name = ChatSessions;
+			name = Tenvy;
 			packageProductDependencies = (
 				96B0FC5E2F6DB5AD00B70D2B /* SwiftTerm */,
 				96B000D32F6E1A9C00B70D2B /* SwiftTerm */,
 				96B000D62F6E1B0000B70D2B /* CodeEditSourceEditor */,
 				96B000DA2F6E1C0000B70D2B /* gitdiff */,
 			);
-			productName = ChatSessions;
-			productReference = 96B0FC312F6DB5AB00B70D2B /* ChatSessions.app */;
+			productName = Tenvy;
+			productReference = 96B0FC312F6DB5AB00B70D2B /* Tenvy.app */;
 			productType = "com.apple.product-type.application";
 		};
-		96B0FC3F2F6DB5AC00B70D2B /* ChatSessionsTests */ = {
+		96B0FC3F2F6DB5AC00B70D2B /* TenvyTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 96B0FC572F6DB5AC00B70D2B /* Build configuration list for PBXNativeTarget "ChatSessionsTests" */;
+			buildConfigurationList = 96B0FC572F6DB5AC00B70D2B /* Build configuration list for PBXNativeTarget "TenvyTests" */;
 			buildPhases = (
 				96B0FC3C2F6DB5AC00B70D2B /* Sources */,
 				96B0FC3D2F6DB5AC00B70D2B /* Frameworks */,
@@ -146,18 +146,18 @@
 				96B0FC422F6DB5AC00B70D2B /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				96B0FC432F6DB5AC00B70D2B /* ChatSessionsTests */,
+				96B0FC432F6DB5AC00B70D2B /* TenvyTests */,
 			);
-			name = ChatSessionsTests;
+			name = TenvyTests;
 			packageProductDependencies = (
 			);
-			productName = ChatSessionsTests;
-			productReference = 96B0FC402F6DB5AC00B70D2B /* ChatSessionsTests.xctest */;
+			productName = TenvyTests;
+			productReference = 96B0FC402F6DB5AC00B70D2B /* TenvyTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		96B0FC492F6DB5AC00B70D2B /* ChatSessionsUITests */ = {
+		96B0FC492F6DB5AC00B70D2B /* TenvyUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 96B0FC5A2F6DB5AC00B70D2B /* Build configuration list for PBXNativeTarget "ChatSessionsUITests" */;
+			buildConfigurationList = 96B0FC5A2F6DB5AC00B70D2B /* Build configuration list for PBXNativeTarget "TenvyUITests" */;
 			buildPhases = (
 				96B0FC462F6DB5AC00B70D2B /* Sources */,
 				96B0FC472F6DB5AC00B70D2B /* Frameworks */,
@@ -169,13 +169,13 @@
 				96B0FC4C2F6DB5AC00B70D2B /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				96B0FC4D2F6DB5AC00B70D2B /* ChatSessionsUITests */,
+				96B0FC4D2F6DB5AC00B70D2B /* TenvyUITests */,
 			);
-			name = ChatSessionsUITests;
+			name = TenvyUITests;
 			packageProductDependencies = (
 			);
-			productName = ChatSessionsUITests;
-			productReference = 96B0FC4A2F6DB5AC00B70D2B /* ChatSessionsUITests.xctest */;
+			productName = TenvyUITests;
+			productReference = 96B0FC4A2F6DB5AC00B70D2B /* TenvyUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -201,7 +201,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 96B0FC2C2F6DB5AB00B70D2B /* Build configuration list for PBXProject "ChatSessions" */;
+			buildConfigurationList = 96B0FC2C2F6DB5AB00B70D2B /* Build configuration list for PBXProject "Tenvy" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -220,9 +220,9 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				96B0FC302F6DB5AB00B70D2B /* ChatSessions */,
-				96B0FC3F2F6DB5AC00B70D2B /* ChatSessionsTests */,
-				96B0FC492F6DB5AC00B70D2B /* ChatSessionsUITests */,
+				96B0FC302F6DB5AB00B70D2B /* Tenvy */,
+				96B0FC3F2F6DB5AC00B70D2B /* TenvyTests */,
+				96B0FC492F6DB5AC00B70D2B /* TenvyUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -278,12 +278,12 @@
 /* Begin PBXTargetDependency section */
 		96B0FC422F6DB5AC00B70D2B /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 96B0FC302F6DB5AB00B70D2B /* ChatSessions */;
+			target = 96B0FC302F6DB5AB00B70D2B /* Tenvy */;
 			targetProxy = 96B0FC412F6DB5AC00B70D2B /* PBXContainerItemProxy */;
 		};
 		96B0FC4C2F6DB5AC00B70D2B /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 96B0FC302F6DB5AB00B70D2B /* ChatSessions */;
+			target = 96B0FC302F6DB5AB00B70D2B /* Tenvy */;
 			targetProxy = 96B0FC4B2F6DB5AC00B70D2B /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -420,6 +420,8 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Tenvy;
+				INFOPLIST_KEY_CFBundleName = Tenvy;
 				INFOPLIST_KEY_LSMultipleInstancesProhibited = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSUserNotificationAlertStyle = alert;
@@ -428,7 +430,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.kobizsky.claude-gui";
+				PRODUCT_BUNDLE_IDENTIFIER = com.kobizsky.tenvy;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -453,6 +455,8 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Tenvy;
+				INFOPLIST_KEY_CFBundleName = Tenvy;
 				INFOPLIST_KEY_LSMultipleInstancesProhibited = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSUserNotificationAlertStyle = alert;
@@ -461,7 +465,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.kobizsky.claude-gui";
+				PRODUCT_BUNDLE_IDENTIFIER = com.kobizsky.tenvy;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -482,14 +486,14 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.kobizsky.ChatSessionsTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kobizsky.TenvyTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ChatSessions.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ChatSessions";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Tenvy.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Tenvy";
 			};
 			name = Debug;
 		};
@@ -502,14 +506,14 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.kobizsky.ChatSessionsTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kobizsky.TenvyTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ChatSessions.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ChatSessions";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Tenvy.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Tenvy";
 			};
 			name = Release;
 		};
@@ -520,14 +524,14 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.kobizsky.ChatSessionsUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kobizsky.TenvyUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = ChatSessions;
+				TEST_TARGET_NAME = Tenvy;
 			};
 			name = Debug;
 		};
@@ -538,21 +542,21 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.kobizsky.ChatSessionsUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kobizsky.TenvyUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = ChatSessions;
+				TEST_TARGET_NAME = Tenvy;
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		96B0FC2C2F6DB5AB00B70D2B /* Build configuration list for PBXProject "ChatSessions" */ = {
+		96B0FC2C2F6DB5AB00B70D2B /* Build configuration list for PBXProject "Tenvy" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				96B0FC522F6DB5AC00B70D2B /* Debug */,
@@ -561,7 +565,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		96B0FC542F6DB5AC00B70D2B /* Build configuration list for PBXNativeTarget "ChatSessions" */ = {
+		96B0FC542F6DB5AC00B70D2B /* Build configuration list for PBXNativeTarget "Tenvy" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				96B0FC552F6DB5AC00B70D2B /* Debug */,
@@ -570,7 +574,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		96B0FC572F6DB5AC00B70D2B /* Build configuration list for PBXNativeTarget "ChatSessionsTests" */ = {
+		96B0FC572F6DB5AC00B70D2B /* Build configuration list for PBXNativeTarget "TenvyTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				96B0FC582F6DB5AC00B70D2B /* Debug */,
@@ -579,7 +583,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		96B0FC5A2F6DB5AC00B70D2B /* Build configuration list for PBXNativeTarget "ChatSessionsUITests" */ = {
+		96B0FC5A2F6DB5AC00B70D2B /* Build configuration list for PBXNativeTarget "TenvyUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				96B0FC5B2F6DB5AC00B70D2B /* Debug */,

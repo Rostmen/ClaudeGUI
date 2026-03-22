@@ -23,29 +23,13 @@
 // Created by Rostyslav Kobizsky on 3/20/26.
 // Copyright © 2026 Airbnb Inc. All rights reserved.
 
-import XCTest
+import Testing
+@testable import Tenvy
 
-final class ChatSessionsUITestsLaunchTests: XCTestCase {
+struct TenvyTests {
 
-  override class var runsForEachTargetApplicationUIConfiguration: Bool {
-    true
+  @Test func example() async throws {
+    // Write your test here and use APIs like `#expect(...)` to check expected conditions.
   }
 
-  override func setUpWithError() throws {
-    continueAfterFailure = false
-  }
-
-  @MainActor
-  func testLaunch() throws {
-    let app = XCUIApplication()
-    app.launch()
-
-    // Insert steps here to perform after app launch but before taking a screenshot,
-    // such as logging into a test account or navigating somewhere in the app
-
-    let attachment = XCTAttachment(screenshot: app.screenshot())
-    attachment.name = "Launch Screen"
-    attachment.lifetime = .keepAlways
-    add(attachment)
-  }
 }

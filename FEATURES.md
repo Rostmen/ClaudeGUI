@@ -1,4 +1,4 @@
-# ChatSessions - Feature Documentation
+# Tenvy - Feature Documentation
 
 A native macOS application for managing and resuming Claude Code CLI sessions with a transparent glass UI.
 
@@ -21,7 +21,7 @@ A native macOS application for managing and resuming Claude Code CLI sessions wi
 
 ## Overview
 
-ChatSessions provides a native macOS interface for Claude Code CLI sessions with:
+Tenvy provides a native macOS interface for Claude Code CLI sessions with:
 
 - **Session Discovery**: Automatically finds sessions from `~/.claude/projects/`
 - **Embedded Terminal**: SwiftTerm-based terminal that runs Claude CLI directly
@@ -187,7 +187,7 @@ When closing a window with an active session:
 |---------|-------|
 | TERM | `xterm-256color` |
 | COLORTERM | `truecolor` |
-| TERM_PROGRAM | `ChatSessions` |
+| TERM_PROGRAM | `Tenvy` |
 | Background | Black @ 50% opacity |
 | Scrollers | Overlay style (thin, translucent) |
 
@@ -571,10 +571,10 @@ All views kept alive in ZStack with opacity toggle (prevents state loss on tab s
 
 ```bash
 # Build
-xcodebuild -scheme ChatSessions -destination 'platform=macOS' build
+xcodebuild -scheme Tenvy -destination 'platform=macOS' build
 
 # Or open in Xcode
-open ChatSessions.xcodeproj
+open Tenvy.xcodeproj
 # Press Cmd+R
 ```
 

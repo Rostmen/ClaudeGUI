@@ -23,7 +23,7 @@
 import SwiftUI
 
 @main
-struct ChatSessionsApp: App {
+struct TenvyApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
   init() {
@@ -162,7 +162,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
   /// Shows quit confirmation alert and returns true if user wants to quit
   private func showQuitConfirmationAlert() -> Bool {
     let alert = NSAlert()
-    alert.messageText = "Quit ChatSessions?"
+    alert.messageText = "Quit Tenvy?"
     let sessionCount = ProcessManager.shared.activeProcessCount
     let sessionWord = sessionCount == 1 ? "session" : "sessions"
     alert.informativeText = "There \(sessionCount == 1 ? "is" : "are") \(sessionCount) active Claude \(sessionWord) running. Quitting will terminate \(sessionCount == 1 ? "it" : "them")."

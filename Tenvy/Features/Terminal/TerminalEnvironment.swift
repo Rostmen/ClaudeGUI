@@ -45,7 +45,7 @@ struct TerminalEnvironment {
     // Set terminal variables
     env.setVariable("TERM", value: "xterm-256color")
     env.setVariable("COLORTERM", value: "truecolor")
-    env.setVariable("TERM_PROGRAM", value: "ChatSessions")
+    env.setVariable("TERM_PROGRAM", value: "Tenvy")
     env.setVariable("TERM_PROGRAM_VERSION", value: "1.0")
 
     return env

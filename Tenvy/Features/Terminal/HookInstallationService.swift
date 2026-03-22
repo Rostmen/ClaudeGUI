@@ -358,7 +358,7 @@ final class HookInstallationService {
   private func createHookScript() -> String {
     """
     #!/bin/bash
-    # ChatSessions hook script - receives Claude Code events and writes to events file
+    # Tenvy hook script - receives Claude Code events and writes to events file
 
     EVENTS_FILE="${HOME}/.claude/chat-sessions-events.jsonl"
 

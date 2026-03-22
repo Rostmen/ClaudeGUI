@@ -49,8 +49,8 @@ final class AppSettings {
 
   private init() {
     // Load initial values from UserDefaults
-    self.fileTreeEnabled = UserDefaults.standard.object(forKey: "settings.fileTreeEnabled") as? Bool ?? true
-    self.gitChangesEnabled = UserDefaults.standard.object(forKey: "settings.gitChangesEnabled") as? Bool ?? true
+    self.fileTreeEnabled = UserDefaults.standard.object(forKey: "settings.fileTreeEnabled") as? Bool ?? false
+    self.gitChangesEnabled = UserDefaults.standard.object(forKey: "settings.gitChangesEnabled") as? Bool ?? false
     self.hookPromptDismissed = UserDefaults.standard.object(forKey: "settings.hookPromptDismissed") as? Bool ?? false
     self.notificationPromptDismissed = UserDefaults.standard.object(forKey: "settings.notificationPromptDismissed") as? Bool ?? false
   }
@@ -59,7 +59,7 @@ final class AppSettings {
 /// App metadata
 enum AppInfo {
   static var appName: String {
-    Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "ChatSessions"
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Tenvy"
   }
 
   static var version: String {

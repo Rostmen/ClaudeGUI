@@ -1,5 +1,5 @@
 #!/bin/bash
-# ChatSessions Hook Handler
+# Tenvy Hook Handler
 # Receives Claude Code hook events and writes them to a file for the app to monitor
 
 EVENTS_FILE="${HOME}/.claude/chat-sessions-events.jsonl"

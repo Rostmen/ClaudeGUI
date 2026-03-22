@@ -1,7 +1,7 @@
 #!/bin/bash
-# Diagnostic script for ChatSessions hooks and process monitoring
+# Diagnostic script for Tenvy hooks and process monitoring
 
-echo "=== ChatSessions Diagnostics ==="
+echo "=== Tenvy Diagnostics ==="
 echo ""
 
 # 1. Check jq
@@ -64,7 +64,7 @@ if [ -f "$HOOK_SCRIPT" ]; then
     fi
 else
     echo "   ✗ Hook script NOT found!"
-    echo "     Run install script from ChatSessions/Hooks/"
+    echo "     Run install script from Tenvy/Hooks/"
 fi
 echo ""
 
@@ -147,7 +147,7 @@ echo ""
 echo "=== Diagnostics Complete ==="
 echo ""
 echo "If hooks are not installed, run:"
-echo "  cd /path/to/ChatSessions/Hooks && ./install-hooks.sh"
+echo "  cd /path/to/Tenvy/Hooks && ./install-hooks.sh"
 echo ""
 echo "If jq is missing, run:"
 echo "  brew install jq"
