@@ -2,7 +2,7 @@
 
 macOS app for managing and resuming Claude Code CLI sessions with a native transparent UI.
 
-<!-- waiting state test 2 -->
+<!-- waiting state test 3 -->
 
 > **Full Documentation**: See [FEATURES.md](./FEATURES.md) for comprehensive feature documentation, architecture details, and implementation specifics.
 

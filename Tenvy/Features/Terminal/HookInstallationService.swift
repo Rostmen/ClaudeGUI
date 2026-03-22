@@ -252,7 +252,7 @@ final class HookInstallationService {
     }
 
     // Hook events we registered
-    let hookEvents = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SessionStart", "SessionEnd", "Notification"]
+    let hookEvents = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SessionStart", "SessionEnd", "Notification", "PermissionRequest"]
 
     for event in hookEvents {
       guard var eventHooks = hooks[event] as? [[String: Any]] else {
@@ -309,7 +309,7 @@ final class HookInstallationService {
     var hooks = settings["hooks"] as? [String: Any] ?? [:]
 
     // Hook events we need to register
-    let hookEvents = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SessionStart", "SessionEnd", "Notification"]
+    let hookEvents = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SessionStart", "SessionEnd", "Notification", "PermissionRequest"]
     let hookCommand = "~/.claude/hooks/chat-sessions-hook.sh"
 
     for event in hookEvents {
@@ -370,6 +370,7 @@ final class HookInstallationService {
     HOOK_EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty')
     CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
     TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
+    NOTIFICATION_TYPE=$(echo "$INPUT" | jq -r '.notification_type // empty')
 
     # Skip if no session ID
     if [ -z "$SESSION_ID" ]; then
@@ -390,8 +391,19 @@ final class HookInstallationService {
       "Stop")
         STATE="waiting"
         ;;
-      "Notification")
+      "PermissionRequest")
         STATE="waitingPermission"
+        ;;
+      "Notification")
+        # Notification fires for multiple types — only treat permission_prompt as permission needed
+        if [ "$NOTIFICATION_TYPE" = "permission_prompt" ]; then
+          STATE="waitingPermission"
+        elif [ "$NOTIFICATION_TYPE" = "idle_prompt" ]; then
+          STATE="waiting"
+        else
+          # auth_success, elicitation_dialog, etc — not a state change we track
+          exit 0
+        fi
         ;;
       "SessionStart")
         STATE="started"

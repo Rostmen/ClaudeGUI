@@ -8,7 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		96B000D42F6E1A9C00B70D2B /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 96B000D32F6E1A9C00B70D2B /* SwiftTerm */; };
-96B000D82F6E1C0000B70D2B /* gitdiff in Frameworks */ = {isa = PBXBuildFile; productRef = 96B000DA2F6E1C0000B70D2B /* gitdiff */; };
+		96B000D82F6E1C0000B70D2B /* gitdiff in Frameworks */ = {isa = PBXBuildFile; productRef = 96B000DA2F6E1C0000B70D2B /* gitdiff */; };
 		96B0FCA32F6DC5A200B70D2B /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 96B0FC5E2F6DB5AD00B70D2B /* SwiftTerm */; };
 /* End PBXBuildFile section */
 
@@ -59,7 +59,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				96B000D42F6E1A9C00B70D2B /* SwiftTerm in Frameworks */,
-	96B000D82F6E1C0000B70D2B /* gitdiff in Frameworks */,
+				96B000D82F6E1C0000B70D2B /* gitdiff in Frameworks */,
 				96B0FCA32F6DC5A200B70D2B /* SwiftTerm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -123,7 +123,7 @@
 			packageProductDependencies = (
 				96B0FC5E2F6DB5AD00B70D2B /* SwiftTerm */,
 				96B000D32F6E1A9C00B70D2B /* SwiftTerm */,
-		96B000DA2F6E1C0000B70D2B /* gitdiff */,
+				96B000DA2F6E1C0000B70D2B /* gitdiff */,
 			);
 			productName = Tenvy;
 			productReference = 96B0FC312F6DB5AB00B70D2B /* Tenvy.app */;
@@ -209,7 +209,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				96B000D22F6E1A9C00B70D2B /* XCRemoteSwiftPackageReference "SwiftTerm" */,
-		96B000D92F6E1C0000B70D2B /* XCRemoteSwiftPackageReference "gitdiff" */,
+				96B000D92F6E1C0000B70D2B /* XCRemoteSwiftPackageReference "gitdiff" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 96B0FC322F6DB5AB00B70D2B /* Products */;
@@ -408,6 +408,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -444,6 +445,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -601,7 +603,7 @@
 				minimumVersion = 1.0.0;
 			};
 		};
-96B000D92F6E1C0000B70D2B /* XCRemoteSwiftPackageReference "gitdiff" */ = {
+		96B000D92F6E1C0000B70D2B /* XCRemoteSwiftPackageReference "gitdiff" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/tornikegomareli/gitdiff.git";
 			requirement = {
@@ -617,7 +619,7 @@
 			package = 96B000D22F6E1A9C00B70D2B /* XCRemoteSwiftPackageReference "SwiftTerm" */;
 			productName = SwiftTerm;
 		};
-96B000DA2F6E1C0000B70D2B /* gitdiff */ = {
+		96B000DA2F6E1C0000B70D2B /* gitdiff */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 96B000D92F6E1C0000B70D2B /* XCRemoteSwiftPackageReference "gitdiff" */;
 			productName = gitdiff;

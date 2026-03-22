@@ -47,8 +47,19 @@ case "$HOOK_EVENT" in
     "SessionEnd")
         STATE="ended"
         ;;
-    "Notification")
+    "PermissionRequest")
         STATE="waitingPermission"
+        ;;
+    "Notification")
+        # Notification fires for multiple types — only map permission_prompt as permission needed
+        if [ "$NOTIFICATION_TYPE" = "permission_prompt" ]; then
+            STATE="waitingPermission"
+        elif [ "$NOTIFICATION_TYPE" = "idle_prompt" ]; then
+            STATE="waiting"
+        else
+            # auth_success, elicitation_dialog, etc — not a state change we track
+            exit 0
+        fi
         ;;
     *)
         STATE="unknown"
