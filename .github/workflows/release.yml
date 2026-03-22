@@ -7,13 +7,21 @@ on:
 
 jobs:
   release:
-    runs-on: macos-latest
+    runs-on: macos-26
     permissions:
       contents: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          # Pick the latest Xcode available on the runner
+          XCODE=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          echo "Using Xcode: $XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
 
       - name: Install tools
         run: brew install create-dmg
