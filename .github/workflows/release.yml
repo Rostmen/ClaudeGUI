@@ -56,6 +56,7 @@ jobs:
             -scheme Tenvy \
             -configuration Release \
             -archivePath build/Tenvy.xcarchive \
+            -skipPackagePluginValidation \
             MARKETING_VERSION=${{ steps.version.outputs.VERSION }} \
             | xcpretty
 
