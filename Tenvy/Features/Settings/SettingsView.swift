@@ -40,9 +40,6 @@ struct SettingsView: View {
 #if DEBUG
       // Features section
       Section {
-        Toggle("File Browser", isOn: $settings.fileTreeEnabled)
-          .help("Show file browser tab in sidebar")
-
         Toggle("Git Changes", isOn: $settings.gitChangesEnabled)
           .help("Show git changes tab in sidebar")
       } header: {

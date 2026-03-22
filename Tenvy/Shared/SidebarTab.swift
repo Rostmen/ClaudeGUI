@@ -24,13 +24,11 @@ import Foundation
 
 enum SidebarTab: String, CaseIterable {
   case sessions
-  case files
   case changes
 
   var icon: String {
     switch self {
     case .sessions: return "clock.arrow.circlepath"
-    case .files: return "folder"
     case .changes: return "arrow.triangle.branch"
     }
   }
@@ -38,7 +36,6 @@ enum SidebarTab: String, CaseIterable {
   var label: String {
     switch self {
     case .sessions: return "Sessions"
-    case .files: return "Files"
     case .changes: return "Changes"
     }
   }

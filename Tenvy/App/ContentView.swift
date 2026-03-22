@@ -68,7 +68,6 @@ struct ContentView: View {
             get: { viewModel.selectedSession },
             set: { _ in } // Read-only, use viewModel.selectSession instead
           ),
-          selectedFilePath: $viewModel.selectedFilePath,
           selectedDiffFile: $viewModel.selectedDiffFile,
           onCreateNewSession: { viewModel.createNewSession($0) },
           onSelectSession: { viewModel.selectSession($0) },
@@ -209,13 +208,6 @@ private struct DetailView<Key: PreferenceKey>: View where Key.Value == CGRect {
         .allowsHitTesting(viewModel.isTerminalVisible)
         .background(terminalFrameReader(visible: viewModel.isTerminalVisible))
         .padding(16)
-      }
-
-      // File Editor (shown when file is selected)
-      if let filePath = viewModel.selectedFilePath {
-        FileEditorView(filePath: filePath)
-          .padding(16)
-          .background(terminalFrameReader(visible: true))
       }
 
       // Diff View (shown when diff file is selected)

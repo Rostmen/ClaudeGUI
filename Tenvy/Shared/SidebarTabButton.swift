@@ -50,7 +50,7 @@ struct SidebarTabButton: View {
 }
 
 #Preview("Unselected") {
-  SidebarTabButton(tab: .files, isSelected: false, action: {})
+  SidebarTabButton(tab: .changes, isSelected: false, action: {})
     .padding()
     .background(Color.black.opacity(0.8))
 }

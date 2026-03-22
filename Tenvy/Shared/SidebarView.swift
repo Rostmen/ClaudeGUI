@@ -25,7 +25,6 @@ import SwiftUI
 struct SidebarView: View {
   var sessionManager: SessionManager
   @Binding var selectedSession: ClaudeSession?
-  @Binding var selectedFilePath: String?
   @Binding var selectedDiffFile: GitChangedFile?
   var onCreateNewSession: ((ClaudeSession) -> Void)?
   var onSelectSession: ((ClaudeSession) -> Void)?
@@ -39,7 +38,6 @@ struct SidebarView: View {
   init(
     sessionManager: SessionManager,
     selectedSession: Binding<ClaudeSession?>,
-    selectedFilePath: Binding<String?>,
     selectedDiffFile: Binding<GitChangedFile?>,
     onCreateNewSession: ((ClaudeSession) -> Void)? = nil,
     onSelectSession: ((ClaudeSession) -> Void)? = nil,
@@ -49,7 +47,6 @@ struct SidebarView: View {
   ) {
     self.sessionManager = sessionManager
     self._selectedSession = selectedSession
-    self._selectedFilePath = selectedFilePath
     self._selectedDiffFile = selectedDiffFile
     self.onCreateNewSession = onCreateNewSession
     self.onSelectSession = onSelectSession
@@ -61,9 +58,6 @@ struct SidebarView: View {
   /// Tabs to show based on settings
   private var availableTabs: [SidebarTab] {
     var tabs: [SidebarTab] = [.sessions]
-    if settings.fileTreeEnabled {
-      tabs.append(.files)
-    }
     if settings.gitChangesEnabled {
       tabs.append(.changes)
     }
@@ -92,19 +86,6 @@ struct SidebarView: View {
         .opacity(selectedTab == .sessions ? 1 : 0)
         .allowsHitTesting(selectedTab == .sessions)
 
-        // Files tab (only if enabled)
-        if settings.fileTreeEnabled {
-          Group {
-            if let session = selectedSession {
-              FileTreeView(rootPath: session.workingDirectory, selectedFilePath: $selectedFilePath)
-            } else {
-              NoSessionSelectedView()
-            }
-          }
-          .opacity(selectedTab == .files ? 1 : 0)
-          .allowsHitTesting(selectedTab == .files)
-        }
-
         // Changes tab (only if enabled)
         if settings.gitChangesEnabled {
           Group {
@@ -121,12 +102,7 @@ struct SidebarView: View {
     }
     .onChange(of: selectedTab) { _, newTab in
       if newTab == .sessions {
-        selectedFilePath = nil
         selectedDiffFile = nil
-      } else if newTab == .files {
-        selectedDiffFile = nil
-      } else if newTab == .changes {
-        selectedFilePath = nil
       }
     }
     .onChange(of: availableTabs) { _, newTabs in
@@ -142,7 +118,6 @@ struct SidebarView: View {
   SidebarView(
     sessionManager: SessionManager(),
     selectedSession: .constant(nil),
-    selectedFilePath: .constant(nil),
     selectedDiffFile: .constant(nil),
     runtimeState: SessionRuntimeState()
   )

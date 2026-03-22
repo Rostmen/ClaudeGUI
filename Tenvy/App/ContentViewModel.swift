@@ -32,9 +32,6 @@ final class ContentViewModel {
   /// Currently selected session for this window
   private(set) var selectedSession: ClaudeSession?
 
-  /// Currently selected file path (for file editor)
-  var selectedFilePath: String?
-
   /// Currently selected diff file (for diff viewer)
   var selectedDiffFile: GitChangedFile?
 
@@ -53,14 +50,14 @@ final class ContentViewModel {
 
   // MARK: - Computed Properties
 
-  /// Whether terminal should be visible (no file or diff selected)
+  /// Whether terminal should be visible (no diff selected)
   var isTerminalVisible: Bool {
-    selectedFilePath == nil && selectedDiffFile == nil
+    selectedDiffFile == nil
   }
 
   /// Whether to show empty state (nothing selected)
   var showEmptyState: Bool {
-    selectedSession == nil && selectedFilePath == nil && selectedDiffFile == nil
+    selectedSession == nil && selectedDiffFile == nil
   }
 
   /// Set of session IDs that are currently active (have a terminal running)
@@ -134,9 +131,8 @@ final class ContentViewModel {
     setSelectedSession(session)
   }
 
-  /// Clear file and diff selection (return to terminal)
+  /// Clear diff selection (return to terminal)
   func clearDetailSelection() {
-    selectedFilePath = nil
     selectedDiffFile = nil
   }
 

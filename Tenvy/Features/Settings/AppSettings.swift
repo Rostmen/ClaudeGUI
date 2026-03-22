@@ -27,11 +27,6 @@ import Foundation
 final class AppSettings {
   static let shared = AppSettings()
 
-  /// Enable file tree browser feature
-  var fileTreeEnabled: Bool {
-    didSet { UserDefaults.standard.set(fileTreeEnabled, forKey: "settings.fileTreeEnabled") }
-  }
-
   /// Enable git changes feature
   var gitChangesEnabled: Bool {
     didSet { UserDefaults.standard.set(gitChangesEnabled, forKey: "settings.gitChangesEnabled") }
@@ -49,7 +44,6 @@ final class AppSettings {
 
   private init() {
     // Load initial values from UserDefaults
-    self.fileTreeEnabled = UserDefaults.standard.object(forKey: "settings.fileTreeEnabled") as? Bool ?? false
     self.gitChangesEnabled = UserDefaults.standard.object(forKey: "settings.gitChangesEnabled") as? Bool ?? false
     self.hookPromptDismissed = UserDefaults.standard.object(forKey: "settings.hookPromptDismissed") as? Bool ?? false
     self.notificationPromptDismissed = UserDefaults.standard.object(forKey: "settings.notificationPromptDismissed") as? Bool ?? false
