@@ -30,7 +30,8 @@ jobs:
           KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
           CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
 
-          echo "$CERTIFICATE_BASE64" | base64 --decode -o "$CERTIFICATE_PATH"
+          # echo -n avoids a trailing newline that corrupts the .p12 decode
+          echo -n "$CERTIFICATE_BASE64" | base64 --decode -o "$CERTIFICATE_PATH"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
@@ -38,60 +39,74 @@ jobs:
 
           security import "$CERTIFICATE_PATH" -P "$CERTIFICATE_PASSWORD" \
             -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-
-          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
           security set-key-partition-list -S apple-tool:,apple:,codesign: \
             -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+
           echo "Available signing identities:"
-          security find-identity -v -p codesigning
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
       - name: Get version from tag
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
 
-      - name: Archive
-        env:
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - name: Archive (unsigned)
         run: |
-          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
           xcodebuild archive \
             -project Tenvy.xcodeproj \
             -scheme Tenvy \
             -configuration Release \
             -archivePath build/Tenvy.xcarchive \
             -skipPackagePluginValidation \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Developer ID Application" \
-            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
+            CODE_SIGNING_ALLOWED=NO \
             MARKETING_VERSION=${{ steps.version.outputs.VERSION }}
 
-      - name: Extract & notarize
+      - name: Sign, notarize & staple
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
-          # Copy .app directly from archive (already signed with Developer ID)
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Copy .app from archive
           APP_PATH=$(find build/Tenvy.xcarchive/Products -name "*.app" | head -1)
           mkdir -p build/export
           cp -R "$APP_PATH" build/export/Tenvy.app
 
+          # Sign frameworks and dylibs inside the app first
+          find build/export/Tenvy.app/Contents -name "*.framework" -o -name "*.dylib" | sort -r | while read item; do
+            codesign --force --sign "Developer ID Application" \
+              --keychain "$KEYCHAIN_PATH" \
+              --options runtime \
+              "$item"
+          done
+
+          # Sign the app bundle itself
+          codesign --force --deep --sign "Developer ID Application" \
+            --keychain "$KEYCHAIN_PATH" \
+            --options runtime \
+            --timestamp \
+            build/export/Tenvy.app
+
+          # Verify signature
+          codesign --verify --deep --strict build/export/Tenvy.app
+
           # Zip for notarization
           ditto -c -k --keepParent build/export/Tenvy.app build/Tenvy.zip
 
-          # Submit and wait for notarization
+          # Submit and wait for notarization result
           xcrun notarytool submit build/Tenvy.zip \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             --wait
 
-          # Staple the notarization ticket to the app
+          # Staple the ticket to the app
           xcrun stapler staple build/export/Tenvy.app
 
       - name: Create DMG
