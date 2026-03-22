@@ -47,6 +47,11 @@ struct TenvyApp: App {
         }
         .keyboardShortcut("i", modifiers: [.command, .shift])
       }
+      CommandGroup(replacing: .help) {
+        Button("Report a Bug") {
+          NSWorkspace.shared.open(URL(string: "https://github.com/Rostmen/ClaudeGUI/issues/new")!)
+        }
+      }
     }
 
     Settings {
@@ -86,6 +91,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
   static let suppressQuitAlertKey = "SuppressQuitAlertForActiveSessions"
   private var isShowingAlert = false
   private var userConfirmedQuit = false
+  private var releaseNotesWindow: NSWindow?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     UNUserNotificationCenter.current().delegate = self
@@ -112,6 +118,48 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
       name: NSWindow.didBecomeKeyNotification,
       object: nil
     )
+
+    // Check for updates (at most once per day)
+    UpdateService.shared.checkForUpdates()
+
+    // Show release notes on first launch of a new version (0.5s delay)
+    #if DEBUG
+    AppSettings.shared.lastSeenVersion = ""  // Always show in debug builds
+    #endif
+    let currentVersion = AppInfo.version
+    let lastSeen = AppSettings.shared.lastSeenVersion
+    if currentVersion != lastSeen {
+      AppSettings.shared.lastSeenVersion = currentVersion
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        Task {
+          let notes = await UpdateService.shared.fetchReleaseNotes(for: currentVersion)
+          #if DEBUG
+          let displayNotes = notes ?? "_(No release notes found for v\(currentVersion) on GitHub — this is a placeholder for debug builds.)_"
+          #else
+          guard let displayNotes = notes else { return }
+          #endif
+          await MainActor.run {
+            self.showReleaseNotesWindow(version: currentVersion, notes: displayNotes)
+          }
+        }
+      }
+    }
+  }
+
+  private func showReleaseNotesWindow(version: String, notes: String) {
+    let hostingView = NSHostingView(rootView: ReleaseNotesView(version: version, releaseNotes: notes))
+    let window = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 560, height: 480),
+      styleMask: [.titled, .closable],
+      backing: .buffered,
+      defer: false
+    )
+    window.title = "What's New in Tenvy \(version)"
+    window.contentView = hostingView
+    window.appearance = NSAppearance(named: .darkAqua)
+    window.center()
+    window.makeKeyAndOrderFront(nil)
+    releaseNotesWindow = window
   }
 
   @objc func handleWindowBecameKey(_ notification: Notification) {
@@ -128,6 +176,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
   }
 
   func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    // Allow brew to quit the app silently during an in-progress update
+    if UpdateService.shared.isUpdating { return .terminateNow }
+
     // If user already confirmed quit from windowShouldClose, allow termination
     if userConfirmedQuit {
       userConfirmedQuit = false
@@ -193,6 +244,9 @@ private enum WindowCloseAction {
 
 extension AppDelegate: NSWindowDelegate {
   func windowShouldClose(_ sender: NSWindow) -> Bool {
+    // Allow brew to close windows silently during an in-progress update
+    if UpdateService.shared.isUpdating { return true }
+
     // Prevent re-entrancy
     guard !isShowingAlert else {
       return false

@@ -39,6 +39,7 @@ struct ContentView: View {
   @State private var viewModel = ContentViewModel()
   @State private var hookInstallationService = HookInstallationService.shared
   @State private var notificationService = NotificationService.shared
+  @State private var updateService = UpdateService.shared
 
   // UI-only state
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -46,6 +47,7 @@ struct ContentView: View {
   @State private var currentWindow: NSWindow?
   @State private var showHookPrompt: Bool = false
   @State private var showNotificationPrompt: Bool = false
+  @State private var showUpdatePrompt: Bool = false
 
   var body: some View {
     ZStack {
@@ -115,6 +117,22 @@ struct ContentView: View {
         }
         .transition(.move(edge: .bottom).combined(with: .opacity))
       }
+
+      // Update available prompt overlay (only when no other prompt is showing)
+      if showUpdatePrompt && !showNotificationPrompt && !showHookPrompt {
+        VStack {
+          Spacer()
+          HStack {
+            Spacer()
+            UpdatePromptView {
+              showUpdatePrompt = false
+            }
+            .frame(maxWidth: 420)
+            .padding(24)
+          }
+        }
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
     }
     .coordinateSpace(name: "window")
     .onPreferenceChange(TerminalFrameKey.self) { frame in
@@ -143,6 +161,11 @@ struct ContentView: View {
     .onChange(of: notificationService.shouldShowPrompt) { _, shouldShow in
       withAnimation(.easeInOut(duration: 0.3)) {
         showNotificationPrompt = shouldShow
+      }
+    }
+    .onChange(of: updateService.shouldShowPrompt) { _, shouldShow in
+      withAnimation(.easeInOut(duration: 0.3)) {
+        showUpdatePrompt = shouldShow
       }
     }
     .onReceive(NotificationCenter.default.publisher(for: .openSessionFromNotification)) { notification in

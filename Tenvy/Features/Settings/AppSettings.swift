@@ -42,11 +42,17 @@ final class AppSettings {
     didSet { UserDefaults.standard.set(notificationPromptDismissed, forKey: "settings.notificationPromptDismissed") }
   }
 
+  /// The last app version whose release notes were shown to the user
+  var lastSeenVersion: String {
+    didSet { UserDefaults.standard.set(lastSeenVersion, forKey: "settings.lastSeenVersion") }
+  }
+
   private init() {
     // Load initial values from UserDefaults
     self.gitChangesEnabled = UserDefaults.standard.object(forKey: "settings.gitChangesEnabled") as? Bool ?? false
     self.hookPromptDismissed = UserDefaults.standard.object(forKey: "settings.hookPromptDismissed") as? Bool ?? false
     self.notificationPromptDismissed = UserDefaults.standard.object(forKey: "settings.notificationPromptDismissed") as? Bool ?? false
+    self.lastSeenVersion = UserDefaults.standard.object(forKey: "settings.lastSeenVersion") as? String ?? ""
   }
 }
 
