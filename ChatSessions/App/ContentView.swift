@@ -83,7 +83,7 @@ struct ContentView: View {
           terminalFramePreferenceKey: TerminalFrameKey.self
         )
       }
-      .navigationTitle("")
+      .navigationTitle(viewModel.selectedSession?.title ?? "Select or start a new session")
 
       // Notification permission prompt overlay
       if showNotificationPrompt {
@@ -127,6 +127,10 @@ struct ContentView: View {
     }
     .onChange(of: currentWindow) { _, newWindow in
       viewModel.setWindow(newWindow)
+      newWindow?.title = viewModel.selectedSession?.title ?? "Select or start a new session"
+    }
+    .onChange(of: viewModel.selectedSession) { _, session in
+      currentWindow?.title = session?.title ?? "Select or start a new session"
     }
     .onChange(of: viewModel.sessionManager.sessions) { _, _ in
       // When sessions reload, sync new sessions with Claude-created ones
