@@ -51,59 +51,48 @@ jobs:
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
 
       - name: Archive
+        env:
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          set -o pipefail
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
           xcodebuild archive \
             -project Tenvy.xcodeproj \
             -scheme Tenvy \
             -configuration Release \
             -archivePath build/Tenvy.xcarchive \
             -skipPackagePluginValidation \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Developer ID Application" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
             MARKETING_VERSION=${{ steps.version.outputs.VERSION }}
 
-      - name: Export & notarize
+      - name: Extract & notarize
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
-          # Re-unlock keychain for this shell session
-          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          # Copy .app directly from archive (already signed with Developer ID)
+          APP_PATH=$(find build/Tenvy.xcarchive/Products -name "*.app" | head -1)
+          mkdir -p build/export
+          cp -R "$APP_PATH" build/export/Tenvy.app
 
-          cat > /tmp/ExportOptions.plist << EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>developer-id</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-            <key>signingCertificate</key>
-            <string>Developer ID Application</string>
-            <key>teamID</key>
-            <string>${APPLE_TEAM_ID}</string>
-            <key>notarization</key>
-            <true/>
-            <key>stapleNotarization</key>
-            <true/>
-          </dict>
-          </plist>
-          EOF
+          # Zip for notarization
+          ditto -c -k --keepParent build/export/Tenvy.app build/Tenvy.zip
 
-          xcrun notarytool store-credentials "notarytool-profile" \
+          # Submit and wait for notarization
+          xcrun notarytool submit build/Tenvy.zip \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_PASSWORD" \
-            --team-id "$APPLE_TEAM_ID"
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
 
-          xcodebuild -exportArchive \
-            -archivePath build/Tenvy.xcarchive \
-            -exportOptionsPlist /tmp/ExportOptions.plist \
-            -exportPath build/export \
-            OTHER_CODE_SIGN_FLAGS="--keychain $RUNNER_TEMP/build.keychain-db"
+          # Staple the notarization ticket to the app
+          xcrun stapler staple build/export/Tenvy.app
 
       - name: Create DMG
         run: |
