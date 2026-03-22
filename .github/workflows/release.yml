@@ -17,11 +17,14 @@ jobs:
 
       - name: Select Xcode
         run: |
-          # Pick the latest Xcode available on the runner
-          XCODE=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          # Pick the latest stable (non-beta) Xcode on the runner
+          XCODE=$(ls -d /Applications/Xcode*.app 2>/dev/null | grep -iv "beta" | sort -V | tail -1)
           echo "Using Xcode: $XCODE"
           sudo xcode-select -s "$XCODE"
           xcodebuild -version
+
+      - name: Install Metal Toolchain
+        run: sudo xcodebuild -downloadComponent MetalToolchain
 
       - name: Install tools
         run: brew install create-dmg
