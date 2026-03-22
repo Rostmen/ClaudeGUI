@@ -163,11 +163,8 @@ final class NotificationService: NSObject {
   func markSessionWaiting(sessionId: String, sessionName: String, isPermissionRequest: Bool = false, permissionMessage: String? = nil) {
     waitingSessions.insert(sessionId)
     updateDockBadge()
-
-    // Only show notification if window is not active
-    if !isWindowActive {
-      showNotification(sessionId: sessionId, sessionName: sessionName, isPermissionRequest: isPermissionRequest, permissionMessage: permissionMessage)
-    }
+    // Always schedule — willPresent decides whether to surface it based on focus
+    showNotification(sessionId: sessionId, sessionName: sessionName, isPermissionRequest: isPermissionRequest, permissionMessage: permissionMessage)
   }
 
   /// Mark a session as no longer waiting (updates badge)
@@ -224,14 +221,12 @@ final class NotificationService: NSObject {
     }
   }
 
-  /// Update the dock icon badge with count of waiting sessions
+  /// Update the dock icon badge with count of waiting sessions not visible in the key window
   private func updateDockBadge() {
-    let count = isWindowActive ? 0 : waitingSessions.count
-    if count > 0 {
-      NSApplication.shared.dockTile.badgeLabel = "\(count)"
-    } else {
-      NSApplication.shared.dockTile.badgeLabel = nil
-    }
+    let registry = WindowSessionRegistry.shared
+    let keyWindowSessionId = NSApplication.shared.keyWindow.flatMap { registry.sessionId(for: $0) }
+    let count = waitingSessions.filter { $0 != keyWindowSessionId }.count
+    NSApplication.shared.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
   }
 
   /// Clear pending notification for a session (e.g., when user starts typing)
@@ -256,14 +251,30 @@ final class NotificationService: NSObject {
 // MARK: - UNUserNotificationCenterDelegate
 
 extension NotificationService: UNUserNotificationCenterDelegate {
-  /// Handle notification when app is in foreground (we won't show it, but handle tap)
+  /// Handle notification when app is in foreground
+  /// Suppress only if the session is already visible in the key window; show for all other windows
   nonisolated func userNotificationCenter(
     _ center: UNUserNotificationCenter,
     willPresent notification: UNNotification,
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
-    // Don't show notification if app is in foreground
-    completionHandler([])
+    let userInfo = notification.request.content.userInfo
+    guard let sessionId = userInfo["sessionId"] as? String else {
+      completionHandler([.banner, .sound, .list])
+      return
+    }
+
+    Task { @MainActor in
+      let registry = WindowSessionRegistry.shared
+      let keyWindowSessionId = NSApplication.shared.keyWindow.flatMap { registry.sessionId(for: $0) }
+      if keyWindowSessionId == sessionId {
+        // User is already looking at this session — suppress
+        completionHandler([])
+      } else {
+        // Session is in a background or different window — show it
+        completionHandler([.banner, .sound, .list])
+      }
+    }
   }
 
   /// Handle notification tap and action buttons
