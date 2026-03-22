@@ -26,6 +26,7 @@ import UserNotifications
 
 /// Service for managing system notifications when Claude CLI is waiting for user input
 @MainActor
+@Observable
 final class NotificationService: NSObject {
   static let shared = NotificationService()
 
@@ -41,7 +42,6 @@ final class NotificationService: NSObject {
   /// Action identifiers for permission responses
   private let allowOnceActionIdentifier = "ALLOW_ONCE"
   private let allowSessionActionIdentifier = "ALLOW_SESSION"
-  private let denyActionIdentifier = "DENY"
 
   /// Callback when user taps notification to open a session
   var onOpenSession: ((String) -> Void)?
@@ -51,6 +51,12 @@ final class NotificationService: NSObject {
 
   /// Track sessions currently waiting for input (for badge count)
   private var waitingSessions: Set<String> = []
+
+  /// Whether the in-app notification permission prompt should be shown
+  private(set) var shouldShowPrompt: Bool = false
+
+  /// Whether the current authorization status is denied (needs System Settings)
+  private(set) var authorizationDenied: Bool = false
 
   /// Whether the app window is currently active
   var isWindowActive: Bool = true {
@@ -65,17 +71,53 @@ final class NotificationService: NSObject {
   private override init() {
     super.init()
     setupNotificationCategories()
-    requestPermission()
+    checkAuthorizationStatus()
   }
 
-  /// Request notification permission
+  /// Check current authorization status and surface the prompt if needed
+  func checkAuthorizationStatus() {
+    guard !AppSettings.shared.notificationPromptDismissed else { return }
+    UNUserNotificationCenter.current().getNotificationSettings { [weak self] settings in
+      Task { @MainActor [weak self] in
+        guard let self else { return }
+        switch settings.authorizationStatus {
+        case .notDetermined:
+          self.shouldShowPrompt = true
+          self.authorizationDenied = false
+        case .denied:
+          self.shouldShowPrompt = true
+          self.authorizationDenied = true
+        case .authorized, .provisional, .ephemeral:
+          self.shouldShowPrompt = false
+          self.authorizationDenied = false
+        @unknown default:
+          break
+        }
+      }
+    }
+  }
+
+  /// Request notification permission — called when user taps "Enable" in the prompt
   func requestPermission() {
-    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, error in
       if let error = error {
         print("Notification permission error: \(error)")
       }
+      Task { @MainActor [weak self] in
+        self?.shouldShowPrompt = false
+      }
     }
-    UNUserNotificationCenter.current().delegate = self
+  }
+
+  /// Dismiss the prompt temporarily (will re-check next launch)
+  func dismissPromptTemporarily() {
+    shouldShowPrompt = false
+  }
+
+  /// Dismiss the prompt permanently
+  func dismissPromptPermanently() {
+    shouldShowPrompt = false
+    AppSettings.shared.notificationPromptDismissed = true
   }
 
   /// Set up notification categories and actions
@@ -84,7 +126,7 @@ final class NotificationService: NSObject {
     let openAction = UNNotificationAction(
       identifier: openActionIdentifier,
       title: "Open Session",
-      options: [.foreground]
+      options: []
     )
 
     let waitingCategory = UNNotificationCategory(
@@ -98,7 +140,7 @@ final class NotificationService: NSObject {
     let allowOnceAction = UNNotificationAction(
       identifier: allowOnceActionIdentifier,
       title: "Allow Once",
-      options: []  // No foreground needed - runs in background
+      options: []
     )
 
     let allowSessionAction = UNNotificationAction(
@@ -107,15 +149,9 @@ final class NotificationService: NSObject {
       options: []
     )
 
-    let denyAction = UNNotificationAction(
-      identifier: denyActionIdentifier,
-      title: "Deny",
-      options: [.destructive]
-    )
-
     let permissionCategory = UNNotificationCategory(
       identifier: permissionCategoryIdentifier,
-      actions: [allowOnceAction, allowSessionAction, denyAction],
+      actions: [allowOnceAction, allowSessionAction],
       intentIdentifiers: [],
       options: [.customDismissAction]
     )
@@ -236,6 +272,9 @@ extension NotificationService: UNUserNotificationCenterDelegate {
     didReceive response: UNNotificationResponse,
     withCompletionHandler completionHandler: @escaping () -> Void
   ) {
+    
+    NSApp.activate(ignoringOtherApps: true)
+    
     let userInfo = response.notification.request.content.userInfo
     let actionIdentifier = response.actionIdentifier
 
@@ -252,16 +291,10 @@ extension NotificationService: UNUserNotificationCenterDelegate {
       // Handle permission response actions
       switch actionIdentifier {
       case self.allowOnceActionIdentifier:
-        // Send "y" to allow once
         TerminalRegistry.shared.sendPermissionResponse(to: sessionId, response: .allowOnce)
 
       case self.allowSessionActionIdentifier:
-        // Send arrow down + enter for "allow session"
         TerminalRegistry.shared.sendPermissionResponse(to: sessionId, response: .allowSession)
-
-      case self.denyActionIdentifier:
-        // Send "n" to deny
-        TerminalRegistry.shared.sendPermissionResponse(to: sessionId, response: .deny)
 
       case UNNotificationDefaultActionIdentifier:
         // User tapped notification body - open the session

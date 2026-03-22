@@ -48,12 +48,7 @@ case "$HOOK_EVENT" in
         STATE="ended"
         ;;
     "Notification")
-        # Check notification type - permission_prompt means waiting for user permission
-        if [ "$NOTIFICATION_TYPE" = "permission_prompt" ]; then
-            STATE="waitingPermission"
-        else
-            STATE="unknown"
-        fi
+        STATE="waitingPermission"
         ;;
     *)
         STATE="unknown"

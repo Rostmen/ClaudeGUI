@@ -309,7 +309,7 @@ final class HookInstallationService {
     var hooks = settings["hooks"] as? [String: Any] ?? [:]
 
     // Hook events we need to register
-    let hookEvents = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SessionStart", "SessionEnd"]
+    let hookEvents = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SessionStart", "SessionEnd", "Notification"]
     let hookCommand = "~/.claude/hooks/chat-sessions-hook.sh"
 
     for event in hookEvents {
@@ -389,6 +389,9 @@ final class HookInstallationService {
         ;;
       "Stop")
         STATE="waiting"
+        ;;
+      "Notification")
+        STATE="waitingPermission"
         ;;
       "SessionStart")
         STATE="started"

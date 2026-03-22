@@ -42,11 +42,17 @@ final class AppSettings {
     didSet { UserDefaults.standard.set(hookPromptDismissed, forKey: "settings.hookPromptDismissed") }
   }
 
+  /// User has dismissed the notification permission prompt permanently
+  var notificationPromptDismissed: Bool {
+    didSet { UserDefaults.standard.set(notificationPromptDismissed, forKey: "settings.notificationPromptDismissed") }
+  }
+
   private init() {
     // Load initial values from UserDefaults
     self.fileTreeEnabled = UserDefaults.standard.object(forKey: "settings.fileTreeEnabled") as? Bool ?? true
     self.gitChangesEnabled = UserDefaults.standard.object(forKey: "settings.gitChangesEnabled") as? Bool ?? true
     self.hookPromptDismissed = UserDefaults.standard.object(forKey: "settings.hookPromptDismissed") as? Bool ?? false
+    self.notificationPromptDismissed = UserDefaults.standard.object(forKey: "settings.notificationPromptDismissed") as? Bool ?? false
   }
 }
 

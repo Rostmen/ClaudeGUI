@@ -38,12 +38,14 @@ let kWindowOpacity: CGFloat = 0.5
 struct ContentView: View {
   @State private var viewModel = ContentViewModel()
   @State private var hookInstallationService = HookInstallationService.shared
+  @State private var notificationService = NotificationService.shared
 
   // UI-only state
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
   @State private var terminalFrame: CGRect = .zero
   @State private var currentWindow: NSWindow?
   @State private var showHookPrompt: Bool = false
+  @State private var showNotificationPrompt: Bool = false
 
   var body: some View {
     ZStack {
@@ -83,8 +85,24 @@ struct ContentView: View {
       }
       .navigationTitle("")
 
-      // Hook installation prompt overlay
-      if showHookPrompt {
+      // Notification permission prompt overlay
+      if showNotificationPrompt {
+        VStack {
+          Spacer()
+          HStack {
+            Spacer()
+            NotificationPermissionPromptView {
+              showNotificationPrompt = false
+            }
+            .frame(maxWidth: 420)
+            .padding(24)
+          }
+        }
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
+
+      // Hook installation prompt overlay (only when notification prompt is not showing)
+      if showHookPrompt && !showNotificationPrompt {
         VStack {
           Spacer()
           HStack {
@@ -119,8 +137,19 @@ struct ContentView: View {
         showHookPrompt = shouldShow
       }
     }
+    .onChange(of: notificationService.shouldShowPrompt) { _, shouldShow in
+      withAnimation(.easeInOut(duration: 0.3)) {
+        showNotificationPrompt = shouldShow
+      }
+    }
     .onReceive(NotificationCenter.default.publisher(for: .openSessionFromNotification)) { notification in
       if let session = notification.object as? ClaudeSession {
+        // If session is already open in another window, just focus that window
+        if WindowSessionRegistry.shared.selectSession(session.id, currentWindow: viewModel.currentWindow) {
+          return
+        }
+        // Only open here if this window has no session yet
+        guard viewModel.selectedSession == nil else { return }
         viewModel.selectSession(session)
       }
     }

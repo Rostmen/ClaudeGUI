@@ -35,7 +35,7 @@ struct ChatSessionsApp: App {
   }
 
   var body: some Scene {
-    WindowGroup {
+    WindowGroup(id: "main") {
       ContentView()
     }
     .windowStyle(.automatic)
@@ -63,12 +63,32 @@ extension Notification.Name {
 
 // MARK: - App Delegate
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+import UserNotifications
+
+@MainActor
+class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+  
+  nonisolated func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    NotificationService.shared.userNotificationCenter(center, willPresent: notification, withCompletionHandler: completionHandler)
+  }
+  nonisolated func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    NotificationService.shared.userNotificationCenter(center, didReceive: response, withCompletionHandler: completionHandler)
+  }
+  
   static let suppressQuitAlertKey = "SuppressQuitAlertForActiveSessions"
   private var isShowingAlert = false
   private var userConfirmedQuit = false
 
   func applicationDidFinishLaunching(_ notification: Notification) {
+    UNUserNotificationCenter.current().delegate = self
     // Close any extra restored windows - we want exactly 1 window on launch
     let normalWindows = NSApplication.shared.windows.filter { window in
       window.isVisible && !window.isSheet && window.level == .normal

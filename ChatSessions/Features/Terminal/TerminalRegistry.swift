@@ -88,18 +88,14 @@ final class TerminalRegistry {
     // Send the appropriate keystrokes based on response
     switch response {
     case .allowOnce:
-      // "y" + Enter for first option (Allow once)
-      terminal.send(txt: "y")
+      // First option is pre-selected — just press Enter
+      terminal.send(txt: "\r")
     case .allowSession:
-      // Arrow down + Enter for second option (Allow for session)
-      // Arrow down is escape sequence: ESC [ B
-      terminal.send(txt: "\u{1B}[B")  // Arrow down
+      // Arrow down to select second option, then Enter
+      terminal.send(txt: "\u{1B}[B")  // Arrow down (ESC [ B)
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-        terminal.send(txt: "\r")  // Enter
+        terminal.send(txt: "\r")
       }
-    case .deny:
-      // "n" or Escape to deny
-      terminal.send(txt: "n")
     }
   }
 
@@ -111,9 +107,8 @@ final class TerminalRegistry {
 
 /// Permission response options for notification actions
 enum PermissionResponse {
-  case allowOnce      // First option: Allow this once
-  case allowSession   // Second option: Allow for this session
-  case deny           // Deny the permission
+  case allowOnce      // First option: Allow this once (Enter)
+  case allowSession   // Second option: Allow for this session (↓ + Enter)
 }
 
 /// Weak reference wrapper for terminal views

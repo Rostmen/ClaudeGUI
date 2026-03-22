@@ -138,17 +138,14 @@ final class AppState {
       return
     }
 
-    // Bring app to front
-    NSApplication.shared.activate(ignoringOtherApps: true)
-
-    // Find a window showing this session or use the main window
-    if let window = NSApplication.shared.windows.first(where: { $0.sessionId == sessionId }) {
+    if let window = windowRegistry.window(for: sessionId) {
       window.makeKeyAndOrderFront(nil)
+      NSApplication.shared.activate(ignoringOtherApps: true)
     } else if let mainWindow = NSApplication.shared.mainWindow ?? NSApplication.shared.windows.first {
+      // Session isn't in a dedicated window — bring main window and switch it to this session
       mainWindow.makeKeyAndOrderFront(nil)
-      // Set pending session for the window to switch to
+      NSApplication.shared.activate(ignoringOtherApps: true)
       windowRegistry.pendingSessionForNewTab = session
-      // Post notification for ContentView to handle
       NotificationCenter.default.post(name: .openSessionFromNotification, object: session)
     }
   }
