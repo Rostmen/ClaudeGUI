@@ -18,7 +18,7 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.3.app
 
-      - name: Install create-dmg
+      - name: Install tools
         run: brew install create-dmg
 
       - name: Import signing certificate
@@ -27,31 +27,24 @@ jobs:
           CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
-          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
           CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
 
-          # Decode certificate
           echo "$CERTIFICATE_BASE64" | base64 --decode -o "$CERTIFICATE_PATH"
 
-          # Create temporary keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          # Import certificate
           security import "$CERTIFICATE_PATH" -P "$CERTIFICATE_PASSWORD" \
             -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
 
-          # Add to keychain search list (keep login keychain too)
-          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
           security set-key-partition-list -S apple-tool:,apple:,codesign: \
             -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          # Make it the default keychain
-          security default-keychain -s "$KEYCHAIN_PATH"
-
-          # Verify certificate is visible
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          echo "Available signing identities:"
+          security find-identity -v -p codesigning
 
       - name: Get version from tag
         id: version
@@ -59,14 +52,14 @@ jobs:
 
       - name: Archive
         run: |
+          set -o pipefail
           xcodebuild archive \
             -project Tenvy.xcodeproj \
             -scheme Tenvy \
             -configuration Release \
             -archivePath build/Tenvy.xcarchive \
             -skipPackagePluginValidation \
-            MARKETING_VERSION=${{ steps.version.outputs.VERSION }} \
-            | xcpretty
+            MARKETING_VERSION=${{ steps.version.outputs.VERSION }}
 
       - name: Export & notarize
         env:
@@ -74,7 +67,6 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          # Write export options with notarization credentials
           cat > /tmp/ExportOptions.plist << EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -83,7 +75,9 @@ jobs:
             <key>method</key>
             <string>developer-id</string>
             <key>signingStyle</key>
-            <string>automatic</string>
+            <string>manual</string>
+            <key>signingCertificate</key>
+            <string>Developer ID Application</string>
             <key>teamID</key>
             <string>${APPLE_TEAM_ID}</string>
             <key>notarization</key>
@@ -94,7 +88,6 @@ jobs:
           </plist>
           EOF
 
-          # Store notarytool credentials
           xcrun notarytool store-credentials "notarytool-profile" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_PASSWORD" \
@@ -103,8 +96,7 @@ jobs:
           xcodebuild -exportArchive \
             -archivePath build/Tenvy.xcarchive \
             -exportOptionsPlist /tmp/ExportOptions.plist \
-            -exportPath build/export \
-            OTHER_CODE_SIGN_FLAGS="--keychain $RUNNER_TEMP/build.keychain"
+            -exportPath build/export
 
       - name: Create DMG
         run: |
@@ -139,4 +131,4 @@ jobs:
 
       - name: Cleanup keychain
         if: always()
-        run: security delete-keychain $RUNNER_TEMP/build.keychain || true
+        run: security delete-keychain $RUNNER_TEMP/build.keychain-db || true
