@@ -31,13 +31,16 @@ struct TerminalEnvironment {
     NSHomeDirectory() + "/.local/bin"
   ]
 
-  /// Build environment variables array for terminal process
+  /// Build environment variables array for terminal process.
+  /// Uses the login shell environment so .zprofile / .zshrc vars (auth tokens, PATH) are available.
   static func build() -> [String] {
-    let environment = ProcessInfo.processInfo.environment
-    var env: [String] = environment.map { "\($0.key)=\($0.value)" }
+    // Prefer login shell env — GUI apps don't source shell config files, so
+    // tokens and PATH entries set in .zprofile/.zshrc would be missing otherwise.
+    let base = loginShellEnvironment() ?? ProcessInfo.processInfo.environment
+    var env: [String] = base.map { "\($0.key)=\($0.value)" }
 
-    // Ensure PATH includes common locations
-    if let path = environment["PATH"] {
+    // Ensure PATH includes common locations (in case shell env didn't add them)
+    if let path = base["PATH"] {
       let newPath = additionalPaths.joined(separator: ":") + ":" + path
       env.setVariable("PATH", value: newPath)
     }
@@ -49,6 +52,41 @@ struct TerminalEnvironment {
     env.setVariable("TERM_PROGRAM_VERSION", value: "1.0")
 
     return env
+  }
+
+  /// Runs the user's login shell with `-l -c env` to capture the full shell environment.
+  /// Falls back to nil if the shell can't be launched, allowing the caller to use the app env.
+  private static func loginShellEnvironment() -> [String: String]? {
+    let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: shell)
+    task.arguments = ["-l", "-c", "env"]
+
+    let pipe = Pipe()
+    task.standardOutput = pipe
+    task.standardError = FileHandle.nullDevice
+
+    do {
+      try task.run()
+      task.waitUntilExit()
+    } catch {
+      return nil
+    }
+
+    guard task.terminationStatus == 0 else { return nil }
+
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    guard let output = String(data: data, encoding: .utf8) else { return nil }
+
+    var result: [String: String] = [:]
+    for line in output.components(separatedBy: .newlines) where !line.isEmpty {
+      // Split on the first `=` only — values can contain `=`
+      guard let separatorIndex = line.firstIndex(of: "=") else { continue }
+      let key = String(line[line.startIndex..<separatorIndex])
+      let value = String(line[line.index(after: separatorIndex)...])
+      result[key] = value
+    }
+    return result.isEmpty ? nil : result
   }
 }
 
