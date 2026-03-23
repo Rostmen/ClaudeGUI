@@ -33,6 +33,12 @@ Tenvy uses a transparent vibrancy window with a dark overlay that cuts out aroun
 ### Multi-Window Support
 Open multiple Claude Code sessions side by side, each in its own window or tab. Tenvy enforces one process per session — no duplicate terminals, no wasted resources.
 
+### Automatic Updates
+Tenvy checks for new versions on every launch. When an update is available, a prompt appears in the bottom-right corner. Click **Update** and Tenvy installs the new version silently in the background via Homebrew, then relaunches automatically — no Terminal window, no manual steps.
+
+### Shell Environment
+Tenvy sources your `~/.zprofile` and `~/.zshrc` before launching Claude, so auth tokens, PATH entries, and other shell exports are available just as they are in your regular terminal. You can also add custom environment variables in **Settings → Environment Variables**.
+
 ---
 
 ## Requirements

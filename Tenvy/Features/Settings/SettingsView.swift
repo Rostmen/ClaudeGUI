@@ -28,6 +28,8 @@ struct SettingsView: View {
   @State private var isInstallingHooks = false
   @State private var isUninstallingHooks = false
   @State private var hookInstallResult: HookInstallResult?
+  @State private var newEnvKey = ""
+  @State private var newEnvValue = ""
 
   private enum HookInstallResult {
     case installSuccess(sessionsRestarted: Int)
@@ -142,9 +144,63 @@ struct SettingsView: View {
           .font(.caption)
           .foregroundColor(.secondary)
       }
+
+      // Environment Variables section
+      Section {
+        let sorted = settings.customEnvironmentVariables.sorted { $0.key < $1.key }
+        ForEach(sorted, id: \.key) { key, value in
+          HStack(spacing: 4) {
+            Text(key)
+              .font(.system(.caption, design: .monospaced))
+            Text("=")
+              .foregroundStyle(.tertiary)
+            Text(value)
+              .font(.system(.caption, design: .monospaced))
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+              .truncationMode(.tail)
+            Spacer()
+            Button {
+              settings.customEnvironmentVariables.removeValue(forKey: key)
+            } label: {
+              Image(systemName: "minus.circle.fill")
+                .foregroundStyle(.red)
+            }
+            .buttonStyle(.plain)
+          }
+        }
+
+        HStack(spacing: 6) {
+          TextField("KEY", text: $newEnvKey)
+            .font(.system(.caption, design: .monospaced))
+            .frame(minWidth: 80)
+          Text("=")
+            .foregroundStyle(.secondary)
+          TextField("value", text: $newEnvValue)
+            .font(.system(.caption, design: .monospaced))
+          Button {
+            let key = newEnvKey.trimmingCharacters(in: .whitespaces)
+            guard !key.isEmpty else { return }
+            settings.customEnvironmentVariables[key] = newEnvValue
+            newEnvKey = ""
+            newEnvValue = ""
+          } label: {
+            Image(systemName: "plus.circle.fill")
+              .foregroundStyle(.green)
+          }
+          .buttonStyle(.plain)
+          .disabled(newEnvKey.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+      } header: {
+        Text("Environment Variables")
+      } footer: {
+        Text("Injected into every terminal session, applied after ~/.zshrc is sourced.")
+          .font(.caption)
+          .foregroundColor(.secondary)
+      }
     }
     .formStyle(.grouped)
-    .frame(width: 350, height: 380)
+    .frame(width: 420, height: 500)
     .onAppear {
       hookService.checkInstallationStatus()
     }

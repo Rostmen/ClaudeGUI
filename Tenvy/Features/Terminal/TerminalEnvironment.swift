@@ -24,69 +24,44 @@ import Foundation
 
 /// Builds environment variables for terminal processes
 struct TerminalEnvironment {
-  /// Additional paths to add to PATH for finding claude and other tools
-  private static let additionalPaths = [
-    "/usr/local/bin",
-    "/opt/homebrew/bin",
-    NSHomeDirectory() + "/.local/bin"
-  ]
-
-  /// Build environment variables array for terminal process.
-  /// Uses the login shell environment so .zprofile / .zshrc vars (auth tokens, PATH) are available.
+  /// Build the initial environment to pass to the shell process.
+  /// The shell itself will source ~/.zprofile and ~/.zshrc and augment this further.
   static func build() -> [String] {
-    // Prefer login shell env — GUI apps don't source shell config files, so
-    // tokens and PATH entries set in .zprofile/.zshrc would be missing otherwise.
-    let base = loginShellEnvironment() ?? ProcessInfo.processInfo.environment
-    var env: [String] = base.map { "\($0.key)=\($0.value)" }
-
-    // Ensure PATH includes common locations (in case shell env didn't add them)
-    if let path = base["PATH"] {
-      let newPath = additionalPaths.joined(separator: ":") + ":" + path
-      env.setVariable("PATH", value: newPath)
-    }
-
-    // Set terminal variables
+    var env: [String] = ProcessInfo.processInfo.environment.map { "\($0.key)=\($0.value)" }
     env.setVariable("TERM", value: "xterm-256color")
     env.setVariable("COLORTERM", value: "truecolor")
     env.setVariable("TERM_PROGRAM", value: "Tenvy")
     env.setVariable("TERM_PROGRAM_VERSION", value: "1.0")
-
+    // /etc/zprofile and /etc/zshrc expect LANG to be set;
+    // GUI apps launched by launchd don't inherit it from the shell.
+    if ProcessInfo.processInfo.environment["LANG"] == nil {
+      env.setVariable("LANG", value: "en_US.UTF-8")
+    }
+    // Apply user-defined custom variables (set in Settings → Environment Variables)
+    for (key, value) in AppSettings.shared.customEnvironmentVariables {
+      env.setVariable(key, value: value)
+    }
     return env
   }
 
-  /// Runs the user's login shell with `-l -c env` to capture the full shell environment.
-  /// Falls back to nil if the shell can't be launched, allowing the caller to use the app env.
-  private static func loginShellEnvironment() -> [String: String]? {
-    let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-    let task = Process()
-    task.executableURL = URL(fileURLWithPath: shell)
-    task.arguments = ["-l", "-c", "env"]
+  /// Returns the user's login shell (e.g. /bin/zsh).
+  static var loginShell: String {
+    ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+  }
 
-    let pipe = Pipe()
-    task.standardOutput = pipe
-    task.standardError = FileHandle.nullDevice
-
-    do {
-      try task.run()
-      task.waitUntilExit()
-    } catch {
-      return nil
-    }
-
-    guard task.terminationStatus == 0 else { return nil }
-
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    guard let output = String(data: data, encoding: .utf8) else { return nil }
-
-    var result: [String: String] = [:]
-    for line in output.components(separatedBy: .newlines) where !line.isEmpty {
-      // Split on the first `=` only — values can contain `=`
-      guard let separatorIndex = line.firstIndex(of: "=") else { continue }
-      let key = String(line[line.startIndex..<separatorIndex])
-      let value = String(line[line.index(after: separatorIndex)...])
-      result[key] = value
-    }
-    return result.isEmpty ? nil : result
+  /// Wraps a claude command in a login shell invocation so that ~/.zprofile and
+  /// ~/.zshrc are sourced before claude runs.
+  /// `-l` sources ~/.zprofile. ~/.zshrc is sourced manually — avoids using `-i`
+  /// which triggers /etc/zshrc terminal key-binding setup and causes errors without a TTY.
+  /// `exec` replaces the shell with claude (same PID), so SwiftTerm tracks it correctly.
+  static func shellArgs(executable: String, args: [String]) -> (executable: String, args: [String]) {
+    let claudeCommand = ([executable] + args)
+      .map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+      .joined(separator: " ")
+    // Source ~/.zshrc manually (errors suppressed so /etc/zshrc side-effects don't show)
+    // then exec into claude — after exec, the PTY is claude's and output is unaffected.
+    let command = "[ -f \"$HOME/.zshrc\" ] && source \"$HOME/.zshrc\" 2>/dev/null; exec \(claudeCommand)"
+    return (loginShell, ["-l", "-c", command])
   }
 }
 

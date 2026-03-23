@@ -110,9 +110,15 @@ final class UpdateService {
       await MainActor.run {
         if result == 0 {
           UpdateService.shared.updateState = .success
-          // Brief pause so user sees "Restarting…" then relaunch
+          // Brief pause so user sees "Restarting…", then relaunch.
+          // We spawn a background shell that waits for this process to fully exit
+          // before opening the new app — avoids the race between open() and terminate().
           DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/Tenvy.app"))
+            let pid = ProcessInfo.processInfo.processIdentifier
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/bin/sh")
+            task.arguments = ["-c", "while kill -0 \(pid) 2>/dev/null; do sleep 0.1; done; open /Applications/Tenvy.app"]
+            try? task.run()
             NSApplication.shared.terminate(nil)
           }
         } else {

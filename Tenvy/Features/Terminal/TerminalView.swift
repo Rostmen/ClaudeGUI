@@ -136,9 +136,12 @@ struct TerminalContentView: NSViewRepresentable {
       terminalView.workingDirectory = workingDirectory
       FileManager.default.changeCurrentDirectoryPath(workingDirectory)
 
+      // Launch through a login+interactive shell so ~/.zprofile and ~/.zshrc
+      // are sourced. `exec` replaces the shell with claude (same PID).
+      let launch = TerminalEnvironment.shellArgs(executable: claudePath, args: args)
       terminalView.startProcess(
-        executable: claudePath,
-        args: args,
+        executable: launch.executable,
+        args: launch.args,
         environment: env,
         execName: "claude"
       )
@@ -269,9 +272,10 @@ class DraggableTerminalView: LocalProcessTerminalView {
         FileManager.default.changeCurrentDirectoryPath(workingDir)
       }
 
+      let launch = TerminalEnvironment.shellArgs(executable: claudePath, args: args)
       self.startProcess(
-        executable: claudePath,
-        args: args,
+        executable: launch.executable,
+        args: launch.args,
         environment: env,
         execName: "claude"
       )

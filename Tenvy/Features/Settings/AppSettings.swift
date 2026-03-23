@@ -47,12 +47,27 @@ final class AppSettings {
     didSet { UserDefaults.standard.set(lastSeenVersion, forKey: "settings.lastSeenVersion") }
   }
 
+  /// Custom environment variables injected into every terminal session
+  var customEnvironmentVariables: [String: String] {
+    didSet {
+      if let data = try? JSONEncoder().encode(customEnvironmentVariables) {
+        UserDefaults.standard.set(data, forKey: "settings.customEnvironmentVariables")
+      }
+    }
+  }
+
   private init() {
     // Load initial values from UserDefaults
     self.gitChangesEnabled = UserDefaults.standard.object(forKey: "settings.gitChangesEnabled") as? Bool ?? false
     self.hookPromptDismissed = UserDefaults.standard.object(forKey: "settings.hookPromptDismissed") as? Bool ?? false
     self.notificationPromptDismissed = UserDefaults.standard.object(forKey: "settings.notificationPromptDismissed") as? Bool ?? false
     self.lastSeenVersion = UserDefaults.standard.object(forKey: "settings.lastSeenVersion") as? String ?? ""
+    if let data = UserDefaults.standard.data(forKey: "settings.customEnvironmentVariables"),
+       let vars = try? JSONDecoder().decode([String: String].self, from: data) {
+      self.customEnvironmentVariables = vars
+    } else {
+      self.customEnvironmentVariables = [:]
+    }
   }
 }
 

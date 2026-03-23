@@ -50,9 +50,13 @@ Tenvy/
 │   │   ├── GitChangedFileTreeNode.swift  # Recursive tree node
 │   │   ├── GitChangedFileRow.swift # Git file row
 │   │   └── DiffView.swift          # Git diff viewer
-│   └── Settings/                   # Settings
-│       ├── AppSettings.swift       # User preferences (UserDefaults)
-│       └── SettingsView.swift      # App preferences view
+│   ├── Settings/                   # Settings
+│   │   ├── AppSettings.swift       # User preferences (UserDefaults)
+│   │   └── SettingsView.swift      # App preferences view
+│   └── Updates/                    # Update checker
+│       ├── UpdateService.swift     # GitHub releases API + brew install
+│       ├── UpdatePromptView.swift  # Bottom-right update prompt overlay
+│       └── ReleaseNotesView.swift  # Release notes window on new version
 ├── Shared/                         # Shared components
 │   ├── WindowSessionRegistry.swift # Window-session mapping
 │   ├── SessionGroupingService.swift # Session grouping & filtering
@@ -172,8 +176,23 @@ Registered events and their state mappings:
 
 - `NotificationService` uses `UNUserNotificationCenter` with `@Observable`
 - `willPresent`: suppresses notification only when the session is in the **key window**; shows it for background windows
-- Permission responses: `allowOnce` → Enter (`\r`), `allowSession` → ↓+Enter
+- On app focus: clears notification only for the **focused session window** (not all sessions) — prevents wiping dedup guard for background sessions
+- Permission responses: `allowOnce` → Enter (`\r`), `allowSession` → ↓+Enter; optimistically clears `waitingPermission` hookState immediately
 - `NSUserNotificationAlertStyle = alert` in Info.plist for persistent (non-disappearing) banners
+
+### Terminal Environment
+
+Claude is launched **through the user's login shell** to ensure `~/.zprofile` and `~/.zshrc` are sourced:
+
+```
+zsh -l -c '[ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc" 2>/dev/null; exec /path/to/claude [args]'
+```
+
+- `-l` sources `/etc/zprofile` and `~/.zprofile`
+- `~/.zshrc` is sourced manually (not via `-i` which triggers `/etc/zshrc` terminal key-binding setup and causes errors without a TTY)
+- `exec` replaces the shell with claude at the same PID — SwiftTerm process tracking is unaffected
+- `LANG=en_US.UTF-8` is set if missing (GUI apps launched by launchd don't inherit it)
+- Custom environment variables can be added in **Settings → Environment Variables** — stored in UserDefaults, applied after `~/.zshrc`
 
 ### Process Cleanup
 
@@ -181,6 +200,16 @@ Shell PID (not Claude PID) is used for termination:
 - Killing shell terminates entire process tree
 - Signal handlers: SIGTERM, SIGINT, SIGHUP
 - Fallback: `atexit` handler
+
+### Update Checker
+
+- `UpdateService` checks GitHub releases API on every launch, compares with `AppInfo.version`
+- Shows `UpdatePromptView` overlay (bottom-right) when a newer version is available
+- Update runs `brew install --cask --force rostmen/tenvy/tenvy` silently via `Process` (no Terminal window)
+- In-app progress states: `idle → installing → success → failed`
+- On success: opens `/Applications/Tenvy.app` then terminates current process
+- `isUpdating: Bool` flag bypasses quit/close confirmation dialogs when brew sends terminate signal
+- Release notes fetched from GitHub release body and shown in a dark `NSWindow` on first launch of a new version
 
 ---
 
