@@ -82,7 +82,9 @@ final class SessionRuntimeInfo {
 
   func markActivated() {
     self.activatedAt = Date()
-    self.hasUserInteracted = false  // Reset interaction tracking
+    self.hasUserInteracted = false
+    self.hookState = nil     // Don't carry stale state into a new session run
+    self.currentTool = nil
   }
 
   func setShellPid(_ pid: pid_t) {

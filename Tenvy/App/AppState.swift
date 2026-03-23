@@ -55,9 +55,15 @@ final class AppState {
   var isWindowActive: Bool = true {
     didSet {
       notificationService.isWindowActive = isWindowActive
-      // Clear notifications when window becomes active
+      // Clear notification only for the session in the focused window.
+      // Clearing ALL sessions would wipe the dedup guard for sessions the user
+      // hasn't looked at, causing re-notifications when those sessions fire new events.
       if isWindowActive {
-        notificationService.clearAllNotifications()
+        let registry = WindowSessionRegistry.shared
+        if let keyWindow = NSApplication.shared.keyWindow,
+           let sessionId = registry.sessionId(for: keyWindow) {
+          notificationService.clearNotification(for: sessionId)
+        }
       }
     }
   }

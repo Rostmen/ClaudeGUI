@@ -303,9 +303,12 @@ extension NotificationService: UNUserNotificationCenterDelegate {
       switch actionIdentifier {
       case self.allowOnceActionIdentifier:
         TerminalRegistry.shared.sendPermissionResponse(to: sessionId, response: .allowOnce)
+        // Optimistically clear waitingPermission — hook events will confirm the actual state
+        AppState.shared.runtimeState.updateHookState(for: sessionId, state: .waiting, eventTime: Date())
 
       case self.allowSessionActionIdentifier:
         TerminalRegistry.shared.sendPermissionResponse(to: sessionId, response: .allowSession)
+        AppState.shared.runtimeState.updateHookState(for: sessionId, state: .waiting, eventTime: Date())
 
       case UNNotificationDefaultActionIdentifier:
         // User tapped notification body - open the session
