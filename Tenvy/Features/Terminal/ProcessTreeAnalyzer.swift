@@ -24,7 +24,32 @@ import Foundation
 
 /// Analyzes process tree to find Claude processes
 struct ProcessTreeAnalyzer {
-  /// Find Claude process that is a descendant of a shell process
+  /// Find Claude process using a pre-fetched `ProcessPoller` snapshot.
+  /// This is the hot-path overload used during monitoring — no subprocess is spawned.
+  static func findClaudeProcess(
+    in snapshot: [pid_t: ProcessPoller.ProcessRecord],
+    shellPID: pid_t,
+    sessionId: String?
+  ) -> pid_t {
+    var parentMap: [pid_t: pid_t] = [:]
+    var candidates: [pid_t] = []
+
+    for record in snapshot.values {
+      parentMap[record.pid] = record.ppid
+      if isClaudeProcess(args: record.args, sessionId: sessionId) {
+        candidates.append(record.pid)
+      }
+    }
+
+    if candidates.contains(shellPID) { return shellPID }
+    for pid in candidates where isDescendant(pid: pid, of: shellPID, parentMap: parentMap) {
+      return pid
+    }
+    return 0
+  }
+
+  /// Find Claude process that is a descendant of a shell process.
+  /// Spawns its own `ps` — used for termination-time lookups (not the 500 ms hot path).
   /// - Parameters:
   ///   - shellPID: The shell process ID to search from (may actually be Claude's PID if spawned directly)
   ///   - sessionId: Optional session ID to match in process arguments

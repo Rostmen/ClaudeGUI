@@ -196,9 +196,46 @@ class SessionManager {
   }
 
   private func decodeProjectPath(_ encodedPath: String) -> String {
-    // Convert "-Users-rkobizsky-path" back to "/Users/rkobizsky/path"
-    return "/" + encodedPath.replacingOccurrences(of: "-", with: "/")
+    // Fast path: naive decode works for paths with no hyphens in component names.
+    let naive = "/" + encodedPath
+      .replacingOccurrences(of: "-", with: "/")
       .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    if fileManager.fileExists(atPath: naive) { return naive }
+
+    // Slow path: probe all interpretations treating each '-' as either '/' or a
+    // literal hyphen in a component name, returning the deepest real path found.
+    return bestMatchingPath(for: encodedPath) ?? naive
+  }
+
+  /// Try all 2^N interpretations of hyphens in the encoded string, returning the
+  /// deepest real filesystem path found. N is capped at 20 to avoid combinatorial
+  /// explosion on unusually long paths.
+  private func bestMatchingPath(for encoded: String) -> String? {
+    let parts = encoded.split(separator: "-", omittingEmptySubsequences: false).map(String.init)
+    guard parts.count <= 20 else { return nil }
+
+    var best: String?
+
+    func probe(index: Int, current: String) {
+      let fullPath = "/" + current.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+      if fileManager.fileExists(atPath: fullPath) {
+        if best == nil || fullPath.count > best!.count {
+          best = fullPath
+        }
+      }
+      guard index < parts.count else { return }
+      // Option 1: this '-' is a path separator
+      probe(index: index + 1, current: current + "/" + parts[index])
+      // Option 2: this '-' is a literal hyphen in a component name
+      if !current.isEmpty {
+        probe(index: index + 1, current: current + "-" + parts[index])
+      }
+    }
+
+    if let first = parts.first {
+      probe(index: 1, current: first)
+    }
+    return best
   }
 
   func deleteSession(_ session: ClaudeSession) throws {

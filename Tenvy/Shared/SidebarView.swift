@@ -28,7 +28,7 @@ struct SidebarView: View {
   @Binding var selectedDiffFile: GitChangedFile?
   var onCreateNewSession: ((ClaudeSession) -> Void)?
   var onSelectSession: ((ClaudeSession) -> Void)?
-  var runtimeState: SessionRuntimeState
+  var runtimeState: SessionRuntimeRegistry
   var activeSessionIds: Set<String>
   var activatedSessions: [String: ClaudeSession]
 
@@ -41,7 +41,7 @@ struct SidebarView: View {
     selectedDiffFile: Binding<GitChangedFile?>,
     onCreateNewSession: ((ClaudeSession) -> Void)? = nil,
     onSelectSession: ((ClaudeSession) -> Void)? = nil,
-    runtimeState: SessionRuntimeState,
+    runtimeState: SessionRuntimeRegistry,
     activeSessionIds: Set<String> = [],
     activatedSessions: [String: ClaudeSession] = [:]
   ) {
@@ -119,7 +119,7 @@ struct SidebarView: View {
     sessionManager: SessionManager(),
     selectedSession: .constant(nil),
     selectedDiffFile: .constant(nil),
-    runtimeState: SessionRuntimeState()
+    runtimeState: SessionRuntimeRegistry()
   )
   .frame(width: 280, height: 500)
   .background(Color.black.opacity(0.8))

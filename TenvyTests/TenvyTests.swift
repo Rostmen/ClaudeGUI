@@ -20,9 +20,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// Created by Rostyslav Kobizsky on 3/20/26.
-// Copyright © 2026 Airbnb Inc. All rights reserved.
-
 import Testing
 @testable import Tenvy
 

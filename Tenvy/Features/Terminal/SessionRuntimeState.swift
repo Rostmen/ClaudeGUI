@@ -178,6 +178,3 @@ final class SessionRuntimeRegistry {
   }
 }
 
-// MARK: - Legacy compatibility (to be removed after migration)
-// Keeping SessionRuntimeState as a typealias during transition
-typealias SessionRuntimeState = SessionRuntimeRegistry

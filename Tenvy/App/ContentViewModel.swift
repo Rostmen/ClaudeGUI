@@ -43,10 +43,14 @@ final class ContentViewModel {
 
   // MARK: - Dependencies
 
-  private var appState: AppState { AppState.shared }
+  private let appState: AppState
   private var windowRegistry: WindowSessionRegistry { appState.windowRegistry }
   var sessionManager: SessionManager { appState.sessionManager }
-  var runtimeState: SessionRuntimeState { appState.runtimeState }
+  var runtimeState: SessionRuntimeRegistry { appState.runtimeState }
+
+  init(appState: AppState = .shared) {
+    self.appState = appState
+  }
 
   // MARK: - Computed Properties
 
@@ -189,7 +193,7 @@ final class ContentViewModel {
       runtimeState.transferState(from: current.id, to: syncedSession.id)
 
       // Update activated sessions
-      appState.activatedSessions.removeValue(forKey: current.id)
+      appState.deactivateSession(current.id)
       appState.activateSession(syncedSession)
 
       // Update selected session (terminal stays alive due to same terminalId)

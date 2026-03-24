@@ -24,28 +24,37 @@ import Foundation
 
 /// Represents a hook event from Claude Code
 struct HookEvent: Codable {
-  let session_id: String
+  let sessionId: String
   let event: String
   let state: String
   let cwd: String?
   let tool: String?
   let message: String?
-  let tool_input: ToolInput?
+  let toolInput: ToolInput?
   let timestamp: String
+
+  enum CodingKeys: String, CodingKey {
+    case sessionId = "session_id"
+    case event, state, cwd, tool, message, timestamp
+    case toolInput = "tool_input"
+  }
 
   /// Parse timestamp to Date
   var date: Date? {
-    let formatter = ISO8601DateFormatter()
-    return formatter.date(from: timestamp)
+    ISO8601DateFormatter().date(from: timestamp)
   }
 }
 
 /// Tool input details (for permission prompts)
 struct ToolInput: Codable {
   let command: String?
-  let file_path: String?
+  let filePath: String?
   let content: String?
-  // Add other fields as needed
+
+  enum CodingKeys: String, CodingKey {
+    case command, content
+    case filePath = "file_path"
+  }
 }
 
 /// State derived from hook events
@@ -212,7 +221,7 @@ final class HookEventService {
     }
 
     let state = HookState(rawValue: event.state) ?? .unknown
-    let sessionId = event.session_id
+    let sessionId = event.sessionId
 
     // Update state
     sessionStates[sessionId] = state
@@ -232,11 +241,11 @@ final class HookEventService {
       if let message = event.message, !message.isEmpty {
         permissionMessage = message
         sessionMessages[sessionId] = message
-      } else if let toolInput = event.tool_input {
+      } else if let toolInput = event.toolInput {
         // Build message from tool input
         if let command = toolInput.command {
           permissionMessage = "Run command: \(command)"
-        } else if let filePath = toolInput.file_path {
+        } else if let filePath = toolInput.filePath {
           permissionMessage = "Edit file: \(filePath)"
         }
         if let msg = permissionMessage {

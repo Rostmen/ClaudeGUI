@@ -22,6 +22,19 @@
 
 import Foundation
 
+// MARK: - Claude Settings Schema
+
+/// A group of hooks registered for one event type in ~/.claude/settings.json
+struct ClaudeHookGroup: Codable, Equatable {
+  var hooks: [ClaudeHookCommand]
+}
+
+/// An individual hook command entry
+struct ClaudeHookCommand: Codable, Equatable {
+  let type: String
+  let command: String
+}
+
 /// Service for managing hook installation
 @MainActor
 @Observable
@@ -68,32 +81,11 @@ final class HookInstallationService {
 
   /// Check if hooks are installed
   func checkInstallationStatus() {
-    let fileManager = FileManager.default
-
-    // Check if hook script exists
-    let scriptExists = fileManager.fileExists(atPath: hookScriptPath.path)
-
-    // Check if settings have our hooks configured
-    var settingsConfigured = false
-    if let data = try? Data(contentsOf: claudeSettingsPath),
-       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-       let hooks = json["hooks"] as? [String: Any] {
-      // Check if Stop hook is configured with our script
-      if let stopHooks = hooks["Stop"] as? [[String: Any]] {
-        for hookGroup in stopHooks {
-          if let innerHooks = hookGroup["hooks"] as? [[String: Any]] {
-            for hook in innerHooks {
-              if let command = hook["command"] as? String,
-                 command.contains("chat-sessions-hook.sh") {
-                settingsConfigured = true
-                break
-              }
-            }
-          }
-        }
-      }
-    }
-
+    let scriptExists = FileManager.default.fileExists(atPath: hookScriptPath.path)
+    let hooks = loadHooks()
+    let settingsConfigured = hooks["Stop"]?
+      .flatMap(\.hooks)
+      .contains { $0.command.contains("chat-sessions-hook.sh") } ?? false
     hooksInstalled = scriptExists && settingsConfigured
   }
 
@@ -235,123 +227,86 @@ final class HookInstallationService {
 
   /// Remove our hooks from Claude settings
   private func removeHooksFromSettings() -> Result<Void, HookInstallationError> {
-    let fileManager = FileManager.default
-
-    // Read existing settings
-    guard fileManager.fileExists(atPath: claudeSettingsPath.path),
-          let data = try? Data(contentsOf: claudeSettingsPath),
-          var settings = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-      // No settings file or invalid - nothing to remove
-      return .success(())
-    }
-
-    // Get hooks section
-    guard var hooks = settings["hooks"] as? [String: Any] else {
-      // No hooks section - nothing to remove
-      return .success(())
-    }
-
-    // Hook events we registered
-    let hookEvents = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SessionStart", "SessionEnd", "Notification", "PermissionRequest"]
+    var hooks = loadHooks()
+    let hookEvents = Self.managedHookEvents
 
     for event in hookEvents {
-      guard var eventHooks = hooks[event] as? [[String: Any]] else {
-        continue
+      guard var groups = hooks[event] else { continue }
+      // Remove commands that point to our script from each group
+      groups = groups.compactMap { group -> ClaudeHookGroup? in
+        let filtered = group.hooks.filter { !$0.command.contains("chat-sessions-hook.sh") }
+        return filtered.isEmpty ? nil : ClaudeHookGroup(hooks: filtered)
       }
-
-      // Filter out our hook
-      eventHooks = eventHooks.filter { hookGroup in
-        if let innerHooks = hookGroup["hooks"] as? [[String: Any]] {
-          // Keep hook group if none of its hooks are ours
-          return !innerHooks.contains { hook in
-            if let command = hook["command"] as? String {
-              return command.contains("chat-sessions-hook.sh")
-            }
-            return false
-          }
-        }
-        return true
-      }
-
-      if eventHooks.isEmpty {
+      if groups.isEmpty {
         hooks.removeValue(forKey: event)
       } else {
-        hooks[event] = eventHooks
+        hooks[event] = groups
       }
     }
 
-    settings["hooks"] = hooks
-
-    // Write settings back
-    do {
-      let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
-      try data.write(to: claudeSettingsPath)
-    } catch {
-      return .failure(.settingsUpdateFailed(error.localizedDescription))
-    }
-
-    return .success(())
+    return saveHooks(hooks)
   }
 
   /// Update Claude settings to include our hooks
   private func updateClaudeSettings() -> Result<Void, HookInstallationError> {
-    let fileManager = FileManager.default
-    var settings: [String: Any] = [:]
-
-    // Read existing settings if present
-    if fileManager.fileExists(atPath: claudeSettingsPath.path),
-       let data = try? Data(contentsOf: claudeSettingsPath),
-       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-      settings = json
-    }
-
-    // Get or create hooks section
-    var hooks = settings["hooks"] as? [String: Any] ?? [:]
-
-    // Hook events we need to register
-    let hookEvents = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SessionStart", "SessionEnd", "Notification", "PermissionRequest"]
+    var hooks = loadHooks()
     let hookCommand = "~/.claude/hooks/chat-sessions-hook.sh"
 
-    for event in hookEvents {
-      var eventHooks = hooks[event] as? [[String: Any]] ?? []
-
-      // Check if our hook is already registered
-      var alreadyRegistered = false
-      for hookGroup in eventHooks {
-        if let innerHooks = hookGroup["hooks"] as? [[String: Any]] {
-          for hook in innerHooks {
-            if let command = hook["command"] as? String,
-               command.contains("chat-sessions-hook.sh") {
-              alreadyRegistered = true
-              break
-            }
-          }
-        }
+    for event in Self.managedHookEvents {
+      var groups = hooks[event, default: []]
+      let alreadyRegistered = groups.flatMap(\.hooks).contains {
+        $0.command.contains("chat-sessions-hook.sh")
       }
-
-      // Add our hook if not registered
       if !alreadyRegistered {
-        let newHook: [String: Any] = [
-          "hooks": [
-            ["type": "command", "command": hookCommand]
-          ]
-        ]
-        eventHooks.append(newHook)
-        hooks[event] = eventHooks
+        groups.append(ClaudeHookGroup(hooks: [ClaudeHookCommand(type: "command", command: hookCommand)]))
+        hooks[event] = groups
       }
     }
 
-    settings["hooks"] = hooks
+    return saveHooks(hooks)
+  }
 
-    // Write settings back
+  // MARK: - Settings Helpers
+
+  private static let managedHookEvents = [
+    "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop",
+    "SessionStart", "SessionEnd", "Notification", "PermissionRequest"
+  ]
+
+  /// Load the hooks subtree from settings.json, typed as Codable structs.
+  /// Returns an empty dict if the file is missing or has no hooks key.
+  private func loadHooks() -> [String: [ClaudeHookGroup]] {
+    guard let data = try? Data(contentsOf: claudeSettingsPath),
+          let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let hooksRaw = raw["hooks"],
+          let hooksData = try? JSONSerialization.data(withJSONObject: hooksRaw),
+          let decoded = try? JSONDecoder().decode([String: [ClaudeHookGroup]].self, from: hooksData)
+    else { return [:] }
+    return decoded
+  }
+
+  /// Write a hooks dict back into settings.json, preserving all other top-level keys.
+  private func saveHooks(_ hooks: [String: [ClaudeHookGroup]]) -> Result<Void, HookInstallationError> {
+    // Read the full raw settings (or start empty)
+    var raw: [String: Any]
+    if let data = try? Data(contentsOf: claudeSettingsPath),
+       let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+      raw = existing
+    } else {
+      raw = [:]
+    }
+
+    // Encode our typed hooks back to a JSONSerialization-compatible object
     do {
-      let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
-      try data.write(to: claudeSettingsPath)
+      let hooksData = try JSONEncoder().encode(hooks)
+      let hooksObj = try JSONSerialization.jsonObject(with: hooksData)
+      raw["hooks"] = hooksObj
+      let output = try JSONSerialization.data(withJSONObject: raw, options: [.prettyPrinted, .sortedKeys])
+      try output.write(to: claudeSettingsPath)
+      return .success(())
     } catch {
       return .failure(.settingsUpdateFailed(error.localizedDescription))
     }
-
-    return .success(())
   }
 
   /// Create hook script content

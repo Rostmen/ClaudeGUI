@@ -28,7 +28,7 @@ struct SessionListView: View {
   @Binding var selectedSession: ClaudeSession?
   var onCreateNewSession: ((ClaudeSession) -> Void)?
   var onSelectSession: ((ClaudeSession) -> Void)?
-  var runtimeState: SessionRuntimeState
+  var runtimeState: SessionRuntimeRegistry
   var activeSessionIds: Set<String>
   var activatedSessions: [String: ClaudeSession]
 
