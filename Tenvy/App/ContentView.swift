@@ -36,10 +36,19 @@ struct TerminalFrameKey: PreferenceKey {
 let kWindowOpacity: CGFloat = 0.5
 
 struct ContentView: View {
-  @State private var viewModel = ContentViewModel()
-  @State private var hookInstallationService = HookInstallationService.shared
-  @State private var notificationService = NotificationService.shared
-  @State private var updateService = UpdateService.shared
+  @State private var appState: AppState
+  @State private var viewModel: ContentViewModel
+
+  init() {
+    let appState = AppState.shared
+    _appState = State(initialValue: appState)
+    _viewModel = State(initialValue: ContentViewModel(appState: appState))
+  }
+
+  // Computed accessors — break up chained @Observable access for the type checker
+  private var hookPromptVisible: Bool { appState.hookInstallationService.shouldShowPrompt }
+  private var notificationPromptVisible: Bool { appState.notificationService.shouldShowPrompt }
+  private var updatePromptVisible: Bool { appState.updateService.shouldShowPrompt }
 
   // UI-only state
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -153,17 +162,17 @@ struct ContentView: View {
       // When sessions reload, sync new sessions with Claude-created ones
       viewModel.syncNewSessionWithDiscoveredSession()
     }
-    .onChange(of: hookInstallationService.shouldShowPrompt) { _, shouldShow in
+    .onChange(of: hookPromptVisible) { _, shouldShow in
       withAnimation(.easeInOut(duration: 0.3)) {
         showHookPrompt = shouldShow
       }
     }
-    .onChange(of: notificationService.shouldShowPrompt) { _, shouldShow in
+    .onChange(of: notificationPromptVisible) { _, shouldShow in
       withAnimation(.easeInOut(duration: 0.3)) {
         showNotificationPrompt = shouldShow
       }
     }
-    .onChange(of: updateService.shouldShowPrompt) { _, shouldShow in
+    .onChange(of: updatePromptVisible) { _, shouldShow in
       withAnimation(.easeInOut(duration: 0.3)) {
         showUpdatePrompt = shouldShow
       }

@@ -54,13 +54,30 @@ struct TerminalEnvironment {
   /// `-l` sources ~/.zprofile. ~/.zshrc is sourced manually — avoids using `-i`
   /// which triggers /etc/zshrc terminal key-binding setup and causes errors without a TTY.
   /// `exec` replaces the shell with claude (same PID), so SwiftTerm tracks it correctly.
-  static func shellArgs(executable: String, args: [String]) -> (executable: String, args: [String]) {
+  ///
+  /// When `currentDirectory` is provided the `cd` runs inside the child shell,
+  /// making the working-directory change process-local and thread-safe (no global
+  /// `FileManager.changeCurrentDirectoryPath` mutation).
+  static func shellArgs(
+    executable: String,
+    args: [String],
+    currentDirectory: String? = nil
+  ) -> (executable: String, args: [String]) {
     let claudeCommand = ([executable] + args)
       .map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
       .joined(separator: " ")
+
+    let cdClause: String
+    if let dir = currentDirectory {
+      let escaped = dir.replacingOccurrences(of: "'", with: "'\\''")
+      cdClause = "cd '\(escaped)' || exit 1; "
+    } else {
+      cdClause = ""
+    }
+
     // Source ~/.zshrc manually (errors suppressed so /etc/zshrc side-effects don't show)
     // then exec into claude — after exec, the PTY is claude's and output is unaffected.
-    let command = "[ -f \"$HOME/.zshrc\" ] && source \"$HOME/.zshrc\" 2>/dev/null; exec \(claudeCommand)"
+    let command = "\(cdClause)[ -f \"$HOME/.zshrc\" ] && source \"$HOME/.zshrc\" 2>/dev/null; exec \(claudeCommand)"
     return (loginShell, ["-l", "-c", command])
   }
 }

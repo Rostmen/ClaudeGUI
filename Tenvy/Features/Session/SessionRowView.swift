@@ -24,7 +24,7 @@ import SwiftUI
 
 struct SessionRowView: View {
   let session: ClaudeSession
-  var runtimeState: SessionRuntimeState
+  var runtimeState: SessionRuntimeRegistry
 
   /// Animation state for blinking dot
   @State private var isBlinking = false

@@ -33,7 +33,7 @@ final class AppState {
   let sessionManager = SessionManager()
 
   /// Shared runtime state for all sessions (PIDs, CPU, etc.)
-  let runtimeState = SessionRuntimeState()
+  let runtimeState = SessionRuntimeRegistry()
 
   /// Hook event service for tracking Claude state via hooks
   let hookEventService = HookEventService.shared
@@ -44,12 +44,15 @@ final class AppState {
   /// Notification service for system notifications
   let notificationService = NotificationService.shared
 
+  /// Update checker service
+  let updateService = UpdateService.shared
+
   /// Window session registry
   let windowRegistry = WindowSessionRegistry.shared
 
   /// Sessions that have been activated (have a terminal running)
   /// Shared across all windows so we don't spawn duplicate processes
-  var activatedSessions: [String: ClaudeSession] = [:]
+  private(set) var activatedSessions: [String: ClaudeSession] = [:]
 
   /// Whether any app window is currently active
   var isWindowActive: Bool = true {
@@ -121,8 +124,9 @@ final class AppState {
       object: nil,
       queue: .main
     ) { [weak self] _ in
-      Task { @MainActor in
-        self?.isWindowActive = true
+      guard let self else { return }
+      Task { @MainActor [self] in
+        self.isWindowActive = true
       }
     }
 
@@ -131,8 +135,9 @@ final class AppState {
       object: nil,
       queue: .main
     ) { [weak self] _ in
-      Task { @MainActor in
-        self?.isWindowActive = false
+      guard let self else { return }
+      Task { @MainActor [self] in
+        self.isWindowActive = false
       }
     }
   }
@@ -172,6 +177,11 @@ final class AppState {
     if activatedSessions[session.id] == nil {
       activatedSessions[session.id] = session
     }
+  }
+
+  /// Remove a session from the activated set (terminal closed or session terminated)
+  func deactivateSession(_ sessionId: String) {
+    activatedSessions.removeValue(forKey: sessionId)
   }
 
   /// Check if a session is already activated

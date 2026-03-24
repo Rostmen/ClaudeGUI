@@ -59,6 +59,16 @@ struct TerminalContentView: NSViewRepresentable {
     terminalView.sessionId = session?.id
     terminalView.isNewSession = session?.isNewSession ?? false
 
+    // Wire up activation callbacks — this is the single place that knows about
+    // AppState, keeping DraggableTerminalView free of singleton references.
+    terminalView.onSessionActivated = { sessionId in
+      AppState.shared.markSessionActivated(sessionId)
+      AppState.shared.trackSessionForHooks(sessionId)
+    }
+    terminalView.onRegisterForInput = { terminal, sessionId in
+      TerminalRegistry.shared.register(terminal, for: sessionId)
+    }
+
     terminalView.installColors(TerminalColors.darkPalette)
     terminalView.nativeBackgroundColor = NSColor(red: 0, green: 0, blue: 0, alpha: kWindowOpacity)
     terminalView.nativeForegroundColor = NSColor(calibratedWhite: 1, alpha: 1)
@@ -75,7 +85,7 @@ struct TerminalContentView: NSViewRepresentable {
     context.coordinator.startProcess(in: terminalView, session: session)
 
     if isSelected {
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+      DispatchQueue.main.async {
         terminalView.window?.makeFirstResponder(terminalView)
       }
     }
@@ -97,7 +107,7 @@ struct TerminalContentView: NSViewRepresentable {
     }
 
     if isSelected {
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+      DispatchQueue.main.async {
         if nsView.window?.firstResponder != nsView {
           nsView.window?.makeFirstResponder(nsView)
         }
@@ -131,14 +141,14 @@ struct TerminalContentView: NSViewRepresentable {
       // Build environment with terminal settings
       let env = TerminalEnvironment.build()
 
-      // Set working directory
+      // Set working directory — passed into the child shell via a `cd` clause so
+      // the change is process-local and does not mutate the app-wide cwd.
       let workingDirectory = session?.workingDirectory ?? NSHomeDirectory()
       terminalView.workingDirectory = workingDirectory
-      FileManager.default.changeCurrentDirectoryPath(workingDirectory)
 
       // Launch through a login+interactive shell so ~/.zprofile and ~/.zshrc
       // are sourced. `exec` replaces the shell with claude (same PID).
-      let launch = TerminalEnvironment.shellArgs(executable: claudePath, args: args)
+      let launch = TerminalEnvironment.shellArgs(executable: claudePath, args: args, currentDirectory: workingDirectory)
       terminalView.startProcess(
         executable: launch.executable,
         args: launch.args,
@@ -152,13 +162,19 @@ struct TerminalContentView: NSViewRepresentable {
 class DraggableTerminalView: LocalProcessTerminalView {
   var onStateChange: ((SessionMonitorInfo) -> Void)?
   var onShellStart: ((pid_t) -> Void)?
+  /// Called when the session is activated (terminal started).
+  /// Replaces the direct `AppState.shared` call so the view is independently testable.
+  var onSessionActivated: ((String) -> Void)?
+  /// Called to register this terminal for remote input (e.g., notification actions).
+  var onRegisterForInput: ((DraggableTerminalView, String) -> Void)?
+
   var sessionId: String?
   var isNewSession: Bool = false  // New sessions don't have their ID in process args
   var workingDirectory: String?
   private var currentState: SessionState = .inactive
-  private var hasStarted = false
   private var stateMonitor: SessionStateMonitor?
   private var registeredPID: pid_t = 0
+  private var pendingRestart = false
 
   func startStateMonitoring() {
     // Get the process PID from LocalProcess
@@ -174,15 +190,12 @@ class DraggableTerminalView: LocalProcessTerminalView {
       self?.onShellStart?(pid)
     }
 
-    // Track session for hook detection and mark as activated
-    // Events before activation time will be ignored (prevents stale state)
+    // Notify activation via callbacks — no direct AppState.shared reference here.
     if let sessionId = sessionId {
       DispatchQueue.main.async { [weak self] in
         guard let self = self else { return }
-        AppState.shared.markSessionActivated(sessionId)
-        AppState.shared.trackSessionForHooks(sessionId)
-        // Register terminal for remote input (notification actions)
-        TerminalRegistry.shared.register(self, for: sessionId)
+        self.onSessionActivated?(sessionId)
+        self.onRegisterForInput?(self, sessionId)
       }
     }
 
@@ -201,16 +214,19 @@ class DraggableTerminalView: LocalProcessTerminalView {
     stateMonitor = nil
   }
 
-  // Override dataReceived from LocalProcessDelegate to intercept terminal data
+  /// Named constant documenting why the delay exists — SwiftTerm populates
+  /// `shellPid` asynchronously after the PTY fork; this grace period ensures the
+  /// PID is available before `startStateMonitoring` reads it.
+  private static let processStartupGracePeriod: TimeInterval = 0.5
+
+  // Override dataReceived from LocalProcessDelegate to intercept terminal data.
+  // We use the first received byte as the "process is alive" signal.
   override func dataReceived(slice: ArraySlice<UInt8>) {
-    // Call super to ensure data is processed by the terminal
     super.dataReceived(slice: slice)
 
-    // Start monitoring once we receive data (process has started)
-    if !hasStarted {
-      hasStarted = true
-      // Small delay to ensure process is fully started
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+    // Start monitoring exactly once, after the process has begun producing output.
+    if stateMonitor == nil {
+      DispatchQueue.main.asyncAfter(deadline: .now() + Self.processStartupGracePeriod) { [weak self] in
         self?.startStateMonitoring()
       }
     }
@@ -228,6 +244,12 @@ class DraggableTerminalView: LocalProcessTerminalView {
     }
 
     setMonitorInfo(SessionMonitorInfo(state: .inactive, cpu: 0, memory: 0, pid: 0))
+
+    // If a restart was requested, launch now that the old process is confirmed dead.
+    if pendingRestart {
+      pendingRestart = false
+      launchProcess()
+    }
   }
 
   /// Terminate the running process and its children
@@ -238,48 +260,41 @@ class DraggableTerminalView: LocalProcessTerminalView {
     }
   }
 
-  /// Restart the session - terminates current process and starts a new one
+  /// Restart the session — terminates the current process and starts a new one.
+  /// The actual relaunch happens in `processTerminated`, once the OS confirms the
+  /// process is gone, eliminating the old arbitrary 0.3s delay.
   func restartSession() {
-    // Stop monitoring
     stopStateMonitoring()
+    pendingRestart = true
 
-    // Terminate current process
     if registeredPID > 0 {
       ProcessManager.shared.terminateProcess(pid: registeredPID)
       registeredPID = 0
     }
+  }
 
-    // Reset state
-    hasStarted = false
+  /// Shared launch helper used by both `Coordinator.startProcess` and the
+  /// `pendingRestart` path in `processTerminated`.
+  private func launchProcess() {
+    let claudePath = ClaudePathResolver.findClaudePath()
 
-    // Small delay to ensure process is terminated, then restart
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-      guard let self = self else { return }
-
-      let claudePath = ClaudePathResolver.findClaudePath()
-
-      // Build arguments - resume existing session
-      var args: [String] = []
-      if let sessionId = self.sessionId {
-        args = ["--resume", sessionId]
-      }
-
-      // Build environment with terminal settings
-      let env = TerminalEnvironment.build()
-
-      // Set working directory
-      if let workingDir = self.workingDirectory {
-        FileManager.default.changeCurrentDirectoryPath(workingDir)
-      }
-
-      let launch = TerminalEnvironment.shellArgs(executable: claudePath, args: args)
-      self.startProcess(
-        executable: launch.executable,
-        args: launch.args,
-        environment: env,
-        execName: "claude"
-      )
+    var args: [String] = []
+    if let sessionId = sessionId {
+      args = ["--resume", sessionId]
     }
+
+    let env = TerminalEnvironment.build()
+    let launch = TerminalEnvironment.shellArgs(
+      executable: claudePath,
+      args: args,
+      currentDirectory: workingDirectory
+    )
+    startProcess(
+      executable: launch.executable,
+      args: launch.args,
+      environment: env,
+      execName: "claude"
+    )
   }
 
   deinit {
@@ -369,19 +384,20 @@ struct SessionMonitorInfo {
   let pid: pid_t
 }
 
+/// Monitors the CPU/memory of a single session's claude process.
+///
+/// Instead of running its own `ps` subprocess, it subscribes to the shared
+/// `ProcessPoller` actor, which runs one `ps` per 500 ms for all sessions combined.
 class SessionStateMonitor {
   let shellPID: pid_t
   let sessionId: String?
   var onStateChange: ((SessionMonitorInfo) -> Void)?
 
-  private var pollTimer: DispatchSourceTimer?
-  private let queue = DispatchQueue(label: "SessionStateMonitor", qos: .utility)
+  private let pollerId = UUID()
   private var currentState: SessionState = .inactive
   private var cpuHistory: [Double] = []
   private var stateStartTime: Date = Date()
-  private var processStartTime: Date = Date()
-  private var lastReportedCPU: Double = 0
-  private var lastReportedMemory: UInt64 = 0
+  private let processStartTime: Date = Date()
   private var claudePID: pid_t = 0
 
   // Thresholds based on ClaudeCodeMonitor
@@ -394,82 +410,59 @@ class SessionStateMonitor {
   init(processPID: pid_t, sessionId: String? = nil) {
     self.shellPID = processPID
     self.sessionId = sessionId
-    self.processStartTime = Date()
   }
 
   func start() {
-    // Start polling for CPU usage
-    let timer = DispatchSource.makeTimerSource(queue: queue)
-    timer.schedule(deadline: .now() + 0.5, repeating: 0.5)
-    timer.setEventHandler { [weak self] in self?.checkCPU() }
-    timer.resume()
-    pollTimer = timer
-
-    // Initial state
+    let monitorId = pollerId
+    let shellPID = self.shellPID
+    let sessionId = self.sessionId
+    Task {
+      await ProcessPoller.shared.subscribe(id: monitorId) { [weak self] snapshot in
+        self?.handleSnapshot(snapshot, shellPID: shellPID, sessionId: sessionId)
+      }
+    }
     emit(.waitingForInput, cpu: 0, memory: 0)
   }
 
   func stop() {
-    pollTimer?.cancel()
-    pollTimer = nil
+    let monitorId = pollerId
+    Task { await ProcessPoller.shared.unsubscribe(id: monitorId) }
   }
 
-  private func checkCPU() {
-    let pid = findClaudeProcess()
+  private func handleSnapshot(_ snapshot: [pid_t: ProcessPoller.ProcessRecord], shellPID: pid_t, sessionId: String?) {
+    let pid = ProcessTreeAnalyzer.findClaudeProcess(in: snapshot, shellPID: shellPID, sessionId: sessionId)
     claudePID = pid
 
-    guard pid > 0, let stats = getProcessStats(pid: pid) else {
+    guard pid > 0, let record = snapshot[pid] else {
       emit(.inactive, cpu: 0, memory: 0)
       return
     }
 
-    let cpu = stats.cpu
-    let memory = stats.memory
-    lastReportedMemory = memory
+    let cpu = record.cpu
+    let memoryBytes = record.memoryKB * 1024
 
-    // Update CPU history for rolling average
     cpuHistory.append(cpu)
-    if cpuHistory.count > historySize {
-      cpuHistory.removeFirst()
-    }
+    if cpuHistory.count > historySize { cpuHistory.removeFirst() }
 
     let avgCPU = cpuHistory.reduce(0, +) / Double(cpuHistory.count)
     let timeSinceStart = Date().timeIntervalSince(processStartTime)
     let timeSinceStateChange = Date().timeIntervalSince(stateStartTime)
-
-    // State machine based on ClaudeCodeMonitor logic
     let newState = deriveState(avgCPU: avgCPU, timeSinceStart: timeSinceStart, timeSinceStateChange: timeSinceStateChange)
 
-    // Always report CPU/memory, emit state change if needed
     if newState != currentState {
-      emit(newState, cpu: avgCPU, memory: memory)
+      emit(newState, cpu: avgCPU, memory: memoryBytes)
     } else {
-      // Report CPU/memory update even without state change
-      reportStats(cpu: avgCPU, memory: memory)
+      reportStats(cpu: avgCPU, memory: memoryBytes)
     }
-  }
-
-  /// Find Claude process that is a descendant of our shell
-  private func findClaudeProcess() -> pid_t {
-    ProcessTreeAnalyzer.findClaudeProcess(shellPID: shellPID, sessionId: sessionId)
   }
 
   private func deriveState(avgCPU: Double, timeSinceStart: TimeInterval, timeSinceStateChange: TimeInterval) -> SessionState {
     switch currentState {
     case .inactive, .waitingForInput:
-      // Transition to thinking if CPU is high
-      if avgCPU > cpuHighThreshold && timeSinceStart > minRunningTime {
-        return .thinking
-      }
-      // Stay in waiting state if process is running
+      if avgCPU > cpuHighThreshold && timeSinceStart > minRunningTime { return .thinking }
       return .waitingForInput
-
     case .thinking:
-      // Transition to waiting if CPU drops low for a while
-      if avgCPU < cpuLowThreshold && timeSinceStateChange > minStateTime {
-        return .waitingForInput
-      }
-      // Stay thinking if CPU is still high
+      if avgCPU < cpuLowThreshold && timeSinceStateChange > minStateTime { return .waitingForInput }
       return .thinking
     }
   }
@@ -477,69 +470,19 @@ class SessionStateMonitor {
   private func emit(_ state: SessionState, cpu: Double, memory: UInt64) {
     currentState = state
     stateStartTime = Date()
-    lastReportedCPU = cpu
-    lastReportedMemory = memory
     let cb = onStateChange
     let pid = claudePID
     DispatchQueue.main.async { cb?(SessionMonitorInfo(state: state, cpu: cpu, memory: memory, pid: pid)) }
   }
 
   private func reportStats(cpu: Double, memory: UInt64) {
-    lastReportedCPU = cpu
-    lastReportedMemory = memory
     let state = currentState
     let cb = onStateChange
     let pid = claudePID
     DispatchQueue.main.async { cb?(SessionMonitorInfo(state: state, cpu: cpu, memory: memory, pid: pid)) }
   }
-
-  /// Get CPU and memory usage for a specific process using ps command
-  /// Returns (cpu percentage, memory in bytes) or nil if process not found
-  private func getProcessStats(pid: pid_t) -> (cpu: Double, memory: UInt64)? {
-    let task = Process()
-    task.launchPath = "/bin/bash"
-    // %cpu = CPU percentage, rss = resident set size in KB, pid = process ID
-    task.arguments = ["-c", "ps -A -o %cpu,rss,pid"]
-
-    let pipe = Pipe()
-    task.standardOutput = pipe
-    task.launch()
-
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    task.waitUntilExit()
-
-    guard let output = String(data: data, encoding: .utf8) else { return nil }
-
-    let lines = output.components(separatedBy: "\n")
-    for line in lines {
-      let components = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        .components(separatedBy: .whitespaces)
-        .filter { !$0.isEmpty }
-      // Expecting: %cpu, rss (KB), pid
-      guard components.count >= 3,
-         let cpuString = components[safe: 0],
-         let rssString = components[safe: 1],
-         let pidString = components[safe: 2],
-         let linePid = Int32(pidString),
-         linePid == pid,
-         let cpu = Double(cpuString),
-         let rssKB = UInt64(rssString) else {
-        continue
-      }
-      // Convert KB to bytes
-      let memoryBytes = rssKB * 1024
-      return (cpu, memoryBytes)
-    }
-    return nil
-  }
 }
 
-// MARK: - Safe Array Access
-private extension Array {
-  subscript(safe index: Int) -> Element? {
-    indices.contains(index) ? self[index] : nil
-  }
-}
 
 enum TerminalColors {
   /// SwiftTerm's default dark palette
