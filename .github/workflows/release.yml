@@ -6,7 +6,30 @@ on:
       - 'v*'
 
 jobs:
+  # Cheap pre-check: only release tags that land on master.
+  # This prevents accidental releases from feature-branch tags.
+  check-branch:
+    runs-on: ubuntu-latest
+    outputs:
+      on_main: ${{ steps.check.outputs.on_main }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify tag commit is on main
+        id: check
+        run: |
+          git fetch origin main
+          if git merge-base --is-ancestor ${{ github.sha }} origin/main; then
+            echo "on_main=true"  >> $GITHUB_OUTPUT
+          else
+            echo "on_main=false" >> $GITHUB_OUTPUT
+            echo "::warning::Tag ${{ github.ref_name }} is not on main — release skipped"
+          fi
+
   release:
+    needs: check-branch
+    if: needs.check-branch.outputs.on_main == 'true'
     runs-on: macos-26
     permissions:
       contents: write

@@ -56,6 +56,11 @@ final class AppSettings {
     }
   }
 
+  /// Whether to source ~/.zshrc before launching claude (default: true)
+  var sourceZshrc: Bool {
+    didSet { UserDefaults.standard.set(sourceZshrc, forKey: "settings.sourceZshrc") }
+  }
+
   private init() {
     // Load initial values from UserDefaults
     self.gitChangesEnabled = UserDefaults.standard.object(forKey: "settings.gitChangesEnabled") as? Bool ?? false
@@ -68,6 +73,7 @@ final class AppSettings {
     } else {
       self.customEnvironmentVariables = [:]
     }
+    self.sourceZshrc = UserDefaults.standard.object(forKey: "settings.sourceZshrc") as? Bool ?? true
   }
 }
 

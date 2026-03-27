@@ -49,10 +49,11 @@ struct TerminalEnvironment {
     ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
   }
 
-  /// Wraps a claude command in a login shell invocation so that ~/.zprofile and
-  /// ~/.zshrc are sourced before claude runs.
-  /// `-l` sources ~/.zprofile. ~/.zshrc is sourced manually — avoids using `-i`
-  /// which triggers /etc/zshrc terminal key-binding setup and causes errors without a TTY.
+  /// Wraps a claude command in a login shell invocation so that ~/.zprofile is
+  /// sourced before claude runs (`-l`). If `sourceZshrc` is true (the default,
+  /// controlled by Settings → Environment Variables), ~/.zshrc is also sourced
+  /// manually — avoids using `-i` which triggers /etc/zshrc terminal key-binding
+  /// setup and causes errors without a TTY.
   /// `exec` replaces the shell with claude (same PID), so SwiftTerm tracks it correctly.
   ///
   /// When `currentDirectory` is provided the `cd` runs inside the child shell,
@@ -75,9 +76,12 @@ struct TerminalEnvironment {
       cdClause = ""
     }
 
-    // Source ~/.zshrc manually (errors suppressed so /etc/zshrc side-effects don't show)
-    // then exec into claude — after exec, the PTY is claude's and output is unaffected.
-    let command = "\(cdClause)[ -f \"$HOME/.zshrc\" ] && source \"$HOME/.zshrc\" 2>/dev/null; exec \(claudeCommand)"
+    // Optionally source ~/.zshrc (errors suppressed so /etc/zshrc side-effects
+    // don't appear in the terminal), then exec into claude.
+    let zshrcClause = AppSettings.shared.sourceZshrc
+      ? "[ -f \"$HOME/.zshrc\" ] && source \"$HOME/.zshrc\" 2>/dev/null; "
+      : ""
+    let command = "\(cdClause)\(zshrcClause)exec \(claudeCommand)"
     return (loginShell, ["-l", "-c", command])
   }
 }
