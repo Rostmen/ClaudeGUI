@@ -147,6 +147,9 @@ struct SettingsView: View {
 
       // Environment Variables section
       Section {
+        Toggle("Source ~/.zshrc on session start", isOn: $settings.sourceZshrc)
+          .help("Sources ~/.zshrc before launching claude. Disable if your .zshrc causes errors or slows session startup.")
+
         let sorted = settings.customEnvironmentVariables.sorted { $0.key < $1.key }
         ForEach(sorted, id: \.key) { key, value in
           HStack(spacing: 4) {
