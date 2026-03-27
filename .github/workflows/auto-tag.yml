@@ -12,22 +12,36 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need full tag history to find the highest patch
 
-      - name: Read MARKETING_VERSION from Xcode project
+      - name: Derive next version tag
         id: ver
         run: |
-          VERSION=$(grep -m1 'MARKETING_VERSION' Tenvy.xcodeproj/project.pbxproj \
+          # MARKETING_VERSION is major.minor (e.g. "1.0", "1.1", "2.0")
+          MARKETING=$(grep -m1 'MARKETING_VERSION' Tenvy.xcodeproj/project.pbxproj \
             | tr -d ' \t;' | cut -d= -f2)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Detected version: $VERSION"
+          echo "Marketing version: $MARKETING"
 
-      - name: Create and push tag (skip if already exists)
-        run: |
-          TAG="v${{ steps.ver.outputs.version }}"
-          if git ls-remote --tags origin "$TAG" | grep -q "$TAG"; then
-            echo "Tag $TAG already exists — nothing to do"
+          # Find the highest patch already tagged for this major.minor
+          LAST_PATCH=$(git tag --list "v${MARKETING}.*" \
+            | sed "s/v${MARKETING}\.//" \
+            | grep -E '^[0-9]+$' \
+            | sort -n \
+            | tail -1)
+
+          if [ -z "$LAST_PATCH" ]; then
+            PATCH=0
           else
-            git tag "$TAG"
-            git push origin "$TAG"
-            echo "Created tag $TAG"
+            PATCH=$((LAST_PATCH + 1))
           fi
+
+          TAG="v${MARKETING}.${PATCH}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Next tag: $TAG"
+
+      - name: Push tag
+        run: |
+          git tag "${{ steps.ver.outputs.tag }}"
+          git push origin "${{ steps.ver.outputs.tag }}"
+          echo "Created tag ${{ steps.ver.outputs.tag }}"
