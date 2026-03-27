@@ -93,8 +93,8 @@ jobs:
 
       - name: Install Metal Toolchain
         run: |
-          if xcodebuild -showsdks 2>/dev/null | grep -q "macosx"; then
-            echo "Metal Toolchain already present, skipping download"
+          if xcrun --find metal &>/dev/null; then
+            echo "Metal compiler already present, skipping download"
           else
             sudo xcodebuild -downloadComponent MetalToolchain
           fi
