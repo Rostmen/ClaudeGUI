@@ -196,18 +196,22 @@ jobs:
           git tag "$TAG"
           git push origin "$TAG"
 
+          cat > /tmp/release-notes.md <<EOF
+          ## Tenvy $TAG
+
+          ### Installation
+          1. Download \`Tenvy-$VERSION.dmg\`
+          2. Open the DMG and drag **Tenvy** to your Applications folder
+          3. Launch Tenvy from Applications
+
+          ### Requirements
+          - macOS 14.0 or later
+          - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview) installed
+          EOF
+
           gh release create "$TAG" "build/Tenvy-$VERSION.dmg" \
             --title "Tenvy $TAG" \
-            --notes "## Tenvy $TAG
-
-### Installation
-1. Download \`Tenvy-$VERSION.dmg\`
-2. Open the DMG and drag **Tenvy** to your Applications folder
-3. Launch Tenvy from Applications
-
-### Requirements
-- macOS 14.0 or later
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview) installed"
+            --notes-file /tmp/release-notes.md
 
       - name: Update Homebrew tap
         env:
