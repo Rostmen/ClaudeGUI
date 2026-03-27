@@ -75,9 +75,9 @@ jobs:
         if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
         run: |
           ZIG_VERSION="0.15.2"
-          curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-macos-aarch64-${ZIG_VERSION}.tar.xz" \
+          curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-aarch64-macos-${ZIG_VERSION}.tar.xz" \
             | tar -xJ -C /usr/local/lib
-          ln -sf "/usr/local/lib/zig-macos-aarch64-${ZIG_VERSION}/zig" /usr/local/bin/zig
+          ln -sf "/usr/local/lib/zig-aarch64-macos-${ZIG_VERSION}/zig" /usr/local/bin/zig
           zig version
 
       - name: Build GhosttyKit.xcframework
