@@ -92,12 +92,7 @@ jobs:
           xcodebuild -version
 
       - name: Install Metal Toolchain
-        run: |
-          if xcrun --find metal &>/dev/null; then
-            echo "Metal compiler already present, skipping download"
-          else
-            sudo xcodebuild -downloadComponent MetalToolchain
-          fi
+        run: sudo xcodebuild -downloadComponent MetalToolchain
 
       - name: Install tools
         run: brew install create-dmg
