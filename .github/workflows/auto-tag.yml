@@ -1,0 +1,33 @@
+name: Tag on master merge
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read MARKETING_VERSION from Xcode project
+        id: ver
+        run: |
+          VERSION=$(grep -m1 'MARKETING_VERSION' Tenvy.xcodeproj/project.pbxproj \
+            | tr -d ' \t;' | cut -d= -f2)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Detected version: $VERSION"
+
+      - name: Create and push tag (skip if already exists)
+        run: |
+          TAG="v${{ steps.ver.outputs.version }}"
+          if git ls-remote --tags origin "$TAG" | grep -q "$TAG"; then
+            echo "Tag $TAG already exists — nothing to do"
+          else
+            git tag "$TAG"
+            git push origin "$TAG"
+            echo "Created tag $TAG"
+          fi
