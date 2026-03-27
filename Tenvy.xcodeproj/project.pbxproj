@@ -11,6 +11,7 @@
 		96B000D82F6E1C0000B70D2B /* gitdiff in Frameworks */ = {isa = PBXBuildFile; productRef = 96B000DA2F6E1C0000B70D2B /* gitdiff */; };
 		96B0AA032F6E2A0000B70D2B /* Dependencies in Frameworks */ = {isa = PBXBuildFile; productRef = 96B0AA022F6E2A0000B70D2B /* Dependencies */; };
 		96B0FCA32F6DC5A200B70D2B /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 96B0FC5E2F6DB5AD00B70D2B /* SwiftTerm */; };
+		AA000001AAAA0001AA000001 /* GhosttyEmbed in Frameworks */ = {isa = PBXBuildFile; productRef = AA000002AAAA0002AA000002 /* GhosttyEmbed */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -63,6 +64,7 @@
 				96B000D82F6E1C0000B70D2B /* gitdiff in Frameworks */,
 				96B0AA032F6E2A0000B70D2B /* Dependencies in Frameworks */,
 				96B0FCA32F6DC5A200B70D2B /* SwiftTerm in Frameworks */,
+				AA000001AAAA0001AA000001 /* GhosttyEmbed in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -127,6 +129,7 @@
 				96B000D32F6E1A9C00B70D2B /* SwiftTerm */,
 				96B000DA2F6E1C0000B70D2B /* gitdiff */,
 				96B0AA022F6E2A0000B70D2B /* Dependencies */,
+				AA000002AAAA0002AA000002 /* GhosttyEmbed */,
 			);
 			productName = Tenvy;
 			productReference = 96B0FC312F6DB5AB00B70D2B /* Tenvy.app */;
@@ -214,6 +217,7 @@
 				96B000D22F6E1A9C00B70D2B /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 				96B000D92F6E1C0000B70D2B /* XCRemoteSwiftPackageReference "gitdiff" */,
 				96B0AA012F6E2A0000B70D2B /* XCRemoteSwiftPackageReference "swift-dependencies" */,
+				AA000003AAAA0003AA000003 /* XCLocalSwiftPackageReference "GhosttyEmbed" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 96B0FC322F6DB5AB00B70D2B /* Products */;
@@ -598,6 +602,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		AA000003AAAA0003AA000003 /* XCLocalSwiftPackageReference "GhosttyEmbed" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = GhosttyEmbed;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		96B000D22F6E1A9C00B70D2B /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -645,6 +656,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 96B000D22F6E1A9C00B70D2B /* XCRemoteSwiftPackageReference "SwiftTerm" */;
 			productName = SwiftTerm;
+		};
+		AA000002AAAA0002AA000002 /* GhosttyEmbed */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA000003AAAA0003AA000003 /* XCLocalSwiftPackageReference "GhosttyEmbed" */;
+			productName = GhosttyEmbed;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

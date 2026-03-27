@@ -21,19 +21,18 @@
 // SOFTWARE.
 
 import Foundation
-import SwiftTerm
 
-/// Registry that tracks active terminal views by session ID
-/// Used to send commands to terminals from notifications
+/// Registry that tracks active terminal input senders by session ID.
+/// Used to route keyboard input from notifications to the running terminal backend.
 @MainActor
 final class TerminalRegistry {
-  /// Weak references to terminal views by session ID
+  /// Weak references to terminal input senders by session ID
   private var terminals: [String: WeakTerminalRef] = [:]
 
   init() {}
 
-  /// Register a terminal view for a session
-  func register(_ terminal: DraggableTerminalView, for sessionId: String) {
+  /// Register a terminal for a session
+  func register(_ terminal: any TerminalInputSender, for sessionId: String) {
     terminals[sessionId] = WeakTerminalRef(terminal)
     cleanup()
   }
@@ -43,23 +42,20 @@ final class TerminalRegistry {
     terminals.removeValue(forKey: sessionId)
   }
 
-  /// Get the terminal view for a session
-  func terminal(for sessionId: String) -> DraggableTerminalView? {
+  /// Get the terminal sender for a session
+  func terminal(for sessionId: String) -> (any TerminalInputSender)? {
     cleanup()
     return terminals[sessionId]?.terminal
   }
 
   /// Send text input to a session's terminal
   func sendInput(to sessionId: String, text: String) -> Bool {
-    guard let terminal = terminal(for: sessionId) else {
-      return false
-    }
+    guard let terminal = terminal(for: sessionId) else { return false }
     terminal.send(txt: text)
     return true
   }
 
   /// Restart all active sessions
-  /// Used after hook installation/uninstallation to apply changes
   func restartAllSessions() {
     cleanup()
     for (_, weakRef) in terminals {
@@ -74,30 +70,22 @@ final class TerminalRegistry {
   }
 
   /// Send permission response to a session's terminal
-  /// - Parameters:
-  ///   - sessionId: The session ID
-  ///   - response: The permission response type
   func sendPermissionResponse(to sessionId: String, response: PermissionResponse) {
     guard let terminal = terminal(for: sessionId) else {
       print("TerminalRegistry: No terminal found for session \(sessionId)")
       return
     }
-
-    // Send the appropriate keystrokes based on response
     switch response {
     case .allowOnce:
-      // First option is pre-selected — just press Enter
       terminal.send(txt: "\r")
     case .allowSession:
-      // Arrow down to select second option, then Enter
-      terminal.send(txt: "\u{1B}[B")  // Arrow down (ESC [ B)
+      terminal.send(txt: "\u{1B}[B")
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
         terminal.send(txt: "\r")
       }
     }
   }
 
-  /// Remove any deallocated terminal references
   private func cleanup() {
     terminals = terminals.filter { $0.value.terminal != nil }
   }
@@ -109,11 +97,11 @@ enum PermissionResponse {
   case allowSession   // Second option: Allow for this session (↓ + Enter)
 }
 
-/// Weak reference wrapper for terminal views
+/// Weak reference wrapper for any terminal input sender
 private class WeakTerminalRef {
-  weak var terminal: DraggableTerminalView?
+  weak var terminal: (any TerminalInputSender)?
 
-  init(_ terminal: DraggableTerminalView) {
+  init(_ terminal: any TerminalInputSender) {
     self.terminal = terminal
   }
 }

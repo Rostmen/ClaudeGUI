@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 import SwiftUI
+import Foundation
 
 struct SettingsView: View {
   @Environment(AppModel.self) private var appModel
@@ -52,6 +53,21 @@ struct SettingsView: View {
           .foregroundColor(.secondary)
       }
 #endif
+
+      // Terminal section
+      Section {
+        Picker("Terminal Type", selection: $settings.terminalType) {
+          Text("SwiftTerm (Default)").tag(TerminalType.swiftTerm)
+          Text("Ghostty (Experimental)").tag(TerminalType.ghostty)
+        }
+        .pickerStyle(MenuPickerStyle())
+      } header: {
+        Text("Terminal")
+      } footer: {
+        Text("Choose which terminal rendering engine to use")
+          .font(.caption)
+          .foregroundColor(.secondary)
+      }
       // Hooks section
       Section {
         HStack {
