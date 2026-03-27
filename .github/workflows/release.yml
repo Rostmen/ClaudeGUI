@@ -92,7 +92,12 @@ jobs:
           xcodebuild -version
 
       - name: Install Metal Toolchain
-        run: sudo xcodebuild -downloadComponent MetalToolchain
+        run: |
+          if xcodebuild -showsdks 2>/dev/null | grep -q "macosx"; then
+            echo "Metal Toolchain already present, skipping download"
+          else
+            sudo xcodebuild -downloadComponent MetalToolchain
+          fi
 
       - name: Install tools
         run: brew install create-dmg
