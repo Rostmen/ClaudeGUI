@@ -18,7 +18,25 @@ public class GhosttyEmbedApp {
         if result != GHOSTTY_SUCCESS {
             Ghostty.logger.critical("ghostty_init failed: \(result)")
         }
-        ghosttyApp = Ghostty.App()
+
+        // Write a thin config override so Ghostty's background matches Tenvy's
+        // glass UI (semi-transparent black, same as SwiftTerm's kWindowOpacity).
+        // We chain the user's existing Ghostty config first so their other
+        // settings (font, keybindings, etc.) are still respected.
+        let userConfig = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/ghostty/config").path
+        var lines = [
+            "background = #000000",
+            "background-opacity = 0.5",
+        ]
+        if FileManager.default.fileExists(atPath: userConfig) {
+            lines.insert("config-file = \(userConfig)", at: 0)
+        }
+        let configPath = (NSTemporaryDirectory() as NSString)
+            .appendingPathComponent("tenvy-ghostty.conf")
+        try? lines.joined(separator: "\n").write(toFile: configPath, atomically: true, encoding: .utf8)
+
+        ghosttyApp = Ghostty.App(configPath: configPath)
     }
 }
 
