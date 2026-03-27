@@ -2,34 +2,58 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
 
 jobs:
-  # Cheap pre-check: only release tags that land on master.
-  # This prevents accidental releases from feature-branch tags.
-  check-branch:
+  # Derive the next version tag. Skip the release entirely if the tag
+  # already exists (doc/CI-only pushes that don't change the version).
+  check:
     runs-on: ubuntu-latest
     outputs:
-      on_main: ${{ steps.check.outputs.on_main }}
+      should_release: ${{ steps.ver.outputs.should_release }}
+      tag: ${{ steps.ver.outputs.tag }}
+      version: ${{ steps.ver.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Verify tag commit is on main
-        id: check
+
+      - name: Derive next version tag
+        id: ver
         run: |
-          git fetch origin main
-          if git merge-base --is-ancestor ${{ github.sha }} origin/main; then
-            echo "on_main=true"  >> $GITHUB_OUTPUT
+          # Extract only major.minor from MARKETING_VERSION so "1.0.3" → "1.0".
+          # This keeps tags in the v1.0.N format regardless of what the project
+          # file stores in MARKETING_VERSION.
+          MARKETING=$(grep -m1 'MARKETING_VERSION' Tenvy.xcodeproj/project.pbxproj \
+            | tr -d ' \t;' | cut -d= -f2)
+          BASE=$(echo "$MARKETING" | cut -d. -f1-2)
+          echo "MARKETING_VERSION=$MARKETING  base=$BASE"
+
+          # Find the highest patch already released for this major.minor
+          LAST_PATCH=$(git tag --list "v${BASE}.*" \
+            | sed "s/^v${BASE}\.//" \
+            | grep -E '^[0-9]+$' \
+            | sort -n \
+            | tail -1)
+
+          PATCH=$([ -z "$LAST_PATCH" ] && echo 0 || echo $((LAST_PATCH + 1)))
+          TAG="v${BASE}.${PATCH}"
+          VERSION="${BASE}.${PATCH}"
+
+          echo "tag=$TAG"         >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists — skipping release"
+            echo "should_release=false" >> $GITHUB_OUTPUT
           else
-            echo "on_main=false" >> $GITHUB_OUTPUT
-            echo "::warning::Tag ${{ github.ref_name }} is not on main — release skipped"
+            echo "Next release: $TAG"
+            echo "should_release=true" >> $GITHUB_OUTPUT
           fi
 
   release:
-    needs: check-branch
-    if: needs.check-branch.outputs.on_main == 'true'
+    needs: check
+    if: needs.check.outputs.should_release == 'true'
     runs-on: macos-26
     permissions:
       contents: write
@@ -45,7 +69,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ghostty/macos/GhosttyKit.xcframework
-          key: ghosttykit-${{ hashFiles('.gitmodules') }}-${{ hashFiles('ghostty/.git/HEAD', 'ghostty/src/**/*.zig', 'ghostty/build.zig') }}
+          key: ghosttykit-${{ hashFiles('.gitmodules') }}-${{ hashFiles('ghostty/src/**/*.zig', 'ghostty/build.zig') }}
 
       - name: Install Zig
         if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
@@ -62,7 +86,6 @@ jobs:
 
       - name: Select Xcode
         run: |
-          # Pick the latest stable (non-beta) Xcode on the runner
           XCODE=$(ls -d /Applications/Xcode*.app 2>/dev/null | grep -iv "beta" | sort -V | tail -1)
           echo "Using Xcode: $XCODE"
           sudo xcode-select -s "$XCODE"
@@ -83,7 +106,6 @@ jobs:
           KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
           CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
 
-          # echo -n avoids a trailing newline that corrupts the .p12 decode
           echo -n "$CERTIFICATE_BASE64" | base64 --decode -o "$CERTIFICATE_PATH"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
@@ -101,10 +123,6 @@ jobs:
           echo "Available signing identities:"
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
-      - name: Get version from tag
-        id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
-
       - name: Archive (unsigned)
         run: |
           xcodebuild archive \
@@ -114,7 +132,7 @@ jobs:
             -archivePath build/Tenvy.xcarchive \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
-            MARKETING_VERSION=${{ steps.version.outputs.VERSION }}
+            MARKETING_VERSION=${{ needs.check.outputs.version }}
 
       - name: Sign, notarize & staple
         env:
@@ -126,12 +144,10 @@ jobs:
           KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          # Copy .app from archive
           APP_PATH=$(find build/Tenvy.xcarchive/Products -name "*.app" | head -1)
           mkdir -p build/export
           cp -R "$APP_PATH" build/export/Tenvy.app
 
-          # Sign frameworks and dylibs inside the app first
           find build/export/Tenvy.app/Contents -name "*.framework" -o -name "*.dylib" | sort -r | while read item; do
             codesign --force --sign "Developer ID Application" \
               --keychain "$KEYCHAIN_PATH" \
@@ -139,32 +155,27 @@ jobs:
               "$item"
           done
 
-          # Sign the app bundle itself
           codesign --force --deep --sign "Developer ID Application" \
             --keychain "$KEYCHAIN_PATH" \
             --options runtime \
             --timestamp \
             build/export/Tenvy.app
 
-          # Verify signature
           codesign --verify --deep --strict build/export/Tenvy.app
 
-          # Zip for notarization
           ditto -c -k --keepParent build/export/Tenvy.app build/Tenvy.zip
 
-          # Submit and wait for notarization result
           xcrun notarytool submit build/Tenvy.zip \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             --wait
 
-          # Staple the ticket to the app
           xcrun stapler staple build/export/Tenvy.app
 
       - name: Create DMG
         run: |
-          VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION=${{ needs.check.outputs.version }}
           create-dmg \
             --volname "Tenvy $VERSION" \
             --window-size 600 380 \
@@ -175,46 +186,47 @@ jobs:
             "build/Tenvy-$VERSION.dmg" \
             "build/export/Tenvy.app"
 
-      - name: Create GitHub release
+      - name: Push tag and create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION=${{ steps.version.outputs.VERSION }}
-          gh release create "v$VERSION" "build/Tenvy-$VERSION.dmg" \
-            --title "Tenvy v$VERSION" \
-            --notes "## Tenvy v$VERSION
+          TAG=${{ needs.check.outputs.tag }}
+          VERSION=${{ needs.check.outputs.version }}
 
-          ### Installation
-          1. Download \`Tenvy-$VERSION.dmg\`
-          2. Open the DMG and drag **Tenvy** to your Applications folder
-          3. Launch Tenvy from Applications
+          git tag "$TAG"
+          git push origin "$TAG"
 
-          ### Requirements
-          - macOS 14.0 or later
-          - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview) installed"
+          gh release create "$TAG" "build/Tenvy-$VERSION.dmg" \
+            --title "Tenvy $TAG" \
+            --notes "## Tenvy $TAG
+
+### Installation
+1. Download \`Tenvy-$VERSION.dmg\`
+2. Open the DMG and drag **Tenvy** to your Applications folder
+3. Launch Tenvy from Applications
+
+### Requirements
+- macOS 14.0 or later
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview) installed"
 
       - name: Update Homebrew tap
         env:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
-          VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION=${{ needs.check.outputs.version }}
           DMG="build/Tenvy-$VERSION.dmg"
 
-          # Compute SHA256 of the DMG
           SHA256=$(shasum -a 256 "$DMG" | awk '{print $1}')
           echo "SHA256: $SHA256"
 
-          # Clone the tap repo
           git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/Rostmen/homebrew-tenvy.git /tmp/homebrew-tenvy
 
-          # Generate the cask from template
           mkdir -p /tmp/homebrew-tenvy/Casks
           sed \
             -e "s/VERSION_PLACEHOLDER/$VERSION/g" \
             -e "s/SHA256_PLACEHOLDER/$SHA256/g" \
             scripts/tenvy.rb.template > /tmp/homebrew-tenvy/Casks/tenvy.rb
 
-          # Commit and push
           cd /tmp/homebrew-tenvy
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
