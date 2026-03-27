@@ -145,7 +145,7 @@ final class SessionExportService {
   ///   - archiveURL: URL of the zip file to import
   ///   - sessionManager: Session manager to add the imported session to
   /// - Returns: The imported session, or nil if failed
-  func importSession(from archiveURL: URL, sessionManager: SessionManager) async throws -> ClaudeSession? {
+  func importSession(from archiveURL: URL, sessionManager: any SessionDiscovery) async throws -> ClaudeSession? {
     // Create temporary directory for extraction
     let tempDir = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)

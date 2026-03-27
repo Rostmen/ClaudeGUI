@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+import Dependencies
 import Foundation
 
 /// Represents a hook event from Claude Code
@@ -72,9 +73,9 @@ enum HookState: String, Codable {
 @MainActor
 @Observable
 final class HookEventService {
-  static let shared = HookEventService()
 
-  /// Events file path
+  /// Events file path — resolved from DependencyValues at init time.
+  /// Override via withDependencies { $0.hookEventsFilePath = … } before creating the instance.
   private let eventsFilePath: URL
 
   /// File handle for reading
@@ -101,10 +102,9 @@ final class HookEventService {
   /// Callback when a session state changes (sessionId, state, tool, message, eventTime)
   var onStateChange: ((String, HookState, String?, String?, Date?) -> Void)?
 
-  private init() {
-    let claudeDir = FileManager.default.homeDirectoryForCurrentUser
-      .appendingPathComponent(".claude")
-    eventsFilePath = claudeDir.appendingPathComponent("chat-sessions-events.jsonl")
+  init() {
+    @Dependency(\.hookEventsFilePath) var filePath
+    self.eventsFilePath = filePath
   }
 
   /// Start monitoring hook events

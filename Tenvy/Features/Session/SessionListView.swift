@@ -24,7 +24,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct SessionListView: View {
-  var sessionManager: SessionManager
+  var sessionManager: any SessionDiscovery
   @Binding var selectedSession: ClaudeSession?
   var onCreateNewSession: ((ClaudeSession) -> Void)?
   var onSelectSession: ((ClaudeSession) -> Void)?
@@ -114,7 +114,7 @@ struct SessionListView: View {
       if !activeSessions.isEmpty {
         Section(isExpanded: isExpanded("__active__")) {
           ForEach(activeSessions) { session in
-            SessionRowView(session: session, runtimeState: runtimeState)
+            SessionRowView(sessionModel: ClaudeSessionModel(session: session, runtime: runtimeState.info(for: session.id)))
               .tag(session)
               .contextMenu { sessionContextMenu(for: session) }
           }
@@ -129,7 +129,7 @@ struct SessionListView: View {
       ForEach(groupedSessions, id: \.folder) { group in
         Section(isExpanded: isExpanded(group.folder)) {
           ForEach(group.sessions) { session in
-            SessionRowView(session: session, runtimeState: runtimeState)
+            SessionRowView(sessionModel: ClaudeSessionModel(session: session, runtime: runtimeState.info(for: session.id)))
               .tag(session)
               .contextMenu { sessionContextMenu(for: session) }
           }

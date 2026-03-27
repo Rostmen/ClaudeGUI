@@ -28,7 +28,6 @@ import UserNotifications
 @MainActor
 @Observable
 final class NotificationService: NSObject {
-  static let shared = NotificationService()
 
   /// Category identifier for session notifications
   private let categoryIdentifier = "SESSION_WAITING"
@@ -43,8 +42,19 @@ final class NotificationService: NSObject {
   private let allowOnceActionIdentifier = "ALLOW_ONCE"
   private let allowSessionActionIdentifier = "ALLOW_SESSION"
 
+  /// Injected by AppModel to look up which session is in the key window
+  var windowRegistering: (any WindowRegistering)?
+
   /// Callback when user taps notification to open a session
   var onOpenSession: ((String) -> Void)?
+
+  /// Callback when user approves a permission notification action.
+  /// Wired by AppModel to forward to TerminalInput.sendPermissionResponse.
+  var onPermissionResponse: ((String, PermissionResponse) -> Void)?
+
+  /// Callback to optimistically clear waitingPermission hook state after approval.
+  /// Wired by AppModel to update SessionRuntimeRegistry.
+  var onClearWaitingPermission: ((String) -> Void)?
 
   /// Track which sessions have pending notifications to avoid spamming
   private var pendingNotifications: Set<String> = []
@@ -68,7 +78,7 @@ final class NotificationService: NSObject {
     }
   }
 
-  private override init() {
+  override init() {
     super.init()
     setupNotificationCategories()
     checkAuthorizationStatus()
@@ -223,8 +233,8 @@ final class NotificationService: NSObject {
 
   /// Update the dock icon badge with count of waiting sessions not visible in the key window
   private func updateDockBadge() {
-    let registry = WindowSessionRegistry.shared
-    let keyWindowSessionId = NSApplication.shared.keyWindow.flatMap { registry.sessionId(for: $0) }
+    let keyWindowSessionId = NSApplication.shared.keyWindow
+      .flatMap { windowRegistering?.sessionId(for: $0) }
     let count = waitingSessions.filter { $0 != keyWindowSessionId }.count
     NSApplication.shared.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
   }
@@ -265,8 +275,8 @@ extension NotificationService: UNUserNotificationCenterDelegate {
     }
 
     Task { @MainActor in
-      let registry = WindowSessionRegistry.shared
-      let keyWindowSessionId = NSApplication.shared.keyWindow.flatMap { registry.sessionId(for: $0) }
+      let keyWindowSessionId = NSApplication.shared.keyWindow
+        .flatMap { self.windowRegistering?.sessionId(for: $0) }
       if keyWindowSessionId == sessionId {
         // User is already looking at this session — suppress
         completionHandler([])
@@ -302,13 +312,14 @@ extension NotificationService: UNUserNotificationCenterDelegate {
       // Handle permission response actions
       switch actionIdentifier {
       case self.allowOnceActionIdentifier:
-        TerminalRegistry.shared.sendPermissionResponse(to: sessionId, response: .allowOnce)
+        // Route through injected callbacks — no singleton references here
+        self.onPermissionResponse?(sessionId, .allowOnce)
         // Optimistically clear waitingPermission — hook events will confirm the actual state
-        AppState.shared.runtimeState.updateHookState(for: sessionId, state: .waiting, eventTime: Date())
+        self.onClearWaitingPermission?(sessionId)
 
       case self.allowSessionActionIdentifier:
-        TerminalRegistry.shared.sendPermissionResponse(to: sessionId, response: .allowSession)
-        AppState.shared.runtimeState.updateHookState(for: sessionId, state: .waiting, eventTime: Date())
+        self.onPermissionResponse?(sessionId, .allowSession)
+        self.onClearWaitingPermission?(sessionId)
 
       case UNNotificationDefaultActionIdentifier:
         // User tapped notification body - open the session

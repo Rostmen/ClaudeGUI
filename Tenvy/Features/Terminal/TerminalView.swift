@@ -28,21 +28,38 @@ struct TerminalView: View {
   let isSelected: Bool
   let onStateChange: ((SessionMonitorInfo) -> Void)?
   let onShellStart: ((pid_t) -> Void)?
+  let onSessionActivated: ((String) -> Void)?
+  let onRegisterForInput: ((DraggableTerminalView, String) -> Void)?
+  let onUnregisterForInput: ((String) -> Void)?
 
   init(
     session: ClaudeSession?,
     isSelected: Bool = false,
     onStateChange: ((SessionMonitorInfo) -> Void)? = nil,
-    onShellStart: ((pid_t) -> Void)? = nil
+    onShellStart: ((pid_t) -> Void)? = nil,
+    onSessionActivated: ((String) -> Void)? = nil,
+    onRegisterForInput: ((DraggableTerminalView, String) -> Void)? = nil,
+    onUnregisterForInput: ((String) -> Void)? = nil
   ) {
     self.session = session
     self.isSelected = isSelected
     self.onStateChange = onStateChange
     self.onShellStart = onShellStart
+    self.onSessionActivated = onSessionActivated
+    self.onRegisterForInput = onRegisterForInput
+    self.onUnregisterForInput = onUnregisterForInput
   }
 
   var body: some View {
-    TerminalContentView(session: session, isSelected: isSelected, onStateChange: onStateChange, onShellStart: onShellStart)
+    TerminalContentView(
+      session: session,
+      isSelected: isSelected,
+      onStateChange: onStateChange,
+      onShellStart: onShellStart,
+      onSessionActivated: onSessionActivated,
+      onRegisterForInput: onRegisterForInput,
+      onUnregisterForInput: onUnregisterForInput
+    )
   }
 }
 
@@ -51,6 +68,9 @@ struct TerminalContentView: NSViewRepresentable {
   let isSelected: Bool
   let onStateChange: ((SessionMonitorInfo) -> Void)?
   let onShellStart: ((pid_t) -> Void)?
+  let onSessionActivated: ((String) -> Void)?
+  let onRegisterForInput: ((DraggableTerminalView, String) -> Void)?
+  let onUnregisterForInput: ((String) -> Void)?
 
   func makeNSView(context: Context) -> DraggableTerminalView {
     let terminalView = DraggableTerminalView(frame: .zero)
@@ -59,15 +79,10 @@ struct TerminalContentView: NSViewRepresentable {
     terminalView.sessionId = session?.id
     terminalView.isNewSession = session?.isNewSession ?? false
 
-    // Wire up activation callbacks — this is the single place that knows about
-    // AppState, keeping DraggableTerminalView free of singleton references.
-    terminalView.onSessionActivated = { sessionId in
-      AppState.shared.markSessionActivated(sessionId)
-      AppState.shared.trackSessionForHooks(sessionId)
-    }
-    terminalView.onRegisterForInput = { terminal, sessionId in
-      TerminalRegistry.shared.register(terminal, for: sessionId)
-    }
+    // Wire up activation callbacks via injected closures — no singleton references here.
+    terminalView.onSessionActivated = onSessionActivated
+    terminalView.onRegisterForInput = onRegisterForInput
+    terminalView.onUnregisterForInput = onUnregisterForInput
 
     terminalView.installColors(TerminalColors.darkPalette)
     terminalView.nativeBackgroundColor = NSColor(red: 0, green: 0, blue: 0, alpha: kWindowOpacity)
@@ -163,10 +178,12 @@ class DraggableTerminalView: LocalProcessTerminalView {
   var onStateChange: ((SessionMonitorInfo) -> Void)?
   var onShellStart: ((pid_t) -> Void)?
   /// Called when the session is activated (terminal started).
-  /// Replaces the direct `AppState.shared` call so the view is independently testable.
+  /// Replaces the direct singleton call so the view is independently testable.
   var onSessionActivated: ((String) -> Void)?
   /// Called to register this terminal for remote input (e.g., notification actions).
   var onRegisterForInput: ((DraggableTerminalView, String) -> Void)?
+  /// Called when the view is deallocated to unregister from the terminal input registry.
+  var onUnregisterForInput: ((String) -> Void)?
 
   var sessionId: String?
   var isNewSession: Bool = false  // New sessions don't have their ID in process args
@@ -190,7 +207,7 @@ class DraggableTerminalView: LocalProcessTerminalView {
       self?.onShellStart?(pid)
     }
 
-    // Notify activation via callbacks — no direct AppState.shared reference here.
+    // Notify activation via injected callbacks.
     if let sessionId = sessionId {
       DispatchQueue.main.async { [weak self] in
         guard let self = self else { return }
@@ -298,10 +315,11 @@ class DraggableTerminalView: LocalProcessTerminalView {
   }
 
   deinit {
-    // Unregister from terminal registry
+    // Unregister from terminal input registry via injected callback
     if let sessionId = sessionId {
+      let unregister = onUnregisterForInput
       Task { @MainActor in
-        TerminalRegistry.shared.unregister(sessionId: sessionId)
+        unregister?(sessionId)
       }
     }
     // Ensure process is terminated when view is deallocated

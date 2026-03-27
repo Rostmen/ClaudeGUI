@@ -45,7 +45,8 @@ struct TenvyApp: App {
 
   var body: some Scene {
     WindowGroup(id: "main") {
-      ContentView()
+      ContentView(appModel: appDelegate.appModel)
+        .environment(appDelegate.appModel)
     }
     .windowStyle(.automatic)
     .defaultSize(width: 1200, height: 800)
@@ -65,6 +66,7 @@ struct TenvyApp: App {
 
     Settings {
       SettingsView()
+        .environment(appDelegate.appModel)
     }
   }
 }
@@ -72,10 +74,11 @@ struct TenvyApp: App {
 // MARK: - App Delegate
 
 @MainActor
-class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
-  private let lifecycleCoordinator = AppLifecycleCoordinator()
+class AppDelegate: NSObject, NSApplicationDelegate {
+  let appModel = AppModel()
+  private lazy var lifecycleCoordinator = AppLifecycleCoordinator(updater: appModel.updater)
   private lazy var windowDelegate = WindowDelegate(
-    appState: AppState.shared,
+    appModel: appModel,
     lifecycleCoordinator: lifecycleCoordinator
   )
 
@@ -83,28 +86,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
   private var pendingReleaseNotesVersion: String?
   private var releaseNotesShown = false
 
-  // MARK: - UNUserNotificationCenterDelegate
-
-  nonisolated func userNotificationCenter(
-    _ center: UNUserNotificationCenter,
-    willPresent notification: UNNotification,
-    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
-  ) {
-    NotificationService.shared.userNotificationCenter(center, willPresent: notification, withCompletionHandler: completionHandler)
-  }
-
-  nonisolated func userNotificationCenter(
-    _ center: UNUserNotificationCenter,
-    didReceive response: UNNotificationResponse,
-    withCompletionHandler completionHandler: @escaping () -> Void
-  ) {
-    NotificationService.shared.userNotificationCenter(center, didReceive: response, withCompletionHandler: completionHandler)
-  }
-
   // MARK: - NSApplicationDelegate
 
   func applicationDidFinishLaunching(_ notification: Notification) {
-    UNUserNotificationCenter.current().delegate = self
+    // Set NotificationService directly as the UNUserNotificationCenterDelegate
+    UNUserNotificationCenter.current().delegate = appModel.notifications as? UNUserNotificationCenterDelegate
 
     // Close any extra restored windows - we want exactly 1 window on launch
     let normalWindows = NSApplication.shared.windows.filter {
@@ -128,7 +114,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     )
 
     // Check for updates (at most once per day)
-    UpdateService.shared.checkForUpdates()
+    appModel.updater.checkForUpdates()
 
     // Stash version; show release notes in applicationDidBecomeActive once the
     // main window is guaranteed visible.
@@ -148,7 +134,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     pendingReleaseNotesVersion = nil
 
     Task {
-      let notes = await UpdateService.shared.fetchReleaseNotes(for: version)
+      let notes = await appModel.updater.fetchReleaseNotes(for: version)
       #if DEBUG
       let displayNotes = notes ?? "_(No release notes found for v\(version) on GitHub — this is a placeholder for debug builds.)_"
       #else

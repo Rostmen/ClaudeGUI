@@ -24,7 +24,7 @@ import SwiftUI
 
 /// Prompt view for installing hooks
 struct HookInstallationPromptView: View {
-  @State private var installationService = HookInstallationService.shared
+  @Environment(AppModel.self) private var appModel
   @State private var isInstalling = false
   @State private var installationError: String?
   @State private var installationSuccess = false
@@ -45,7 +45,7 @@ struct HookInstallationPromptView: View {
         Spacer()
 
         Button {
-          installationService.dismissPromptTemporarily()
+          appModel.hookSetup.dismissPromptTemporarily()
           onDismiss()
         } label: {
           Image(systemName: "xmark.circle.fill")
@@ -91,7 +91,7 @@ struct HookInstallationPromptView: View {
       // Buttons
       HStack(spacing: 12) {
         Button("Don't Ask Again") {
-          installationService.dismissPromptPermanently()
+          appModel.hookSetup.dismissPromptPermanently()
           onDismiss()
         }
         .buttonStyle(.plain)
@@ -132,7 +132,7 @@ struct HookInstallationPromptView: View {
     installationError = nil
 
     Task {
-      let result = await installationService.installHooks()
+      let result = await appModel.hookSetup.installHooks()
 
       await MainActor.run {
         isInstalling = false
@@ -140,7 +140,7 @@ struct HookInstallationPromptView: View {
         switch result {
         case .success:
           // Restart active sessions to apply hooks
-          TerminalRegistry.shared.restartAllSessions()
+          appModel.terminalInput.restartAllSessions()
           installationSuccess = true
         case .failure(let error):
           installationError = error.localizedDescription
@@ -154,6 +154,7 @@ struct HookInstallationPromptView: View {
   HookInstallationPromptView {
     print("Dismissed")
   }
+  .environment(AppModel())
   .frame(width: 400)
   .padding()
   .background(.black.opacity(0.3))

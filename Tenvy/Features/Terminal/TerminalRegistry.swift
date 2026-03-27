@@ -27,12 +27,10 @@ import SwiftTerm
 /// Used to send commands to terminals from notifications
 @MainActor
 final class TerminalRegistry {
-  static let shared = TerminalRegistry()
-
   /// Weak references to terminal views by session ID
   private var terminals: [String: WeakTerminalRef] = [:]
 
-  private init() {}
+  init() {}
 
   /// Register a terminal view for a session
   func register(_ terminal: DraggableTerminalView, for sessionId: String) {

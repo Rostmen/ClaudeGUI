@@ -23,8 +23,8 @@
 import SwiftUI
 
 struct SettingsView: View {
+  @Environment(AppModel.self) private var appModel
   @Bindable private var settings = AppSettings.shared
-  @State private var hookService = HookInstallationService.shared
   @State private var isInstallingHooks = false
   @State private var isUninstallingHooks = false
   @State private var hookInstallResult: HookInstallResult?
@@ -58,7 +58,7 @@ struct SettingsView: View {
           VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
               Text("Claude Code Hooks")
-              if hookService.hooksInstalled {
+              if appModel.hookSetup.hooksInstalled {
                 Image(systemName: "checkmark.circle.fill")
                   .foregroundColor(.green)
                   .font(.caption)
@@ -68,7 +68,7 @@ struct SettingsView: View {
                   .font(.caption)
               }
             }
-            Text(hookService.hooksInstalled ? "Installed and active" : "Not installed")
+            Text(appModel.hookSetup.hooksInstalled ? "Installed and active" : "Not installed")
               .font(.caption)
               .foregroundColor(.secondary)
           }
@@ -76,12 +76,12 @@ struct SettingsView: View {
           Spacer()
 
           HStack(spacing: 8) {
-            Button(hookService.hooksInstalled ? "Reinstall" : "Install") {
+            Button(appModel.hookSetup.hooksInstalled ? "Reinstall" : "Install") {
               installHooks()
             }
             .disabled(isInstallingHooks || isUninstallingHooks)
 
-            if hookService.hooksInstalled {
+            if appModel.hookSetup.hooksInstalled {
               Button("Uninstall") {
                 uninstallHooks()
               }
@@ -202,7 +202,7 @@ struct SettingsView: View {
     .formStyle(.grouped)
     .frame(width: 420, height: 500)
     .onAppear {
-      hookService.checkInstallationStatus()
+      appModel.hookSetup.checkInstallationStatus()
     }
   }
 
@@ -211,15 +211,15 @@ struct SettingsView: View {
     hookInstallResult = nil
 
     Task {
-      let result = await hookService.installHooks()
+      let result = await appModel.hookSetup.installHooks()
 
       await MainActor.run {
         isInstallingHooks = false
         switch result {
         case .success:
           // Restart active sessions to apply hooks
-          let sessionCount = TerminalRegistry.shared.activeSessionCount
-          TerminalRegistry.shared.restartAllSessions()
+          let sessionCount = appModel.terminalInput.activeSessionCount
+          appModel.terminalInput.restartAllSessions()
           hookInstallResult = .installSuccess(sessionsRestarted: sessionCount)
         case .failure(let error):
           hookInstallResult = .failure(error.localizedDescription)
@@ -233,19 +233,19 @@ struct SettingsView: View {
     hookInstallResult = nil
 
     Task {
-      let result = await hookService.uninstallHooks()
+      let result = await appModel.hookSetup.uninstallHooks()
 
       await MainActor.run {
         isUninstallingHooks = false
         switch result {
         case .success:
           // Clear all cached hook states
-          HookEventService.shared.clearAllStates()
-          AppState.shared.runtimeState.resetAllHookStates()
+          appModel.hookMonitor.clearAllStates()
+          appModel.runtimeRegistry.resetAllHookStates()
 
           // Restart active sessions to apply hook removal
-          let sessionCount = TerminalRegistry.shared.activeSessionCount
-          TerminalRegistry.shared.restartAllSessions()
+          let sessionCount = appModel.terminalInput.activeSessionCount
+          appModel.terminalInput.restartAllSessions()
           hookInstallResult = .uninstallSuccess(sessionsRestarted: sessionCount)
         case .failure(let error):
           hookInstallResult = .failure(error.localizedDescription)
@@ -257,4 +257,5 @@ struct SettingsView: View {
 
 #Preview {
   SettingsView()
+    .environment(AppModel())
 }

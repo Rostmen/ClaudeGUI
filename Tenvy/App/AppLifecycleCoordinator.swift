@@ -31,10 +31,15 @@ final class AppLifecycleCoordinator {
 
   private(set) var isShowingAlert = false
   private(set) var userConfirmedQuit = false
+  private let updater: any AppUpdating
+
+  init(updater: any AppUpdating) {
+    self.updater = updater
+  }
 
   func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
     // Allow brew to quit silently during an in-progress update
-    if UpdateService.shared.isUpdating { return .terminateNow }
+    if updater.isUpdating { return .terminateNow }
 
     if userConfirmedQuit {
       userConfirmedQuit = false

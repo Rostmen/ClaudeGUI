@@ -43,13 +43,13 @@ final class ContentViewModel {
 
   // MARK: - Dependencies
 
-  private let appState: AppState
-  private var windowRegistry: WindowSessionRegistry { appState.windowRegistry }
-  var sessionManager: SessionManager { appState.sessionManager }
-  var runtimeState: SessionRuntimeRegistry { appState.runtimeState }
+  let appModel: AppModel
+  private var windowRegistry: any WindowRegistering { appModel.windowRegistry }
+  var sessionDiscovery: any SessionDiscovery { appModel.sessionDiscovery }
+  var runtimeState: SessionRuntimeRegistry { appModel.runtimeRegistry }
 
-  init(appState: AppState = .shared) {
-    self.appState = appState
+  init(appModel: AppModel) {
+    self.appModel = appModel
   }
 
   // MARK: - Computed Properties
@@ -66,17 +66,26 @@ final class ContentViewModel {
 
   /// Set of session IDs that are currently active (have a terminal running)
   var activeSessionIds: Set<String> {
-    Set(appState.activatedSessions.keys)
+    Set(appModel.activatedSessions.keys)
   }
 
   /// Dictionary of activated sessions (for optimistic display of new sessions)
   var activatedSessions: [String: ClaudeSession] {
-    appState.activatedSessions
+    appModel.activatedSessions
   }
+
+  /// True when the hook installation prompt should be shown
+  var hookPromptVisible: Bool { appModel.hookSetup.shouldShowPrompt }
+
+  /// True when the notification permission prompt should be shown
+  var notificationPromptVisible: Bool { appModel.notifications.shouldShowPrompt }
+
+  /// True when the update prompt should be shown
+  var updatePromptVisible: Bool { appModel.updater.shouldShowPrompt }
 
   /// Check if terminal should render for the given session
   func shouldRenderTerminal(for session: ClaudeSession) -> Bool {
-    appState.isSessionActivated(session.id) &&
+    appModel.isSessionActivated(session.id) &&
     windowConfigured &&
     currentWindow?.sessionId == session.id
   }
@@ -101,7 +110,7 @@ final class ContentViewModel {
     if selectedSession != nil {
       // Store the session to open in the new tab
       // Use activated session if available (preserves terminalId)
-      let sessionToOpen = appState.activatedSessions[session.id] ?? session
+      let sessionToOpen = appModel.activatedSessions[session.id] ?? session
       windowRegistry.pendingSessionForNewTab = sessionToOpen
       // Open new tab - this triggers a new ContentView which will pick up the pending session
       currentWindow?.selectNextTab(nil)
@@ -111,19 +120,19 @@ final class ContentViewModel {
 
     // Open in this window (no session yet)
     // Use activated session if available (preserves terminalId for synced sessions)
-    let sessionToSelect = appState.activatedSessions[session.id] ?? session
+    let sessionToSelect = appModel.activatedSessions[session.id] ?? session
     clearDetailSelection()
     setSelectedSession(sessionToSelect)
   }
 
   /// Create and select a new session
-  /// Note: We don't add to sessionManager.sessions because Claude CLI will create
+  /// Note: We don't add to sessionDiscovery.sessions because Claude CLI will create
   /// its own session file with a different ID. The DirectoryMonitor will pick it up
   /// automatically when Claude creates the file.
   func createNewSession(_ session: ClaudeSession) {
     // If there's already a session in this window, open new session in a new tab
     if selectedSession != nil {
-      appState.activateSession(session)
+      appModel.activateSession(session)
       windowRegistry.pendingSessionForNewTab = session
       currentWindow?.selectNextTab(nil)
       NSApp.sendAction(#selector(NSWindow.newWindowForTab(_:)), to: nil, from: nil)
@@ -131,7 +140,7 @@ final class ContentViewModel {
     }
 
     // No session in this window, open here
-    appState.activateSession(session)
+    appModel.activateSession(session)
     setSelectedSession(session)
   }
 
@@ -157,7 +166,7 @@ final class ContentViewModel {
     if let pendingSession = windowRegistry.pendingSessionForNewTab {
       windowRegistry.pendingSessionForNewTab = nil
       setSelectedSession(pendingSession)
-      appState.activateSession(pendingSession)
+      appModel.activateSession(pendingSession)
     }
   }
 
@@ -171,7 +180,7 @@ final class ContentViewModel {
     // Find a session in the list that matches by working directory
     // and was created recently (within last minute)
     let recentThreshold = Date().addingTimeInterval(-60)
-    if let matchingSession = sessionManager.sessions.first(where: { session in
+    if let matchingSession = sessionDiscovery.sessions.first(where: { session in
       session.workingDirectory == current.workingDirectory &&
       session.lastModified > recentThreshold &&
       session.id != current.id
@@ -193,8 +202,8 @@ final class ContentViewModel {
       runtimeState.transferState(from: current.id, to: syncedSession.id)
 
       // Update activated sessions
-      appState.deactivateSession(current.id)
-      appState.activateSession(syncedSession)
+      appModel.deactivateSession(current.id)
+      appModel.activateSession(syncedSession)
 
       // Update selected session (terminal stays alive due to same terminalId)
       selectedSession = syncedSession
@@ -225,7 +234,7 @@ final class ContentViewModel {
     // If same session ID, just update the reference without re-registering
     if let old = oldSession, let new = session, old.id == new.id {
       selectedSession = new
-      appState.activateSession(new)
+      appModel.activateSession(new)
       return
     }
 
@@ -240,7 +249,7 @@ final class ContentViewModel {
 
     // Register and activate new session
     if let session = session {
-      appState.activateSession(session)
+      appModel.activateSession(session)
       if let window = currentWindow {
         configureWindow(window, for: session)
       }

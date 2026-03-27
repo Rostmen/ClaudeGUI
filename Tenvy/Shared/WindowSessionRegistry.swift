@@ -27,15 +27,13 @@ import Foundation
 @MainActor
 @Observable
 final class WindowSessionRegistry {
-  static let shared = WindowSessionRegistry()
-
   /// Maps window number to session ID
   private(set) var windowSessions: [Int: String] = [:]
 
   /// Session to open in the next new tab/window
   var pendingSessionForNewTab: ClaudeSession?
 
-  private init() {}
+  init() {}
 
   /// Register a session as being open in a window
   func register(sessionId: String, for window: NSWindow) {

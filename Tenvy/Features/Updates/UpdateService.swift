@@ -48,7 +48,6 @@ enum UpdateState: Equatable {
 @Observable
 @MainActor
 final class UpdateService {
-  static let shared = UpdateService()
 
   var updateAvailable: Bool = false
   var latestVersion: String?
@@ -60,7 +59,7 @@ final class UpdateService {
 
   private let apiURL = URL(string: "https://api.github.com/repos/Rostmen/ClaudeGUI/releases/latest")!
 
-  private init() {}
+  init() {}
 
   /// Fetches the latest release from GitHub and compares with the current app version.
   func checkForUpdates() {
@@ -105,26 +104,24 @@ final class UpdateService {
     isUpdating = true
     updateState = .installing
 
-    Task.detached {
+    Task { [weak self] in
       let result = await Self.runBrew(brewPath: brewPath)
-      await MainActor.run {
-        if result == 0 {
-          UpdateService.shared.updateState = .success
-          // Brief pause so user sees "Restarting…", then relaunch.
-          // We spawn a background shell that waits for this process to fully exit
-          // before opening the new app — avoids the race between open() and terminate().
-          DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            let pid = ProcessInfo.processInfo.processIdentifier
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: "/bin/sh")
-            task.arguments = ["-c", "while kill -0 \(pid) 2>/dev/null; do sleep 0.1; done; open /Applications/Tenvy.app"]
-            try? task.run()
-            NSApplication.shared.terminate(nil)
-          }
-        } else {
-          UpdateService.shared.isUpdating = false
-          UpdateService.shared.updateState = .failed("brew exited with code \(result). Try running manually in Terminal.")
+      if result == 0 {
+        self?.updateState = .success
+        // Brief pause so user sees "Restarting…", then relaunch.
+        // We spawn a background shell that waits for this process to fully exit
+        // before opening the new app — avoids the race between open() and terminate().
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+          let pid = ProcessInfo.processInfo.processIdentifier
+          let task = Process()
+          task.executableURL = URL(fileURLWithPath: "/bin/sh")
+          task.arguments = ["-c", "while kill -0 \(pid) 2>/dev/null; do sleep 0.1; done; open /Applications/Tenvy.app"]
+          try? task.run()
+          NSApplication.shared.terminate(nil)
         }
+      } else {
+        self?.isUpdating = false
+        self?.updateState = .failed("brew exited with code \(result). Try running manually in Terminal.")
       }
     }
   }
