@@ -109,6 +109,7 @@ final class GhosttyHostView: NSView {
   var surfaceViewIfReady: NSView? { surface?.nsView }
 
   override var isFlipped: Bool { true }
+  override var isOpaque: Bool { false }
 
   func setup(
     session: ClaudeSession?,
