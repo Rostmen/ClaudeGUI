@@ -37,10 +37,11 @@ fi
 
 echo "==> Building GhosttyKit.xcframework (this takes a few minutes)…"
 cd "$GHOSTTY_DIR"
+# Ghostty's build system hardcodes the output to macos/GhosttyKit.xcframework
+# relative to the project root — no --prefix needed.
 zig build \
   -Demit-xcframework=true \
-  -Doptimize=ReleaseFast \
-  --prefix "$GHOSTTY_DIR/macos"
+  -Doptimize=ReleaseFast
 
 if [ ! -d "$XCFRAMEWORK_DEST" ]; then
   echo "error: build finished but $XCFRAMEWORK_DEST was not created." >&2
