@@ -1,8 +1,8 @@
-name: Tag on master merge
+name: Tag on main merge
 
 on:
   push:
-    branches: [master]
+    branches: [main]
 
 jobs:
   tag:

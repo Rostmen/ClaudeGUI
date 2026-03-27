@@ -19,8 +19,8 @@ jobs:
       - name: Verify tag commit is on master
         id: check
         run: |
-          git fetch origin master
-          if git merge-base --is-ancestor ${{ github.sha }} origin/master; then
+          git fetch origin main
+          if git merge-base --is-ancestor ${{ github.sha }} origin/main; then
             echo "on_master=true"  >> $GITHUB_OUTPUT
           else
             echo "on_master=false" >> $GITHUB_OUTPUT
