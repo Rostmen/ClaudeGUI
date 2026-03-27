@@ -61,6 +61,11 @@ final class AppSettings {
     didSet { UserDefaults.standard.set(sourceZshrc, forKey: "settings.sourceZshrc") }
   }
 
+  /// Terminal type to use for sessions
+  var terminalType: TerminalType {
+    didSet { UserDefaults.standard.set(terminalType.rawValue, forKey: "settings.terminalType") }
+  }
+
   private init() {
     // Load initial values from UserDefaults
     self.gitChangesEnabled = UserDefaults.standard.object(forKey: "settings.gitChangesEnabled") as? Bool ?? false
@@ -74,6 +79,14 @@ final class AppSettings {
       self.customEnvironmentVariables = [:]
     }
     self.sourceZshrc = UserDefaults.standard.object(forKey: "settings.sourceZshrc") as? Bool ?? true
+
+    // Load terminal type, defaulting to SwiftTerm
+    if let rawValue = UserDefaults.standard.object(forKey: "settings.terminalType") as? String,
+       let type = TerminalType(rawValue: rawValue) {
+      self.terminalType = type
+    } else {
+      self.terminalType = .swiftTerm
+    }
   }
 }
 

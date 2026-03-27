@@ -22,17 +22,25 @@
 
 import Foundation
 
+// MARK: - TerminalInputSender
+
+/// Common interface for sending input to any terminal backend (SwiftTerm or Ghostty).
+@MainActor
+protocol TerminalInputSender: AnyObject {
+  func send(txt: String)
+  func restartSession()
+}
+
+// MARK: - TerminalInput
+
 /// Registry for active terminal views — used to route keyboard input from notifications
 @MainActor
 protocol TerminalInput: AnyObject {
-  /// Register an active terminal view for a session
-  func register(_ terminal: DraggableTerminalView, for sessionId: String)
+  /// Register an active terminal for a session
+  func register(_ terminal: any TerminalInputSender, for sessionId: String)
 
   /// Unregister a terminal view when its session closes
   func unregister(sessionId: String)
-
-  /// Return the active terminal view for a session, if one is registered
-  func terminal(for sessionId: String) -> DraggableTerminalView?
 
   /// Send raw text to a session's terminal PTY.
   /// Returns true if the terminal was found and the text was sent.

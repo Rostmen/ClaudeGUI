@@ -37,6 +37,28 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache GhosttyKit.xcframework
+        id: cache-ghosttykit
+        uses: actions/cache@v4
+        with:
+          path: ghostty/macos/GhosttyKit.xcframework
+          key: ghosttykit-${{ hashFiles('.gitmodules') }}-${{ hashFiles('ghostty/.git/HEAD', 'ghostty/src/**/*.zig', 'ghostty/build.zig') }}
+
+      - name: Install Zig
+        if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
+        run: |
+          ZIG_VERSION="0.15.2"
+          curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-macos-aarch64-${ZIG_VERSION}.tar.xz" \
+            | tar -xJ -C /usr/local/lib
+          ln -sf "/usr/local/lib/zig-macos-aarch64-${ZIG_VERSION}/zig" /usr/local/bin/zig
+          zig version
+
+      - name: Build GhosttyKit.xcframework
+        if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
+        run: ./scripts/build-ghosttykit.sh
 
       - name: Select Xcode
         run: |

@@ -29,7 +29,7 @@ struct TerminalView: View {
   let onStateChange: ((SessionMonitorInfo) -> Void)?
   let onShellStart: ((pid_t) -> Void)?
   let onSessionActivated: ((String) -> Void)?
-  let onRegisterForInput: ((DraggableTerminalView, String) -> Void)?
+  let onRegisterForInput: ((any TerminalInputSender, String) -> Void)?
   let onUnregisterForInput: ((String) -> Void)?
 
   init(
@@ -38,7 +38,7 @@ struct TerminalView: View {
     onStateChange: ((SessionMonitorInfo) -> Void)? = nil,
     onShellStart: ((pid_t) -> Void)? = nil,
     onSessionActivated: ((String) -> Void)? = nil,
-    onRegisterForInput: ((DraggableTerminalView, String) -> Void)? = nil,
+    onRegisterForInput: ((any TerminalInputSender, String) -> Void)? = nil,
     onUnregisterForInput: ((String) -> Void)? = nil
   ) {
     self.session = session
@@ -51,15 +51,33 @@ struct TerminalView: View {
   }
 
   var body: some View {
-    TerminalContentView(
-      session: session,
-      isSelected: isSelected,
-      onStateChange: onStateChange,
-      onShellStart: onShellStart,
-      onSessionActivated: onSessionActivated,
-      onRegisterForInput: onRegisterForInput,
-      onUnregisterForInput: onUnregisterForInput
-    )
+    let settings = AppSettings.shared
+    switch settings.terminalType {
+    case .swiftTerm:
+      TerminalContentView(
+        session: session,
+        isSelected: isSelected,
+        onStateChange: onStateChange,
+        onShellStart: onShellStart,
+        onSessionActivated: onSessionActivated,
+        onRegisterForInput: { (terminal: DraggableTerminalView, sid) in
+          onRegisterForInput?(terminal, sid)
+        },
+        onUnregisterForInput: onUnregisterForInput
+      )
+    case .ghostty:
+      GhosttyTerminalView(
+        session: session,
+        isSelected: isSelected,
+        onStateChange: onStateChange,
+        onShellStart: onShellStart,
+        onSessionActivated: onSessionActivated,
+        onRegisterForInput: { (proxy: GhosttyInputProxy, sid) in
+          onRegisterForInput?(proxy, sid)
+        },
+        onUnregisterForInput: onUnregisterForInput
+      )
+    }
   }
 }
 
@@ -71,6 +89,7 @@ struct TerminalContentView: NSViewRepresentable {
   let onSessionActivated: ((String) -> Void)?
   let onRegisterForInput: ((DraggableTerminalView, String) -> Void)?
   let onUnregisterForInput: ((String) -> Void)?
+
 
   func makeNSView(context: Context) -> DraggableTerminalView {
     let terminalView = DraggableTerminalView(frame: .zero)
@@ -173,6 +192,12 @@ struct TerminalContentView: NSViewRepresentable {
     }
   }
 }
+
+// MARK: - TerminalInputSender conformance for DraggableTerminalView
+
+extension DraggableTerminalView: TerminalInputSender {}
+
+// MARK: - DraggableTerminalView
 
 class DraggableTerminalView: LocalProcessTerminalView {
   var onStateChange: ((SessionMonitorInfo) -> Void)?

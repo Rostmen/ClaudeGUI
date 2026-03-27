@@ -22,3 +22,8 @@ Packages/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Ghostty submodule build artifacts (xcframework is built, not committed)
+ghostty/macos/GhosttyKit.xcframework
+ghostty/zig-out/
+ghostty/.zig-cache/
