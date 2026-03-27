@@ -23,16 +23,15 @@
 import SwiftUI
 
 struct SessionRowView: View {
-  let session: ClaudeSession
-  var runtimeState: SessionRuntimeRegistry
+  let sessionModel: ClaudeSessionModel
 
   /// Animation state for blinking dot
   @State private var isBlinking = false
 
+  private var session: ClaudeSession { sessionModel.session }
+
   /// Get the runtime info - accessing this in body sets up observation
-  private var runtimeInfo: SessionRuntimeInfo {
-    runtimeState.info(for: session.id)
-  }
+  private var runtimeInfo: SessionRuntimeInfo { sessionModel.runtime }
 
   private var isActive: Bool {
     runtimeInfo.state != .inactive

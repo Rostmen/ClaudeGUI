@@ -36,19 +36,16 @@ struct TerminalFrameKey: PreferenceKey {
 let kWindowOpacity: CGFloat = 0.5
 
 struct ContentView: View {
-  @State private var appState: AppState
   @State private var viewModel: ContentViewModel
 
-  init() {
-    let appState = AppState.shared
-    _appState = State(initialValue: appState)
-    _viewModel = State(initialValue: ContentViewModel(appState: appState))
+  init(appModel: AppModel) {
+    _viewModel = State(initialValue: ContentViewModel(appModel: appModel))
   }
 
-  // Computed accessors — break up chained @Observable access for the type checker
-  private var hookPromptVisible: Bool { appState.hookInstallationService.shouldShowPrompt }
-  private var notificationPromptVisible: Bool { appState.notificationService.shouldShowPrompt }
-  private var updatePromptVisible: Bool { appState.updateService.shouldShowPrompt }
+  // Delegate prompt visibility to the ViewModel (which reads from appModel services)
+  private var hookPromptVisible: Bool { viewModel.hookPromptVisible }
+  private var notificationPromptVisible: Bool { viewModel.notificationPromptVisible }
+  private var updatePromptVisible: Bool { viewModel.updatePromptVisible }
 
   // UI-only state
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -57,6 +54,36 @@ struct ContentView: View {
   @State private var showHookPrompt: Bool = false
   @State private var showNotificationPrompt: Bool = false
   @State private var showUpdatePrompt: Bool = false
+
+  private var selectedSessionBinding: Binding<ClaudeSession?> {
+    Binding(
+      get: { viewModel.selectedSession },
+      set: { _ in } // Read-only — use viewModel.selectSession instead
+    )
+  }
+
+  @ViewBuilder
+  private var navigationContent: some View {
+    NavigationSplitView(columnVisibility: $columnVisibility) {
+      SidebarView(
+        sessionManager: viewModel.sessionDiscovery,
+        selectedSession: selectedSessionBinding,
+        selectedDiffFile: $viewModel.selectedDiffFile,
+        onCreateNewSession: { viewModel.createNewSession($0) },
+        onSelectSession: { viewModel.selectSession($0) },
+        runtimeState: viewModel.runtimeState,
+        activeSessionIds: viewModel.activeSessionIds,
+        activatedSessions: viewModel.activatedSessions
+      )
+      .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 400)
+    } detail: {
+      DetailView(
+        viewModel: viewModel,
+        terminalFramePreferenceKey: TerminalFrameKey.self
+      )
+    }
+    .navigationTitle(viewModel.selectedSession?.title ?? "Select or start a new session")
+  }
 
   var body: some View {
     ZStack {
@@ -72,28 +99,7 @@ struct ContentView: View {
         .allowsHitTesting(false)
         .ignoresSafeArea()
 
-      NavigationSplitView(columnVisibility: $columnVisibility) {
-        SidebarView(
-          sessionManager: viewModel.sessionManager,
-          selectedSession: Binding(
-            get: { viewModel.selectedSession },
-            set: { _ in } // Read-only, use viewModel.selectSession instead
-          ),
-          selectedDiffFile: $viewModel.selectedDiffFile,
-          onCreateNewSession: { viewModel.createNewSession($0) },
-          onSelectSession: { viewModel.selectSession($0) },
-          runtimeState: viewModel.runtimeState,
-          activeSessionIds: viewModel.activeSessionIds,
-          activatedSessions: viewModel.activatedSessions
-        )
-        .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 400)
-      } detail: {
-        DetailView(
-          viewModel: viewModel,
-          terminalFramePreferenceKey: TerminalFrameKey.self
-        )
-      }
-      .navigationTitle(viewModel.selectedSession?.title ?? "Select or start a new session")
+      navigationContent
 
       // Notification permission prompt overlay
       if showNotificationPrompt {
@@ -158,7 +164,7 @@ struct ContentView: View {
     .onChange(of: viewModel.selectedSession) { _, session in
       currentWindow?.title = session?.title ?? "Select or start a new session"
     }
-    .onChange(of: viewModel.sessionManager.sessions) { _, _ in
+    .onChange(of: viewModel.sessionDiscovery.sessions) { _, _ in
       // When sessions reload, sync new sessions with Claude-created ones
       viewModel.syncNewSessionWithDiscoveredSession()
     }
@@ -180,7 +186,7 @@ struct ContentView: View {
     .onReceive(NotificationCenter.default.publisher(for: .openSessionFromNotification)) { notification in
       if let session = notification.object as? ClaudeSession {
         // If session is already open in another window, just focus that window
-        if WindowSessionRegistry.shared.selectSession(session.id, currentWindow: viewModel.currentWindow) {
+        if viewModel.appModel.windowRegistry.selectSession(session.id, currentWindow: viewModel.currentWindow) {
           return
         }
         // Only open here if this window has no session yet
@@ -233,6 +239,16 @@ private struct DetailView<Key: PreferenceKey>: View where Key.Value == CGRect {
             // Use current session ID (may have changed after sync)
             let currentId = viewModel.selectedSession?.id ?? session.id
             viewModel.setShellPid(shellPid, for: currentId)
+          },
+          onSessionActivated: { sessionId in
+            viewModel.appModel.markSessionActivated(sessionId)
+            viewModel.appModel.trackSessionForHooks(sessionId)
+          },
+          onRegisterForInput: { terminal, sessionId in
+            viewModel.appModel.terminalInput.register(terminal, for: sessionId)
+          },
+          onUnregisterForInput: { sessionId in
+            viewModel.appModel.terminalInput.unregister(sessionId: sessionId)
           }
         )
         .id(session.terminalId)
@@ -282,5 +298,5 @@ struct VisualEffectBackground: NSViewRepresentable {
 }
 
 #Preview {
-  ContentView()
+  ContentView(appModel: AppModel())
 }

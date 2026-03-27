@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+import Dependencies
 import Foundation
 
 /// A shared, single-source-of-truth process snapshot updated every 500 ms.
@@ -48,9 +49,20 @@ actor ProcessPoller {
   private var listeners: [UUID: ([pid_t: ProcessRecord]) -> Void] = [:]
   private var pollingTask: Task<Void, Never>?
 
+  // MARK: - Dependencies
+  // Resolved at init time. Override with withDependencies { … } before creating the instance.
+
+  private let processSnapshot: @Sendable () -> [pid_t: ProcessRecord]
+  private let clock: any Clock<Duration>
+
   // MARK: - Lifecycle
 
-  private init() {}
+  private init() {
+    @Dependency(\.processSnapshot) var snapshot
+    @Dependency(\.continuousClock) var clk
+    self.processSnapshot = snapshot
+    self.clock = clk
+  }
 
   /// Subscribe to snapshot updates. Returns immediately; the handler is called
   /// on the actor's executor each time a new snapshot arrives.
@@ -70,9 +82,10 @@ actor ProcessPoller {
   private func startIfNeeded() {
     guard pollingTask == nil else { return }
     pollingTask = Task { [weak self] in
+      guard let self else { return }
       while !Task.isCancelled {
-        await self?.poll()
-        try? await Task.sleep(for: .milliseconds(500))
+        await self.poll()
+        try? await self.clock.sleep(for: .milliseconds(500))
       }
     }
   }
@@ -83,7 +96,7 @@ actor ProcessPoller {
   }
 
   private func poll() {
-    let result = Self.runPs()
+    let result = processSnapshot()
     snapshot = result
     for handler in listeners.values {
       handler(result)

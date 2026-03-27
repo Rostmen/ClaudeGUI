@@ -24,7 +24,7 @@ import SwiftUI
 
 /// Prompt view for requesting notification permission
 struct NotificationPermissionPromptView: View {
-  @State private var notificationService = NotificationService.shared
+  @Environment(AppModel.self) private var appModel
 
   var onDismiss: () -> Void
 
@@ -42,7 +42,7 @@ struct NotificationPermissionPromptView: View {
         Spacer()
 
         Button {
-          notificationService.dismissPromptTemporarily()
+          appModel.notifications.dismissPromptTemporarily()
           onDismiss()
         } label: {
           Image(systemName: "xmark.circle.fill")
@@ -52,7 +52,7 @@ struct NotificationPermissionPromptView: View {
       }
 
       // Description
-      if notificationService.authorizationDenied {
+      if appModel.notifications.authorizationDenied {
         Text("Notifications are disabled. Enable them in System Settings to get alerted when Claude is waiting for your input.")
           .font(.subheadline)
           .foregroundStyle(.secondary)
@@ -67,7 +67,7 @@ struct NotificationPermissionPromptView: View {
       // Buttons
       HStack(spacing: 12) {
         Button("Don't Ask Again") {
-          notificationService.dismissPromptPermanently()
+          appModel.notifications.dismissPromptPermanently()
           onDismiss()
         }
         .buttonStyle(.plain)
@@ -75,16 +75,16 @@ struct NotificationPermissionPromptView: View {
 
         Spacer()
 
-        if notificationService.authorizationDenied {
+        if appModel.notifications.authorizationDenied {
           Button("Open System Settings") {
             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.notifications")!)
-            notificationService.dismissPromptTemporarily()
+            appModel.notifications.dismissPromptTemporarily()
             onDismiss()
           }
           .buttonStyle(.borderedProminent)
         } else {
           Button("Enable Notifications") {
-            notificationService.requestPermission()
+            appModel.notifications.requestPermission()
             onDismiss()
           }
           .buttonStyle(.borderedProminent)
@@ -102,6 +102,7 @@ struct NotificationPermissionPromptView: View {
   NotificationPermissionPromptView {
     print("Dismissed")
   }
+  .environment(AppModel())
   .frame(width: 400)
   .padding()
   .background(.black.opacity(0.3))

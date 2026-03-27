@@ -33,28 +33,28 @@ enum WindowCloseAction {
 /// Receives its dependencies via `init` rather than accessing singletons.
 @MainActor
 final class WindowDelegate: NSObject, NSWindowDelegate {
-  private let appState: AppState
+  private let appModel: AppModel
   private let lifecycleCoordinator: AppLifecycleCoordinator
 
   private var isShowingAlert = false
 
-  init(appState: AppState, lifecycleCoordinator: AppLifecycleCoordinator) {
-    self.appState = appState
+  init(appModel: AppModel, lifecycleCoordinator: AppLifecycleCoordinator) {
+    self.appModel = appModel
     self.lifecycleCoordinator = lifecycleCoordinator
   }
 
   func windowShouldClose(_ sender: NSWindow) -> Bool {
     // Allow brew to close windows silently during an in-progress update
-    if UpdateService.shared.isUpdating { return true }
+    if appModel.updater.isUpdating { return true }
 
     guard !isShowingAlert && !lifecycleCoordinator.isShowingAlert else { return false }
 
-    let registry = appState.windowRegistry
+    let registry = appModel.windowRegistry
     let sessionId = registry.sessionId(for: sender) ?? sender.sessionId
 
     if let sessionId = sessionId {
-      let runtimeInfo = appState.runtimeState.info(for: sessionId)
-      let isSessionActivated = appState.isSessionActivated(sessionId)
+      let runtimeInfo = appModel.runtimeRegistry.info(for: sessionId)
+      let isSessionActivated = appModel.isSessionActivated(sessionId)
 
       if isSessionActivated || runtimeInfo.shellPid > 0 {
         isShowingAlert = true
@@ -69,10 +69,10 @@ final class WindowDelegate: NSObject, NSWindowDelegate {
             ProcessManager.shared.terminateProcess(pid: runtimeInfo.shellPid)
           }
           runtimeInfo.reset()
-          appState.deactivateSession(sessionId)
+          appModel.deactivateSession(sessionId)
         }
       } else {
-        appState.deactivateSession(sessionId)
+        appModel.deactivateSession(sessionId)
       }
     }
 

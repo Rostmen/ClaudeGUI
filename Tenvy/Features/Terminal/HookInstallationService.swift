@@ -39,7 +39,6 @@ struct ClaudeHookCommand: Codable, Equatable {
 @MainActor
 @Observable
 final class HookInstallationService {
-  static let shared = HookInstallationService()
 
   /// Whether hooks are currently installed
   private(set) var hooksInstalled: Bool = false
@@ -67,7 +66,7 @@ final class HookInstallationService {
     Bundle.main.resourceURL?.appendingPathComponent("Hooks")
   }
 
-  private init() {
+  init() {
     let claudeDir = FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent(".claude")
     hookScriptPath = claudeDir

@@ -23,7 +23,7 @@
 import SwiftUI
 
 struct SidebarView: View {
-  var sessionManager: SessionManager
+  var sessionManager: any SessionDiscovery
   @Binding var selectedSession: ClaudeSession?
   @Binding var selectedDiffFile: GitChangedFile?
   var onCreateNewSession: ((ClaudeSession) -> Void)?
@@ -36,7 +36,7 @@ struct SidebarView: View {
   @State private var selectedTab: SidebarTab = .sessions
 
   init(
-    sessionManager: SessionManager,
+    sessionManager: any SessionDiscovery,
     selectedSession: Binding<ClaudeSession?>,
     selectedDiffFile: Binding<GitChangedFile?>,
     onCreateNewSession: ((ClaudeSession) -> Void)? = nil,

@@ -24,13 +24,13 @@ import SwiftUI
 
 /// Bottom-right overlay prompt shown when a newer version of Tenvy is available
 struct UpdatePromptView: View {
-  @State private var updateService = UpdateService.shared
+  @Environment(AppModel.self) private var appModel
 
   var onDismiss: () -> Void
 
   var body: some View {
     VStack(spacing: 16) {
-      switch updateService.updateState {
+      switch appModel.updater.updateState {
       case .idle:
         idleContent
       case .installing:
@@ -57,7 +57,7 @@ struct UpdatePromptView: View {
           .font(.headline)
         Spacer()
         Button {
-          updateService.shouldShowPrompt = false
+          appModel.updater.shouldShowPrompt = false
           onDismiss()
         } label: {
           Image(systemName: "xmark.circle.fill")
@@ -66,14 +66,14 @@ struct UpdatePromptView: View {
         .buttonStyle(.plain)
       }
 
-      Text("Tenvy \(updateService.latestVersion ?? "") is available. Install the latest version to get new features and bug fixes.")
+      Text("Tenvy \(appModel.updater.latestVersion ?? "") is available. Install the latest version to get new features and bug fixes.")
         .font(.subheadline)
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
 
       HStack(spacing: 12) {
         Button("Later") {
-          updateService.shouldShowPrompt = false
+          appModel.updater.shouldShowPrompt = false
           onDismiss()
         }
         .buttonStyle(.plain)
@@ -82,7 +82,7 @@ struct UpdatePromptView: View {
         Spacer()
 
         Button("Update") {
-          updateService.performUpdate()
+          appModel.updater.performUpdate()
         }
         .buttonStyle(.borderedProminent)
       }
@@ -120,8 +120,8 @@ struct UpdatePromptView: View {
           .font(.headline)
         Spacer()
         Button {
-          updateService.shouldShowPrompt = false
-          updateService.updateState = .idle
+          appModel.updater.shouldShowPrompt = false
+          appModel.updater.updateState = .idle
           onDismiss()
         } label: {
           Image(systemName: "xmark.circle.fill")
@@ -141,6 +141,7 @@ struct UpdatePromptView: View {
   UpdatePromptView {
     print("Dismissed")
   }
+  .environment(AppModel())
   .frame(width: 400)
   .padding()
   .background(.black.opacity(0.3))
