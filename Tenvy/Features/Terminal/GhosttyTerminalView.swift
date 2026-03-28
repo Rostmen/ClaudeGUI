@@ -40,9 +40,20 @@ struct GhosttyTerminalView: NSViewRepresentable {
   let onSplitRequested: ((GhosttyEmbedSplitDirection) -> Void)?
   /// Called when this terminal's surface gains keyboard focus.
   let onFocusGained: (() -> Void)?
+  /// Pre-existing host view to reuse instead of creating a new one.
+  /// Prevents process restarts when SwiftUI restructures the view tree (e.g. on split).
+  let existingHostView: GhosttyHostView?
+  /// Called with the newly created GhosttyHostView so callers can cache it.
+  let onHostViewCreated: ((GhosttyHostView) -> Void)?
   @Environment(\.colorScheme) private var colorScheme
 
   func makeNSView(context: Context) -> GhosttyHostView {
+    // Reuse cached view if available — the process is already running.
+    if let existing = existingHostView {
+      // pendingFocus handled by updateNSView (window is already set on existing views).
+      return existing
+    }
+
     let hostView = GhosttyHostView()
     hostView.setup(
       session: session,
@@ -58,6 +69,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     if isSelected {
       hostView.pendingFocus = true
     }
+    onHostViewCreated?(hostView)
     return hostView
   }
 
@@ -247,9 +259,13 @@ final class GhosttyHostView: NSView {
     }
 
     // If focus was requested before the view was in a window, honour it now.
+    // Deferred by one run loop tick so that Ghostty's own viewDidMoveToWindow
+    // (fired on the child surfaceView after ours) doesn't reset the focus state.
     if pendingFocus {
       pendingFocus = false
-      makeFocused()
+      DispatchQueue.main.async { [weak self] in
+        self?.makeFocused()
+      }
     }
   }
 
