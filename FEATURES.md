@@ -181,6 +181,17 @@ When closing a window with an active session:
 
 ## Terminal Integration
 
+### Terminal Backends
+
+Tenvy supports two terminal backends, selectable in **Settings → Terminal**:
+
+| Backend | Default | Notes |
+|---------|---------|-------|
+| SwiftTerm | Yes | Lightweight, full color palette control |
+| Ghostty | No | Full Ghostty terminal, respects user's Ghostty config |
+
+Both backends launch Claude through a **login shell** (`zsh -l`) so `~/.zprofile` and `~/.zshrc` are sourced and PATH is correct (Homebrew, NVM, pyenv, etc.). For Ghostty, the shell script is written to a temp file to avoid quoting issues with Ghostty's command parser.
+
 ### SwiftTerm Configuration
 
 | Setting | Value |
@@ -188,7 +199,8 @@ When closing a window with an active session:
 | TERM | `xterm-256color` |
 | COLORTERM | `truecolor` |
 | TERM_PROGRAM | `Tenvy` |
-| Background | Black @ 50% opacity |
+| Background (dark) | Black @ 50% opacity |
+| Background (light) | White @ 55% opacity |
 | Scrollers | Overlay style (thin, translucent) |
 
 ### Claude Process Discovery
@@ -474,8 +486,25 @@ All views kept alive in ZStack with opacity toggle (prevents state loss on tab s
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| File Browser | Enabled | Show Files tab in sidebar |
-| Git Changes | Enabled | Show Changes tab in sidebar |
+| Git Changes | Disabled | Show Changes tab in sidebar |
+| Terminal | SwiftTerm | Terminal backend: SwiftTerm or Ghostty |
+| Appearance | System | Light / Dark / System color scheme |
+| Source ~/.zshrc | Enabled | Source ~/.zshrc before launching Claude |
+
+### Appearance Mode
+
+Tenvy supports three appearance modes selectable in **Settings → Appearance**:
+
+| Mode | Behavior |
+|------|----------|
+| System | Follows macOS appearance automatically |
+| Light | Forces light mode across all windows |
+| Dark | Forces dark mode across all windows |
+
+On change:
+- All windows (main, Settings, Release Notes) update immediately via `preferredColorScheme`
+- `ClaudeThemeSync` writes `"theme": "dark"|"light"` to `~/.claude.json` so Claude CLI output colors match
+- Sessions with `hookState == .waiting` are restarted automatically so the new theme takes effect; busy sessions are left alone
 
 ### Persisted Data
 
@@ -483,8 +512,11 @@ All views kept alive in ZStack with opacity toggle (prevents state loss on tab s
 |-----|---------|---------|
 | `SuppressQuitAlertForActiveSessions` | UserDefaults | Don't ask on quit |
 | `FileTreeView.expandedPaths.*` | UserDefaults | Expanded folders |
-| `settings.fileTreeEnabled` | @AppStorage | Feature toggle |
-| `settings.gitChangesEnabled` | @AppStorage | Feature toggle |
+| `settings.gitChangesEnabled` | UserDefaults | Feature toggle |
+| `settings.terminalType` | UserDefaults | SwiftTerm or Ghostty |
+| `settings.appearanceMode` | UserDefaults | Light / Dark / System |
+| `settings.sourceZshrc` | UserDefaults | Source ~/.zshrc on launch |
+| `settings.customEnvironmentVariables` | UserDefaults (JSON) | Extra env vars |
 
 ---
 

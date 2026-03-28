@@ -7,11 +7,12 @@ macOS app for managing and resuming Claude Code CLI sessions with a native trans
 ## Quick Overview
 
 - **Session Management**: Browse, resume, rename, and delete Claude Code sessions
-- **Embedded Terminal**: SwiftTerm-based terminal with CPU-based state monitoring
+- **Embedded Terminal**: SwiftTerm or Ghostty terminal with CPU-based state monitoring
 - **Multi-Window Support**: Each session runs in isolated window/tab with single process
 - **Git Changes**: Modified files tree with syntax-highlighted diffs
 - **Notifications**: macOS notifications for waiting/permission states via Claude Code hooks
 - **Glass UI**: Transparent window with dark overlay
+- **Appearance**: Light / Dark / System mode with live Claude CLI theme sync
 
 ## Architecture
 
@@ -34,6 +35,7 @@ Tenvy/
 │   │   ├── SessionRuntimeState.swift  # Per-session runtime info (@Observable)
 │   │   ├── ProcessManager.swift    # Process tracking & cleanup
 │   │   ├── TerminalView.swift      # SwiftTerm wrapper + state monitoring
+│   │   ├── GhosttyTerminalView.swift  # Ghostty terminal backend
 │   │   ├── EmptyTerminalView.swift # Empty state placeholder
 │   │   ├── ClaudePathResolver.swift   # Finds claude CLI binary
 │   │   ├── TerminalEnvironment.swift  # Terminal env var configuration
@@ -51,7 +53,8 @@ Tenvy/
 │   │   ├── GitChangedFileRow.swift # Git file row
 │   │   └── DiffView.swift          # Git diff viewer
 │   ├── Settings/                   # Settings
-│   │   ├── AppSettings.swift       # User preferences (UserDefaults)
+│   │   ├── AppSettings.swift       # User preferences (UserDefaults) + AppearanceMode
+│   │   ├── ClaudeThemeSync.swift   # Writes theme to ~/.claude.json on appearance change
 │   │   └── SettingsView.swift      # App preferences view
 │   └── Updates/                    # Update checker
 │       ├── UpdateService.swift     # GitHub releases API + brew install
@@ -74,7 +77,8 @@ Tenvy/
 
 | Package | Purpose |
 |---------|---------|
-| [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) | Terminal emulator |
+| [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) | Terminal emulator (default) |
+| [GhosttyEmbed](https://github.com/ghostty-org/ghostty) | Ghostty terminal backend (optional) |
 | [gitdiff](https://github.com/tornikegomareli/gitdiff) | Diff rendering |
 
 ## Building
@@ -200,6 +204,24 @@ Shell PID (not Claude PID) is used for termination:
 - Killing shell terminates entire process tree
 - Signal handlers: SIGTERM, SIGINT, SIGHUP
 - Fallback: `atexit` handler
+
+### Appearance Mode & Claude Theme Sync
+
+- `AppSettings.appearanceMode` stores `AppearanceMode` enum: `.system`, `.light`, `.dark`
+- `preferredColorScheme` applied to all three window types: main (`ContentView`), Settings scene, Release Notes `NSWindow`
+- On change: `ClaudeThemeSync.apply(_:)` writes `"theme": "dark"|"light"` to `~/.claude.json`; System mode resolves via `NSApp.effectiveAppearance`
+- On change: `AppModel.restartWaitingSessions()` restarts sessions with `hookState == .waiting` so Claude CLI picks up the new theme immediately; sessions with `processing`, `thinking`, or `waitingPermission` are left alone
+- Terminal colors: `ClaudeTerminalColors.darkPalette` / `.lightPalette` — SwiftTerm `UInt16` values use `byte × 257` scaling (0–65535 range)
+- Ghostty appearance: `GhosttyEmbedApp.shared.applyAppearance(isDark:)` rewrites the temp config and calls `reloadConfig()`
+- `ContentView` observes `@Environment(\.colorScheme)` and re-syncs `ClaudeThemeSync` on system appearance change
+
+### Ghostty Terminal Backend
+
+- Selectable via **Settings → Terminal**: SwiftTerm (default) or Ghostty
+- `GhosttyTerminalView` mirrors `TerminalContentView`'s interface; `TerminalView` switches between them
+- Ghostty launches via a login-shell wrapper (same as SwiftTerm): writes a temp shell script to `NSTemporaryDirectory()`, runs `zsh -l /tmp/tenvy-UUID.sh` so `~/.zprofile` is sourced and PATH is correct; script deleted in `deinit`
+- Resize: `GhosttyHostView.layout()` calls `surface.notifyResize(bounds.size)` → `surfaceView.sizeDidChange(_:)`
+- Input: `GhosttyInputProxy` conforms to `TerminalInputSender`; restart is a no-op (Ghostty doesn't support programmatic restart)
 
 ### Update Checker
 

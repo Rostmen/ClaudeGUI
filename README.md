@@ -15,7 +15,7 @@
 Browse all your Claude Code sessions in one place. Resume any session instantly, rename sessions for easier identification, and delete ones you no longer need. Sessions are discovered automatically from `~/.claude/projects/`.
 
 ### Embedded Terminal
-Each session runs in a full SwiftTerm-based terminal embedded directly in the app. Every session gets its own isolated window or tab — no cross-contamination between projects. Tenvy monitors CPU usage to detect when Claude is thinking, waiting, or idle, and reflects that state in real time.
+Each session runs in a full terminal embedded directly in the app — choose between **SwiftTerm** (default) or **Ghostty** in Settings. Every session gets its own isolated window or tab — no cross-contamination between projects. Tenvy monitors CPU usage to detect when Claude is thinking, waiting, or idle, and reflects that state in real time.
 
 ### Smart Notifications
 Tenvy hooks into Claude Code's event system to notify you when:
@@ -27,8 +27,11 @@ Notifications are suppressed for the session you're actively viewing and shown o
 ### Git Changes
 See which files Claude modified at a glance. The Git Changes tab shows a tree of modified, added, and deleted files with syntax-highlighted diffs — so you can review Claude's work without leaving the app.
 
+### Appearance
+Choose between **Light**, **Dark**, or **System** (follows macOS) in **Settings → Appearance**. Tenvy applies the chosen mode across all windows — including the Settings and Release Notes windows — and automatically syncs the Claude CLI theme in `~/.claude.json` so Claude's output colors match. Idle sessions are restarted transparently so the new theme takes effect immediately.
+
 ### Glass UI
-Tenvy uses a transparent vibrancy window with a dark overlay that cuts out around the terminal — keeping the terminal crisp and readable while the rest of the app blends into your desktop.
+Tenvy uses a transparent vibrancy window with an overlay that cuts out around the terminal — keeping the terminal crisp and readable while the rest of the app blends into your desktop. The overlay adapts to the selected appearance mode.
 
 ### Multi-Window Support
 Open multiple Claude Code sessions side by side, each in its own window or tab. Tenvy enforces one process per session — no duplicate terminals, no wasted resources.
