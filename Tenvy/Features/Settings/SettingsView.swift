@@ -70,20 +70,6 @@ struct SettingsView: View {
           .foregroundColor(.secondary)
       }
 
-      // Terminal section
-      Section {
-        Picker("Terminal Type", selection: $settings.terminalType) {
-          Text("SwiftTerm (Default)").tag(TerminalType.swiftTerm)
-          Text("Ghostty (Experimental)").tag(TerminalType.ghostty)
-        }
-        .pickerStyle(MenuPickerStyle())
-      } header: {
-        Text("Terminal")
-      } footer: {
-        Text("Choose which terminal rendering engine to use")
-          .font(.caption)
-          .foregroundColor(.secondary)
-      }
       // Hooks section
       Section {
         HStack {

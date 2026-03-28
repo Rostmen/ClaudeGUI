@@ -24,7 +24,7 @@ import Foundation
 
 // MARK: - TerminalInputSender
 
-/// Common interface for sending input to any terminal backend (SwiftTerm or Ghostty).
+/// Common interface for sending input to the terminal backend.
 @MainActor
 protocol TerminalInputSender: AnyObject {
   func send(txt: String)

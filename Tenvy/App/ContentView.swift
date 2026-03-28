@@ -22,6 +22,7 @@
 
 import SwiftUI
 import AppKit
+import GhosttyEmbed
 
 // MARK: - Preference Key for Terminal Frame
 struct TerminalFrameKey: PreferenceKey {
@@ -244,7 +245,7 @@ private struct DetailView<Key: PreferenceKey>: View where Key.Value == CGRect {
       } else if let session = viewModel.selectedSession,
                 viewModel.shouldRenderTerminal(for: session) {
         // Normal single-terminal mode
-        TerminalView(
+        GhosttyTerminalView(
           session: session,
           isSelected: viewModel.isTerminalVisible,
           onStateChange: { info in
@@ -349,7 +350,7 @@ private struct PaneSplitTreeRenderer: View {
   @ViewBuilder
   private func leafView(session: ClaudeSession) -> some View {
     if viewModel.shouldRenderTerminal(for: session) {
-      TerminalView(
+      GhosttyTerminalView(
         session: session,
         isSelected: viewModel.selectedSession?.id == session.id,
         onStateChange: { info in

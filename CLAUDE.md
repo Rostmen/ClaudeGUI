@@ -7,7 +7,7 @@ macOS app for managing and resuming Claude Code CLI sessions with a native trans
 ## Quick Overview
 
 - **Session Management**: Browse, resume, rename, and delete Claude Code sessions
-- **Embedded Terminal**: SwiftTerm or Ghostty terminal with CPU-based state monitoring
+- **Embedded Terminal**: Ghostty terminal with CPU-based state monitoring
 - **Split Panes**: Tree-based split layout (Ghostty-style) — splitting only divides the focused pane, not all panes
 - **Multi-Window Support**: Each session runs in isolated window/tab with single process
 - **Git Changes**: Modified files tree with syntax-highlighted diffs
@@ -36,8 +36,8 @@ Tenvy/
 │   ├── Terminal/                   # Terminal & process management
 │   │   ├── SessionRuntimeState.swift  # Per-session runtime info (@Observable)
 │   │   ├── ProcessManager.swift    # Process tracking & cleanup
-│   │   ├── TerminalView.swift      # SwiftTerm wrapper + state monitoring + focus KVO
-│   │   ├── GhosttyTerminalView.swift  # Ghostty terminal backend + focus transfer
+│   │   ├── TerminalView.swift      # Shared types: SplitDirection, SessionMonitorInfo, SessionStateMonitor
+│   │   ├── GhosttyTerminalView.swift  # Ghostty terminal backend + GhosttyHostView + focus transfer
 │   │   ├── PaneSplitView.swift     # Two-pane split view with draggable divider
 │   │   ├── EmptyTerminalView.swift # Empty state placeholder
 │   │   ├── ClaudePathResolver.swift   # Finds claude CLI binary
@@ -80,8 +80,7 @@ Tenvy/
 
 | Package | Purpose |
 |---------|---------|
-| [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) | Terminal emulator (default) |
-| [GhosttyEmbed](https://github.com/ghostty-org/ghostty) | Ghostty terminal backend (optional) |
+| [GhosttyEmbed](https://github.com/ghostty-org/ghostty) | Ghostty terminal backend |
 | [gitdiff](https://github.com/tornikegomareli/gitdiff) | Diff rendering |
 
 ## Building
@@ -197,7 +196,7 @@ zsh -l -c '[ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc" 2>/dev/null; exec /pat
 
 - `-l` sources `/etc/zprofile` and `~/.zprofile`
 - `~/.zshrc` is sourced manually (not via `-i` which triggers `/etc/zshrc` terminal key-binding setup and causes errors without a TTY)
-- `exec` replaces the shell with claude at the same PID — SwiftTerm process tracking is unaffected
+- `exec` replaces the shell with claude at the same PID — process tracking is unaffected
 - `LANG=en_US.UTF-8` is set if missing (GUI apps launched by launchd don't inherit it)
 - Custom environment variables can be added in **Settings → Environment Variables** — stored in UserDefaults, applied after `~/.zshrc`
 
@@ -214,7 +213,6 @@ Shell PID (not Claude PID) is used for termination:
 - `preferredColorScheme` applied to all three window types: main (`ContentView`), Settings scene, Release Notes `NSWindow`
 - On change: `ClaudeThemeSync.apply(_:)` writes `"theme": "dark"|"light"` to `~/.claude.json`; System mode resolves via `NSApp.effectiveAppearance`
 - On change: `AppModel.restartWaitingSessions()` restarts sessions with `hookState == .waiting` so Claude CLI picks up the new theme immediately; sessions with `processing`, `thinking`, or `waitingPermission` are left alone
-- Terminal colors: `ClaudeTerminalColors.darkPalette` / `.lightPalette` — SwiftTerm `UInt16` values use `byte × 257` scaling (0–65535 range)
 - Ghostty appearance: `GhosttyEmbedApp.shared.applyAppearance(isDark:)` rewrites the temp config and calls `reloadConfig()`
 - `ContentView` observes `@Environment(\.colorScheme)` and re-syncs `ClaudeThemeSync` on system appearance change
 
@@ -234,8 +232,7 @@ Ghostty's `SurfaceView` defaults `focused = true`. This breaks `performKeyEquiva
 **Fix**: in `GhosttyHostView.setup()`, call `_ = surfaceView.resignFirstResponder()` immediately after `addSubview(surfaceView)`. This resets `focused = false` on all new surfaces. Focus is granted only when `makeFocused()` is called (via `pendingFocus` + `viewDidMoveToWindow` for the selected pane).
 
 - `GhosttyEmbedSurface.makeFocused()`: calls `resignFirstResponder()` (now a no-op since focused is already false) then `window.makeFirstResponder(surfaceView)` → `becomeFirstResponder()` → `focusDidChange(true)` → `ghostty_surface_set_focus(surface, true)`.
-- `DraggableTerminalView` (SwiftTerm): uses KVO on `window.firstResponder` to call `onFocusGained` → `ContentViewModel.handleFocusGained(for:)` → updates `selectedSession`.
-- `GhosttyHostView`: same KVO pattern for Ghostty backend.
+- `GhosttyHostView`: uses KVO on `window.firstResponder` to call `onFocusGained` → `ContentViewModel.handleFocusGained(for:)` → updates `selectedSession`.
 - `pendingFocus: Bool` on `GhosttyHostView`: set in `makeNSView` when `isSelected = true`, consumed in `viewDidMoveToWindow` (reliable point where `window` is non-nil).
 - **`viewDidMoveToWindow` defer**: `pendingFocus` calls `makeFocused()` via `DispatchQueue.main.async`, not synchronously. Ghostty's `SurfaceView.viewDidMoveToWindow` fires after the host view's, and resets internal focus state — deferring by one run loop tick ensures `makeFocused()` runs after all `viewDidMoveToWindow` callbacks complete.
 
@@ -250,9 +247,8 @@ SwiftUI destroys and recreates `NSViewRepresentable`-backed views when they move
 
 ### Ghostty Terminal Backend
 
-- Selectable via **Settings → Terminal**: SwiftTerm (default) or Ghostty
-- `GhosttyTerminalView` mirrors `TerminalContentView`'s interface; `TerminalView` switches between them
-- Ghostty launches via a login-shell wrapper (same as SwiftTerm): writes a temp shell script to `NSTemporaryDirectory()`, runs `zsh -l /tmp/tenvy-UUID.sh` so `~/.zprofile` is sourced and PATH is correct; script deleted in `deinit`
+- `GhosttyTerminalView` (NSViewRepresentable) is the sole terminal backend; used directly in `ContentView`
+- Launches via a login-shell wrapper: writes a temp shell script to `NSTemporaryDirectory()`, runs `zsh -l /tmp/tenvy-UUID.sh` so `~/.zprofile` is sourced and PATH is correct; script deleted in `deinit`
 - Resize: `GhosttyHostView.layout()` calls `surface.notifyResize(bounds.size)` → `surfaceView.sizeDidChange(_:)`
 - Input: `GhosttyInputProxy` conforms to `TerminalInputSender`; restart is a no-op (Ghostty doesn't support programmatic restart)
 
