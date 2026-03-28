@@ -45,6 +45,10 @@ struct TerminalView: View {
   let onSplitRequested: ((SplitDirection) -> Void)?
   /// Called when this terminal's surface gains keyboard focus (Ghostty mode only).
   let onFocusGained: (() -> Void)?
+  /// Pre-existing GhosttyHostView to reuse (Ghostty mode only). Prevents process restart on split.
+  let existingHostView: GhosttyHostView?
+  /// Called with the newly created GhosttyHostView so callers can cache it (Ghostty mode only).
+  let onHostViewCreated: ((GhosttyHostView) -> Void)?
 
   init(
     session: ClaudeSession?,
@@ -55,7 +59,9 @@ struct TerminalView: View {
     onRegisterForInput: ((any TerminalInputSender, String) -> Void)? = nil,
     onUnregisterForInput: ((String) -> Void)? = nil,
     onSplitRequested: ((SplitDirection) -> Void)? = nil,
-    onFocusGained: (() -> Void)? = nil
+    onFocusGained: (() -> Void)? = nil,
+    existingHostView: GhosttyHostView? = nil,
+    onHostViewCreated: ((GhosttyHostView) -> Void)? = nil
   ) {
     self.session = session
     self.isSelected = isSelected
@@ -66,6 +72,8 @@ struct TerminalView: View {
     self.onUnregisterForInput = onUnregisterForInput
     self.onSplitRequested = onSplitRequested
     self.onFocusGained = onFocusGained
+    self.existingHostView = existingHostView
+    self.onHostViewCreated = onHostViewCreated
   }
 
   var body: some View {
@@ -105,7 +113,9 @@ struct TerminalView: View {
             }
           }
         },
-        onFocusGained: onFocusGained
+        onFocusGained: onFocusGained,
+        existingHostView: existingHostView,
+        onHostViewCreated: onHostViewCreated
       )
     }
   }

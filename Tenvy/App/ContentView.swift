@@ -272,6 +272,10 @@ private struct DetailView<Key: PreferenceKey>: View where Key.Value == CGRect {
             if let id = viewModel.selectedSession?.id {
               viewModel.handleFocusGained(for: id)
             }
+          },
+          existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
+          onHostViewCreated: { view in
+            viewModel.cacheGhosttyHostView(view, terminalId: session.terminalId)
           }
         )
         .id(session.terminalId)
@@ -375,6 +379,10 @@ private struct PaneSplitTreeRenderer: View {
         },
         onFocusGained: {
           viewModel.handleFocusGained(for: session.id)
+        },
+        existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
+        onHostViewCreated: { view in
+          viewModel.cacheGhosttyHostView(view, terminalId: session.terminalId)
         }
       )
       .id(session.terminalId)

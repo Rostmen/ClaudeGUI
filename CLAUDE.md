@@ -237,6 +237,16 @@ Ghostty's `SurfaceView` defaults `focused = true`. This breaks `performKeyEquiva
 - `DraggableTerminalView` (SwiftTerm): uses KVO on `window.firstResponder` to call `onFocusGained` → `ContentViewModel.handleFocusGained(for:)` → updates `selectedSession`.
 - `GhosttyHostView`: same KVO pattern for Ghostty backend.
 - `pendingFocus: Bool` on `GhosttyHostView`: set in `makeNSView` when `isSelected = true`, consumed in `viewDidMoveToWindow` (reliable point where `window` is non-nil).
+- **`viewDidMoveToWindow` defer**: `pendingFocus` calls `makeFocused()` via `DispatchQueue.main.async`, not synchronously. Ghostty's `SurfaceView.viewDidMoveToWindow` fires after the host view's, and resets internal focus state — deferring by one run loop tick ensures `makeFocused()` runs after all `viewDidMoveToWindow` callbacks complete.
+
+#### GhosttyHostView Cache (process survival across split transitions)
+
+SwiftUI destroys and recreates `NSViewRepresentable`-backed views when they move to a different structural position in the view tree (e.g. single-pane → split). This kills the Ghostty process. Fix: `ContentViewModel` holds a strong `[String: GhosttyHostView]` cache keyed by `session.terminalId`.
+
+- `@ObservationIgnored private var ghosttyHostViews: [String: GhosttyHostView]` — strong refs, invisible to SwiftUI observation.
+- `GhosttyTerminalView.makeNSView`: returns cached view if `existingHostView != nil`, skipping `setup()` (no new process).
+- `onHostViewCreated` callback: fires in `makeNSView` for fresh views, allowing callers to populate the cache.
+- Cache is evicted in `closeSplitPane(id:)` and `closeSplit()` before deactivating, so the Ghostty process terminates when the pane is explicitly closed.
 
 ### Ghostty Terminal Backend
 

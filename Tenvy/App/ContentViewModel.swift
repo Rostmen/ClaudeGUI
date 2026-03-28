@@ -35,6 +35,13 @@ final class ContentViewModel {
   /// The split-pane tree for this window. `nil` when not in split mode.
   private(set) var splitTree: PaneSplitTree?
 
+  /// Keeps GhosttyHostViews alive across SwiftUI view-tree restructuring (e.g. split transitions).
+  /// SwiftUI destroys then recreates NSViewRepresentable wrappers when they move to a different
+  /// structural position, which would kill the Ghostty process.  Holding a strong reference here
+  /// prevents dealloc until the session is explicitly closed.
+  @ObservationIgnored
+  private var ghosttyHostViews: [String: GhosttyHostView] = [:]
+
   /// Currently selected diff file (for diff viewer)
   var selectedDiffFile: GitChangedFile?
 
@@ -53,6 +60,23 @@ final class ContentViewModel {
 
   init(appModel: AppModel) {
     self.appModel = appModel
+  }
+
+  // MARK: - GhosttyHostView Cache
+
+  /// Returns the cached GhosttyHostView for the given terminal identity, if any.
+  func ghosttyHostView(for terminalId: String) -> GhosttyHostView? {
+    ghosttyHostViews[terminalId]
+  }
+
+  /// Stores a newly created GhosttyHostView so it survives view-tree restructuring.
+  func cacheGhosttyHostView(_ view: GhosttyHostView, terminalId: String) {
+    ghosttyHostViews[terminalId] = view
+  }
+
+  /// Removes the cached view, allowing it to deallocate and terminate its process.
+  func evictGhosttyHostView(terminalId: String) {
+    ghosttyHostViews.removeValue(forKey: terminalId)
   }
 
   // MARK: - Computed Properties
@@ -220,6 +244,10 @@ final class ContentViewModel {
   /// Close a specific split pane by session ID.
   func closeSplitPane(id: String) {
     let wasSelected = selectedSession?.id == id
+    // Evict cached host view so its process terminates.
+    if let terminalId = splitTree?.allSessions.first(where: { $0.id == id })?.terminalId {
+      evictGhosttyHostView(terminalId: terminalId)
+    }
     appModel.deactivateSession(id)
     appModel.terminalInput.unregister(sessionId: id)
 
@@ -243,6 +271,7 @@ final class ContentViewModel {
     let primary = primarySession
     if let tree = splitTree {
       for session in tree.allSessions where session.id != primary?.id {
+        evictGhosttyHostView(terminalId: session.terminalId)
         appModel.deactivateSession(session.id)
         appModel.terminalInput.unregister(sessionId: session.id)
       }
