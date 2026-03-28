@@ -25,9 +25,6 @@ import AppKit
 import GhosttyEmbed
 
 /// SwiftUI wrapper for a Ghostty terminal surface.
-///
-/// Mirrors the interface of `TerminalContentView` so `TerminalView` can swap
-/// between SwiftTerm and Ghostty without changing callers.
 struct GhosttyTerminalView: NSViewRepresentable {
   let session: ClaudeSession?
   let isSelected: Bool
@@ -37,7 +34,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
   let onRegisterForInput: ((GhosttyInputProxy, String) -> Void)?
   let onUnregisterForInput: ((String) -> Void)?
   /// Called when the user requests a split from Ghostty's context menu.
-  let onSplitRequested: ((GhosttyEmbedSplitDirection) -> Void)?
+  let onSplitRequested: ((SplitDirection) -> Void)?
   /// Called when this terminal's surface gains keyboard focus.
   let onFocusGained: (() -> Void)?
   /// Pre-existing host view to reuse instead of creating a new one.
@@ -147,7 +144,7 @@ final class GhosttyHostView: NSView {
   private var onSessionActivated: ((String) -> Void)?
   private var onRegisterForInput: ((GhosttyInputProxy, String) -> Void)?
   private var onUnregisterForInput: ((String) -> Void)?
-  private var onSplitRequested: ((GhosttyEmbedSplitDirection) -> Void)?
+  private var onSplitRequested: ((SplitDirection) -> Void)?
 
   var surfaceViewIfReady: NSView? { surface?.nsView }
 
@@ -176,7 +173,7 @@ final class GhosttyHostView: NSView {
     onSessionActivated: ((String) -> Void)?,
     onRegisterForInput: ((GhosttyInputProxy, String) -> Void)?,
     onUnregisterForInput: ((String) -> Void)?,
-    onSplitRequested: ((GhosttyEmbedSplitDirection) -> Void)?,
+    onSplitRequested: ((SplitDirection) -> Void)?,
     onFocusGained: (() -> Void)?
   ) {
     self.sessionId = session?.id
@@ -236,9 +233,16 @@ final class GhosttyHostView: NSView {
     ])
 
     // Listen for split requests from Ghostty's context menu.
-    // onSplitRequest decodes the C direction enum inside GhosttyEmbed where GhosttyKit is available.
+    // Map GhosttyEmbedSplitDirection → SplitDirection here so callers stay decoupled from GhosttyEmbed types.
     splitObserver = embedSurface.onSplitRequest { [weak self] direction in
-      self?.onSplitRequested?(direction)
+      let appDirection: SplitDirection
+      switch direction {
+      case .right: appDirection = .right
+      case .down:  appDirection = .down
+      case .left:  appDirection = .left
+      case .up:    appDirection = .up
+      }
+      self?.onSplitRequested?(appDirection)
     }
 
     // Notify callers once the process starts (small delay for PTY fork)

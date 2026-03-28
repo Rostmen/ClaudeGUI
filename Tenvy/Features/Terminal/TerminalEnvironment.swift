@@ -54,7 +54,7 @@ struct TerminalEnvironment {
   /// controlled by Settings → Environment Variables), ~/.zshrc is also sourced
   /// manually — avoids using `-i` which triggers /etc/zshrc terminal key-binding
   /// setup and causes errors without a TTY.
-  /// `exec` replaces the shell with claude (same PID), so SwiftTerm tracks it correctly.
+  /// `exec` replaces the shell with claude at the same PID — process tracking is unaffected.
   ///
   /// When `currentDirectory` is provided the `cd` runs inside the child shell,
   /// making the working-directory change process-local and thread-safe (no global

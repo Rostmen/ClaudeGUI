@@ -87,11 +87,6 @@ final class AppSettings {
     didSet { UserDefaults.standard.set(sourceZshrc, forKey: "settings.sourceZshrc") }
   }
 
-  /// Terminal type to use for sessions
-  var terminalType: TerminalType {
-    didSet { UserDefaults.standard.set(terminalType.rawValue, forKey: "settings.terminalType") }
-  }
-
   /// Appearance mode (System / Light / Dark)
   var appearanceMode: AppearanceMode {
     didSet {
@@ -114,14 +109,6 @@ final class AppSettings {
       self.customEnvironmentVariables = [:]
     }
     self.sourceZshrc = UserDefaults.standard.object(forKey: "settings.sourceZshrc") as? Bool ?? true
-
-    // Load terminal type, defaulting to SwiftTerm
-    if let rawValue = UserDefaults.standard.object(forKey: "settings.terminalType") as? String,
-       let type = TerminalType(rawValue: rawValue) {
-      self.terminalType = type
-    } else {
-      self.terminalType = .swiftTerm
-    }
 
     // Load appearance mode, defaulting to System
     if let rawValue = UserDefaults.standard.object(forKey: "settings.appearanceMode") as? String,
