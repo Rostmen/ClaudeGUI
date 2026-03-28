@@ -8,6 +8,7 @@ macOS app for managing and resuming Claude Code CLI sessions with a native trans
 
 - **Session Management**: Browse, resume, rename, and delete Claude Code sessions
 - **Embedded Terminal**: SwiftTerm or Ghostty terminal with CPU-based state monitoring
+- **Split Panes**: Tree-based split layout (Ghostty-style) — splitting only divides the focused pane, not all panes
 - **Multi-Window Support**: Each session runs in isolated window/tab with single process
 - **Git Changes**: Modified files tree with syntax-highlighted diffs
 - **Notifications**: macOS notifications for waiting/permission states via Claude Code hooks
@@ -28,14 +29,16 @@ Tenvy/
 ├── Features/
 │   ├── Session/                    # Session management
 │   │   ├── ClaudeSession.swift     # Session data model
+│   │   ├── PaneSplitTree.swift     # Recursive binary tree for split pane layout
 │   │   ├── SessionManager.swift    # Discovery & FSEvents monitoring
 │   │   ├── SessionListView.swift   # Session list with local selection
 │   │   └── SessionRowView.swift    # Session row with status dot
 │   ├── Terminal/                   # Terminal & process management
 │   │   ├── SessionRuntimeState.swift  # Per-session runtime info (@Observable)
 │   │   ├── ProcessManager.swift    # Process tracking & cleanup
-│   │   ├── TerminalView.swift      # SwiftTerm wrapper + state monitoring
-│   │   ├── GhosttyTerminalView.swift  # Ghostty terminal backend
+│   │   ├── TerminalView.swift      # SwiftTerm wrapper + state monitoring + focus KVO
+│   │   ├── GhosttyTerminalView.swift  # Ghostty terminal backend + focus transfer
+│   │   ├── PaneSplitView.swift     # Two-pane split view with draggable divider
 │   │   ├── EmptyTerminalView.swift # Empty state placeholder
 │   │   ├── ClaudePathResolver.swift   # Finds claude CLI binary
 │   │   ├── TerminalEnvironment.swift  # Terminal env var configuration
@@ -214,6 +217,26 @@ Shell PID (not Claude PID) is used for termination:
 - Terminal colors: `ClaudeTerminalColors.darkPalette` / `.lightPalette` — SwiftTerm `UInt16` values use `byte × 257` scaling (0–65535 range)
 - Ghostty appearance: `GhosttyEmbedApp.shared.applyAppearance(isDark:)` rewrites the temp config and calls `reloadConfig()`
 - `ContentView` observes `@Environment(\.colorScheme)` and re-syncs `ClaudeThemeSync` on system appearance change
+
+### Split Panes (Ghostty-style)
+
+- **Tree model**: `PaneSplitTree` — recursive binary tree (`leaf(ClaudeSession)` | `split(Split)`). Splitting a leaf replaces only that leaf with a split node; the rest of the tree is untouched.
+- **`PaneSplitView`**: two-pane SwiftUI view using `GeometryReader + ZStack + offset` (NOT `NSSplitView`). Draggable divider updates `Split.ratio` via `ContentViewModel.updateSplitRatio(splitId:ratio:)`.
+- **`PaneSplitTreeRenderer`** (private struct in `ContentView`): recursively renders the tree — `leaf` → `TerminalView`, `split` → `PaneSplitView` with two recursive renderers.
+- **`selectedSession`** tracks the focused pane; `primarySession` tracks the window-registered session (the first pane).
+- **Auto-close**: non-primary panes automatically close when their `claude` process exits (`.inactive` state).
+- **`syncSplitSession()`**: like `syncNewSessionWithDiscoveredSession()` but for split panes — updates `isNewSession` leaves when Claude creates the real session file.
+
+#### Ghostty Focus in Split Mode
+
+Ghostty's `SurfaceView` defaults `focused = true`. This breaks `performKeyEquivalent` routing — if a non-selected pane's surface has `focused = true`, it intercepts Cmd+V (paste) and other key equivalents before the actually-focused pane.
+
+**Fix**: in `GhosttyHostView.setup()`, call `_ = surfaceView.resignFirstResponder()` immediately after `addSubview(surfaceView)`. This resets `focused = false` on all new surfaces. Focus is granted only when `makeFocused()` is called (via `pendingFocus` + `viewDidMoveToWindow` for the selected pane).
+
+- `GhosttyEmbedSurface.makeFocused()`: calls `resignFirstResponder()` (now a no-op since focused is already false) then `window.makeFirstResponder(surfaceView)` → `becomeFirstResponder()` → `focusDidChange(true)` → `ghostty_surface_set_focus(surface, true)`.
+- `DraggableTerminalView` (SwiftTerm): uses KVO on `window.firstResponder` to call `onFocusGained` → `ContentViewModel.handleFocusGained(for:)` → updates `selectedSession`.
+- `GhosttyHostView`: same KVO pattern for Ghostty backend.
+- `pendingFocus: Bool` on `GhosttyHostView`: set in `makeNSView` when `isSelected = true`, consumed in `viewDidMoveToWindow` (reliable point where `window` is non-nil).
 
 ### Ghostty Terminal Backend
 

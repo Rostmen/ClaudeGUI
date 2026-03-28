@@ -29,8 +29,11 @@ import Foundation
 final class ContentViewModel {
   // MARK: - State
 
-  /// Currently selected session for this window
+  /// Currently selected session for this window (reflects focused pane in split mode)
   private(set) var selectedSession: ClaudeSession?
+
+  /// The split-pane tree for this window. `nil` when not in split mode.
+  private(set) var splitTree: PaneSplitTree?
 
   /// Currently selected diff file (for diff viewer)
   var selectedDiffFile: GitChangedFile?
@@ -53,6 +56,18 @@ final class ContentViewModel {
   }
 
   // MARK: - Computed Properties
+
+  /// Whether split mode is active
+  var isInSplitMode: Bool { splitTree != nil }
+
+  /// The session registered to this window (the "primary" or first pane).
+  /// When a split pane is focused, selectedSession may differ from this.
+  var primarySession: ClaudeSession? {
+    guard isInSplitMode else { return selectedSession }
+    guard let windowSessionId = currentWindow?.sessionId else { return selectedSession }
+    if selectedSession?.id == windowSessionId { return selectedSession }
+    return appModel.activatedSessions[windowSessionId]
+  }
 
   /// Whether terminal should be visible (no diff selected)
   var isTerminalVisible: Bool {
@@ -85,9 +100,12 @@ final class ContentViewModel {
 
   /// Check if terminal should render for the given session
   func shouldRenderTerminal(for session: ClaudeSession) -> Bool {
-    appModel.isSessionActivated(session.id) &&
-    windowConfigured &&
-    currentWindow?.sessionId == session.id
+    guard appModel.isSessionActivated(session.id) && windowConfigured else { return false }
+    // Primary session: must be registered to this window
+    if currentWindow?.sessionId == session.id { return true }
+    // Any session in the split tree is allowed in this window
+    if splitTree?.contains(sessionId: session.id) == true { return true }
+    return false
   }
 
   // MARK: - Actions
@@ -97,6 +115,12 @@ final class ContentViewModel {
     // If clicking on the already selected session, just clear detail selection
     if selectedSession?.id == session.id {
       clearDetailSelection()
+      return
+    }
+
+    // In split mode, clicking any session in this window's tree just moves focus.
+    if isInSplitMode, splitTree?.contains(sessionId: session.id) == true {
+      handleFocusGained(for: session.id)
       return
     }
 
@@ -147,6 +171,84 @@ final class ContentViewModel {
   /// Clear diff selection (return to terminal)
   func clearDetailSelection() {
     selectedDiffFile = nil
+  }
+
+  /// Called when the user requests a split from Ghostty's context menu.
+  /// Splits the focused pane in the given direction using the tree model.
+  func handleSplitRequested(direction: SplitDirection = .right) {
+    // The pane to split is whichever is currently focused.
+    guard let focused = selectedSession ?? primarySession else { return }
+    let newSession = ClaudeSession(
+      id: UUID().uuidString,
+      title: "New Session",
+      projectPath: focused.projectPath,
+      workingDirectory: focused.workingDirectory,
+      lastModified: Date(),
+      filePath: nil,
+      isNewSession: true
+    )
+    appModel.activateSession(newSession)
+
+    if let tree = splitTree {
+      // Tree already exists — split the focused leaf.
+      splitTree = tree.inserting(newSession, at: focused.id, direction: direction)
+    } else {
+      // First split: build tree from primary session then split it.
+      let primary = primarySession ?? focused
+      let tree = PaneSplitTree(primary)
+      splitTree = tree.inserting(newSession, at: primary.id, direction: direction)
+    }
+    selectedSession = newSession
+  }
+
+  /// Update the ratio of a specific split node (called by the drag divider).
+  func updateSplitRatio(splitId: UUID, ratio: Double) {
+    splitTree = splitTree?.updatingRatio(splitId: splitId, ratio: ratio)
+  }
+
+  /// Called when a terminal pane gains focus — updates selectedSession so the sidebar
+  /// highlights the correct session.
+  func handleFocusGained(for sessionId: String) {
+    if selectedSession?.id == sessionId { return }
+    if let session = splitTree?.allSessions.first(where: { $0.id == sessionId }) {
+      selectedSession = session
+    } else if let primary = primarySession, primary.id == sessionId {
+      selectedSession = primary
+    }
+  }
+
+  /// Close a specific split pane by session ID.
+  func closeSplitPane(id: String) {
+    let wasSelected = selectedSession?.id == id
+    appModel.deactivateSession(id)
+    appModel.terminalInput.unregister(sessionId: id)
+
+    if let newTree = splitTree?.removing(sessionId: id) {
+      let remaining = newTree.allSessions
+      if remaining.count <= 1 {
+        // Only one pane left — exit split mode
+        splitTree = nil
+        if wasSelected { selectedSession = remaining.first ?? primarySession }
+      } else {
+        splitTree = newTree
+        if wasSelected { selectedSession = primarySession ?? remaining.first }
+      }
+    } else {
+      splitTree = nil
+    }
+  }
+
+  /// Close all split panes and return to single-terminal mode.
+  func closeSplit() {
+    let primary = primarySession
+    if let tree = splitTree {
+      for session in tree.allSessions where session.id != primary?.id {
+        appModel.deactivateSession(session.id)
+        appModel.terminalInput.unregister(sessionId: session.id)
+      }
+    }
+    splitTree = nil
+    if let primary { selectedSession = primary }
   }
 
   /// Update runtime state for a session
@@ -214,6 +316,45 @@ final class ContentViewModel {
         configureWindow(window, for: syncedSession)
       }
     }
+  }
+
+  /// Sync any new-session split panes with their Claude-created session files.
+  func syncSplitSession() {
+    guard let tree = splitTree else { return }
+    let newSessions = tree.allSessions.filter { $0.isNewSession }
+    guard !newSessions.isEmpty else { return }
+
+    let recentThreshold = Date().addingTimeInterval(-60)
+    var claimedIds: Set<String> = [selectedSession?.id].compactMap { $0 }.reduce(into: []) { $0.insert($1) }
+    var updatedTree = tree
+
+    for current in newSessions {
+      guard let matchingSession = sessionDiscovery.sessions.first(where: { s in
+        s.workingDirectory == current.workingDirectory &&
+        s.lastModified > recentThreshold &&
+        s.id != current.id &&
+        !claimedIds.contains(s.id)
+      }) else { continue }
+
+      claimedIds.insert(matchingSession.id)
+      let synced = ClaudeSession(
+        id: matchingSession.id,
+        title: matchingSession.title,
+        projectPath: matchingSession.projectPath,
+        workingDirectory: matchingSession.workingDirectory,
+        lastModified: matchingSession.lastModified,
+        filePath: matchingSession.filePath,
+        isNewSession: false,
+        terminalId: current.terminalId
+      )
+      runtimeState.transferState(from: current.id, to: synced.id)
+      appModel.deactivateSession(current.id)
+      appModel.activateSession(synced)
+      updatedTree = updatedTree.replacing(sessionId: current.id, with: synced)
+      if selectedSession?.id == current.id { selectedSession = synced }
+    }
+
+    splitTree = updatedTree
   }
 
   /// Called when window reference changes

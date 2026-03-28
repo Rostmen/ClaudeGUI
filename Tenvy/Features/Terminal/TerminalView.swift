@@ -22,6 +22,16 @@
 
 import SwiftUI
 import SwiftTerm
+import GhosttyEmbed
+
+// MARK: - Split Direction
+
+/// Direction in which a new split pane should appear.
+enum SplitDirection {
+  case right, down, left, up
+  var isVertical: Bool { self == .down || self == .up }
+  var isReversed: Bool { self == .left || self == .up }
+}
 
 struct TerminalView: View {
   let session: ClaudeSession?
@@ -31,6 +41,10 @@ struct TerminalView: View {
   let onSessionActivated: ((String) -> Void)?
   let onRegisterForInput: ((any TerminalInputSender, String) -> Void)?
   let onUnregisterForInput: ((String) -> Void)?
+  /// Called when the user requests a split from Ghostty's context menu (Ghostty mode only).
+  let onSplitRequested: ((SplitDirection) -> Void)?
+  /// Called when this terminal's surface gains keyboard focus (Ghostty mode only).
+  let onFocusGained: (() -> Void)?
 
   init(
     session: ClaudeSession?,
@@ -39,7 +53,9 @@ struct TerminalView: View {
     onShellStart: ((pid_t) -> Void)? = nil,
     onSessionActivated: ((String) -> Void)? = nil,
     onRegisterForInput: ((any TerminalInputSender, String) -> Void)? = nil,
-    onUnregisterForInput: ((String) -> Void)? = nil
+    onUnregisterForInput: ((String) -> Void)? = nil,
+    onSplitRequested: ((SplitDirection) -> Void)? = nil,
+    onFocusGained: (() -> Void)? = nil
   ) {
     self.session = session
     self.isSelected = isSelected
@@ -48,6 +64,8 @@ struct TerminalView: View {
     self.onSessionActivated = onSessionActivated
     self.onRegisterForInput = onRegisterForInput
     self.onUnregisterForInput = onUnregisterForInput
+    self.onSplitRequested = onSplitRequested
+    self.onFocusGained = onFocusGained
   }
 
   var body: some View {
@@ -63,7 +81,8 @@ struct TerminalView: View {
         onRegisterForInput: { (terminal: DraggableTerminalView, sid) in
           onRegisterForInput?(terminal, sid)
         },
-        onUnregisterForInput: onUnregisterForInput
+        onUnregisterForInput: onUnregisterForInput,
+        onFocusGained: onFocusGained
       )
     case .ghostty:
       GhosttyTerminalView(
@@ -75,7 +94,18 @@ struct TerminalView: View {
         onRegisterForInput: { (proxy: GhosttyInputProxy, sid) in
           onRegisterForInput?(proxy, sid)
         },
-        onUnregisterForInput: onUnregisterForInput
+        onUnregisterForInput: onUnregisterForInput,
+        onSplitRequested: onSplitRequested.map { handler in
+          { (embedDir: GhosttyEmbedSplitDirection) in
+            switch embedDir {
+            case .right: handler(.right)
+            case .down:  handler(.down)
+            case .left:  handler(.left)
+            case .up:    handler(.up)
+            }
+          }
+        },
+        onFocusGained: onFocusGained
       )
     }
   }
@@ -89,6 +119,7 @@ struct TerminalContentView: NSViewRepresentable {
   let onSessionActivated: ((String) -> Void)?
   let onRegisterForInput: ((DraggableTerminalView, String) -> Void)?
   let onUnregisterForInput: ((String) -> Void)?
+  let onFocusGained: (() -> Void)?
   @Environment(\.colorScheme) private var colorScheme
 
   func makeNSView(context: Context) -> DraggableTerminalView {
@@ -102,6 +133,7 @@ struct TerminalContentView: NSViewRepresentable {
     terminalView.onSessionActivated = onSessionActivated
     terminalView.onRegisterForInput = onRegisterForInput
     terminalView.onUnregisterForInput = onUnregisterForInput
+    terminalView.onFocusGained = onFocusGained
 
     applyColors(to: terminalView, colorScheme: colorScheme)
 
@@ -131,6 +163,7 @@ struct TerminalContentView: NSViewRepresentable {
     nsView.onShellStart = onShellStart
     nsView.sessionId = session?.id
     nsView.isNewSession = session?.isNewSession ?? false
+    nsView.onFocusGained = onFocusGained
     context.coordinator.onStateChange = onStateChange
 
     // Re-apply colors when color scheme changes
@@ -146,7 +179,10 @@ struct TerminalContentView: NSViewRepresentable {
 
     if isSelected {
       DispatchQueue.main.async {
-        if nsView.window?.firstResponder != nsView {
+        // Only steal focus if nothing inside this view already has it.
+        // This prevents re-renders from overriding user focus in split mode.
+        let fr = nsView.window?.firstResponder as? NSView
+        if fr == nil || !fr!.isDescendant(of: nsView) {
           nsView.window?.makeFirstResponder(nsView)
         }
       }
@@ -229,6 +265,10 @@ class DraggableTerminalView: LocalProcessTerminalView {
   var onRegisterForInput: ((DraggableTerminalView, String) -> Void)?
   /// Called when the view is deallocated to unregister from the terminal input registry.
   var onUnregisterForInput: ((String) -> Void)?
+  /// Called when this terminal gains keyboard focus (first responder moves into this view).
+  var onFocusGained: (() -> Void)?
+
+  private var windowFocusObservation: NSKeyValueObservation?
 
   var sessionId: String?
   var isNewSession: Bool = false  // New sessions don't have their ID in process args
@@ -359,7 +399,26 @@ class DraggableTerminalView: LocalProcessTerminalView {
     )
   }
 
+  // KVO: observe firstResponder so focus changes between split panes update selectedSession.
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    windowFocusObservation?.invalidate()
+    windowFocusObservation = nil
+    guard let window = window else { return }
+    windowFocusObservation = window.observe(\.firstResponder) { [weak self] _, _ in
+      self?.checkFocus()
+    }
+  }
+
+  private func checkFocus() {
+    guard let responder = window?.firstResponder as? NSView else { return }
+    if responder.isDescendant(of: self) {
+      onFocusGained?()
+    }
+  }
+
   deinit {
+    windowFocusObservation?.invalidate()
     // Unregister from terminal input registry via injected callback
     if let sessionId = sessionId {
       let unregister = onUnregisterForInput

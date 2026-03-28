@@ -36,6 +36,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
   let onSessionActivated: ((String) -> Void)?
   let onRegisterForInput: ((GhosttyInputProxy, String) -> Void)?
   let onUnregisterForInput: ((String) -> Void)?
+  /// Called when the user requests a split from Ghostty's context menu.
+  let onSplitRequested: ((GhosttyEmbedSplitDirection) -> Void)?
+  /// Called when this terminal's surface gains keyboard focus.
+  let onFocusGained: (() -> Void)?
   @Environment(\.colorScheme) private var colorScheme
 
   func makeNSView(context: Context) -> GhosttyHostView {
@@ -46,16 +50,20 @@ struct GhosttyTerminalView: NSViewRepresentable {
       onShellStart: onShellStart,
       onSessionActivated: onSessionActivated,
       onRegisterForInput: onRegisterForInput,
-      onUnregisterForInput: onUnregisterForInput
+      onUnregisterForInput: onUnregisterForInput,
+      onSplitRequested: onSplitRequested,
+      onFocusGained: onFocusGained
     )
+    // Mark for focus so viewDidMoveToWindow() transfers it once the view has a window.
     if isSelected {
-      DispatchQueue.main.async { hostView.becomeFirstResponder() }
+      hostView.pendingFocus = true
     }
     return hostView
   }
 
   func updateNSView(_ nsView: GhosttyHostView, context: Context) {
     nsView.onStateChange = onStateChange
+    nsView.onFocusGained = onFocusGained
 
     // Sync Ghostty appearance when color scheme changes
     if context.coordinator.lastColorScheme != colorScheme {
@@ -64,10 +72,18 @@ struct GhosttyTerminalView: NSViewRepresentable {
     }
 
     if isSelected {
-      DispatchQueue.main.async {
-        if nsView.window?.firstResponder !== nsView.surfaceViewIfReady {
-          nsView.surfaceViewIfReady?.window?.makeFirstResponder(nsView.surfaceViewIfReady)
+      // Only transfer focus when the view is already in a window (window != nil).
+      // If it isn't yet (new split pane), viewDidMoveToWindow will handle it via pendingFocus.
+      if nsView.window != nil {
+        DispatchQueue.main.async {
+          guard let surfaceView = nsView.surfaceViewIfReady, nsView.window != nil else { return }
+          let fr = nsView.window?.firstResponder as? NSView
+          if fr == nil || !(fr!.isDescendant(of: surfaceView)) {
+            nsView.makeFocused()
+          }
         }
+      } else {
+        nsView.pendingFocus = true
       }
     }
   }
@@ -110,14 +126,28 @@ final class GhosttyHostView: NSView {
   private var sessionId: String?
   private var isNewSession: Bool = false
   private var launchScriptPath: String?
+  private var splitObserver: NSObjectProtocol?
+  private var windowObservation: NSKeyValueObservation?
 
   var onStateChange: ((SessionMonitorInfo) -> Void)?
+  var onFocusGained: (() -> Void)?
   private var onShellStart: ((pid_t) -> Void)?
   private var onSessionActivated: ((String) -> Void)?
   private var onRegisterForInput: ((GhosttyInputProxy, String) -> Void)?
   private var onUnregisterForInput: ((String) -> Void)?
+  private var onSplitRequested: ((GhosttyEmbedSplitDirection) -> Void)?
 
   var surfaceViewIfReady: NSView? { surface?.nsView }
+
+  /// Set to true before adding to a window so `viewDidMoveToWindow` transfers focus immediately.
+  var pendingFocus: Bool = false
+
+  /// Make this terminal's surface the keyboard focus.
+  /// Calls `GhosttyEmbedSurface.makeFocused()` which resets Ghostty's internal
+  /// focus state before handing first-responder to the surface view.
+  func makeFocused() {
+    surface?.makeFocused()
+  }
 
   override var isFlipped: Bool { true }
   override var isOpaque: Bool { false }
@@ -133,7 +163,9 @@ final class GhosttyHostView: NSView {
     onShellStart: ((pid_t) -> Void)?,
     onSessionActivated: ((String) -> Void)?,
     onRegisterForInput: ((GhosttyInputProxy, String) -> Void)?,
-    onUnregisterForInput: ((String) -> Void)?
+    onUnregisterForInput: ((String) -> Void)?,
+    onSplitRequested: ((GhosttyEmbedSplitDirection) -> Void)?,
+    onFocusGained: (() -> Void)?
   ) {
     self.sessionId = session?.id
     self.isNewSession = session?.isNewSession ?? false
@@ -142,6 +174,8 @@ final class GhosttyHostView: NSView {
     self.onSessionActivated = onSessionActivated
     self.onRegisterForInput = onRegisterForInput
     self.onUnregisterForInput = onUnregisterForInput
+    self.onSplitRequested = onSplitRequested
+    self.onFocusGained = onFocusGained
 
     let claudePath = ClaudePathResolver.findClaudePath()
     var args: [String] = []
@@ -177,6 +211,11 @@ final class GhosttyHostView: NSView {
     let surfaceView = embedSurface.nsView
     surfaceView.translatesAutoresizingMaskIntoConstraints = false
     addSubview(surfaceView)
+
+    // Ghostty SurfaceView defaults focused=true. Reset to false so that
+    // performKeyEquivalent doesn't route paste/shortcuts to a non-active
+    // pane in split mode. Focus is granted only via makeFocused() below.
+    _ = surfaceView.resignFirstResponder()
     NSLayoutConstraint.activate([
       surfaceView.leadingAnchor.constraint(equalTo: leadingAnchor),
       surfaceView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -184,9 +223,41 @@ final class GhosttyHostView: NSView {
       surfaceView.bottomAnchor.constraint(equalTo: bottomAnchor)
     ])
 
+    // Listen for split requests from Ghostty's context menu.
+    // onSplitRequest decodes the C direction enum inside GhosttyEmbed where GhosttyKit is available.
+    splitObserver = embedSurface.onSplitRequest { [weak self] direction in
+      self?.onSplitRequested?(direction)
+    }
+
     // Notify callers once the process starts (small delay for PTY fork)
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
       self?.startMonitoring()
+    }
+  }
+
+  // Called when the view enters a window — reliable point where `window` is non-nil.
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    windowObservation?.invalidate()
+    windowObservation = nil
+    guard let window = window else { return }
+
+    windowObservation = window.observe(\.firstResponder) { [weak self] _, _ in
+      self?.checkFocus()
+    }
+
+    // If focus was requested before the view was in a window, honour it now.
+    if pendingFocus {
+      pendingFocus = false
+      makeFocused()
+    }
+  }
+
+  private func checkFocus() {
+    guard let surfaceView = surface?.nsView,
+          let responder = window?.firstResponder as? NSView else { return }
+    if responder.isDescendant(of: surfaceView) {
+      onFocusGained?()
     }
   }
 
@@ -234,6 +305,8 @@ final class GhosttyHostView: NSView {
 
   deinit {
     stateMonitor?.stop()
+    windowObservation?.invalidate()
+    if let obs = splitObserver { NotificationCenter.default.removeObserver(obs) }
     if let sid = sessionId {
       let unregister = onUnregisterForInput
       Task { @MainActor in unregister?(sid) }

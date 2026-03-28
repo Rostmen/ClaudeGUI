@@ -29,6 +29,9 @@ enum SessionState {
 }
 
 struct ClaudeSession: Identifiable, Hashable {
+  static func == (lhs: ClaudeSession, rhs: ClaudeSession) -> Bool { lhs.id == rhs.id }
+  func hash(into hasher: inout Hasher) { hasher.combine(id) }
+
   let id: String
   let title: String
   let projectPath: String
