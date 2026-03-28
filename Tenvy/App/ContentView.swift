@@ -28,9 +28,8 @@ struct TerminalFrameKey: PreferenceKey {
   static var defaultValue: CGRect = .zero
   static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
     let next = nextValue()
-    if next != .zero {
-      value = next
-    }
+    if value == .zero { value = next }
+    else if next != .zero { value = value.union(next) }
   }
 }
 
@@ -175,6 +174,7 @@ struct ContentView: View {
     .onChange(of: viewModel.sessionDiscovery.sessions) { _, _ in
       // When sessions reload, sync new sessions with Claude-created ones
       viewModel.syncNewSessionWithDiscoveredSession()
+      viewModel.syncSplitSession()
     }
     .onChange(of: hookPromptVisible) { _, shouldShow in
       withAnimation(.easeInOut(duration: 0.3)) {
@@ -236,19 +236,22 @@ private struct DetailView<Key: PreferenceKey>: View where Key.Value == CGRect {
 
   var body: some View {
     ZStack {
-      // Terminal for this window's selected session only
-      if let session = viewModel.selectedSession,
-         viewModel.shouldRenderTerminal(for: session) {
+      if viewModel.isInSplitMode, let tree = viewModel.splitTree {
+        // Split mode: tree-based layout — each pane is split independently.
+        PaneSplitTreeRenderer(node: tree.root, viewModel: viewModel)
+          .background(terminalFrameReader(visible: true))
+          .padding(16)
+      } else if let session = viewModel.selectedSession,
+                viewModel.shouldRenderTerminal(for: session) {
+        // Normal single-terminal mode
         TerminalView(
           session: session,
           isSelected: viewModel.isTerminalVisible,
           onStateChange: { info in
-            // Use current session ID (may have changed after sync)
             let currentId = viewModel.selectedSession?.id ?? session.id
             viewModel.updateRuntimeState(for: currentId, state: info.state, cpu: info.cpu, memory: info.memory, pid: info.pid)
           },
           onShellStart: { shellPid in
-            // Use current session ID (may have changed after sync)
             let currentId = viewModel.selectedSession?.id ?? session.id
             viewModel.setShellPid(shellPid, for: currentId)
           },
@@ -261,6 +264,14 @@ private struct DetailView<Key: PreferenceKey>: View where Key.Value == CGRect {
           },
           onUnregisterForInput: { sessionId in
             viewModel.appModel.terminalInput.unregister(sessionId: sessionId)
+          },
+          onSplitRequested: { direction in
+            viewModel.handleSplitRequested(direction: direction)
+          },
+          onFocusGained: {
+            if let id = viewModel.selectedSession?.id {
+              viewModel.handleFocusGained(for: id)
+            }
           }
         )
         .id(session.terminalId)
@@ -290,6 +301,83 @@ private struct DetailView<Key: PreferenceKey>: View where Key.Value == CGRect {
         key: terminalFramePreferenceKey,
         value: visible ? geo.frame(in: .named("window")) : .zero
       )
+    }
+  }
+}
+
+// MARK: - PaneSplitTreeRenderer
+
+/// Recursively renders a `PaneSplitTree` using `PaneSplitView` for splits
+/// and `TerminalView` for leaves.  Mirrors `TerminalSplitTreeView` from Ghostty.
+private struct PaneSplitTreeRenderer: View {
+  let node: PaneSplitTree.Node
+  let viewModel: ContentViewModel
+
+  var body: some View {
+    treeContent
+  }
+
+  @ViewBuilder
+  private var treeContent: some View {
+    switch node {
+    case .leaf(let session):
+      leafView(session: session)
+    case .split(let split):
+      splitView(split: split)
+    }
+  }
+
+  @ViewBuilder
+  private func splitView(split: PaneSplitTree.Split) -> some View {
+    PaneSplitView(
+      split.direction,
+      .init(
+        get: { CGFloat(split.ratio) },
+        set: { viewModel.updateSplitRatio(splitId: split.id, ratio: Double($0)) }
+      )
+    ) {
+      PaneSplitTreeRenderer(node: split.left, viewModel: viewModel)
+    } right: {
+      PaneSplitTreeRenderer(node: split.right, viewModel: viewModel)
+    }
+  }
+
+  @ViewBuilder
+  private func leafView(session: ClaudeSession) -> some View {
+    if viewModel.shouldRenderTerminal(for: session) {
+      TerminalView(
+        session: session,
+        isSelected: viewModel.selectedSession?.id == session.id,
+        onStateChange: { info in
+          viewModel.updateRuntimeState(
+            for: session.id, state: info.state,
+            cpu: info.cpu, memory: info.memory, pid: info.pid)
+          // Auto-close non-primary panes when their process ends
+          if viewModel.primarySession?.id != session.id && info.state == .inactive {
+            viewModel.closeSplitPane(id: session.id)
+          }
+        },
+        onShellStart: { shellPid in
+          viewModel.setShellPid(shellPid, for: session.id)
+        },
+        onSessionActivated: { sessionId in
+          viewModel.appModel.markSessionActivated(sessionId)
+          viewModel.appModel.trackSessionForHooks(sessionId)
+        },
+        onRegisterForInput: { terminal, sessionId in
+          viewModel.appModel.terminalInput.register(terminal, for: sessionId)
+        },
+        onUnregisterForInput: { sessionId in
+          viewModel.appModel.terminalInput.unregister(sessionId: sessionId)
+        },
+        onSplitRequested: { direction in
+          viewModel.handleSplitRequested(direction: direction)
+        },
+        onFocusGained: {
+          viewModel.handleFocusGained(for: session.id)
+        }
+      )
+      .id(session.terminalId)
     }
   }
 }
