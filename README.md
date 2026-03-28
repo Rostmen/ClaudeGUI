@@ -9,47 +9,7 @@
 
 ---
 
-## Features
-
-### Session Management
-Browse all your Claude Code sessions in one place. Resume any session instantly, rename sessions for easier identification, and delete ones you no longer need. Sessions are discovered automatically from `~/.claude/projects/`.
-
-### Embedded Terminal
-Each session runs in a full terminal embedded directly in the app — choose between **SwiftTerm** (default) or **Ghostty** in Settings. Every session gets its own isolated window or tab — no cross-contamination between projects. Tenvy monitors CPU usage to detect when Claude is thinking, waiting, or idle, and reflects that state in real time.
-
-### Smart Notifications
-Tenvy hooks into Claude Code's event system to notify you when:
-- **Claude is waiting for your input** — get a macOS notification when a background session needs attention
-- **Permission is required** — approve or deny tool use directly from the notification without switching windows
-
-Notifications are suppressed for the session you're actively viewing and shown only for background sessions.
-
-### Git Changes
-See which files Claude modified at a glance. The Git Changes tab shows a tree of modified, added, and deleted files with syntax-highlighted diffs — so you can review Claude's work without leaving the app.
-
-### Appearance
-Choose between **Light**, **Dark**, or **System** (follows macOS) in **Settings → Appearance**. Tenvy applies the chosen mode across all windows — including the Settings and Release Notes windows — and automatically syncs the Claude CLI theme in `~/.claude.json` so Claude's output colors match. Idle sessions are restarted transparently so the new theme takes effect immediately.
-
-### Glass UI
-Tenvy uses a transparent vibrancy window with an overlay that cuts out around the terminal — keeping the terminal crisp and readable while the rest of the app blends into your desktop. The overlay adapts to the selected appearance mode.
-
-### Multi-Window Support
-Open multiple Claude Code sessions side by side, each in its own window or tab. Tenvy enforces one process per session — no duplicate terminals, no wasted resources.
-
-### Automatic Updates
-Tenvy checks for new versions on every launch. When an update is available, a prompt appears in the bottom-right corner. Click **Update** and Tenvy installs the new version silently in the background via Homebrew, then relaunches automatically — no Terminal window, no manual steps.
-
-### Shell Environment
-Tenvy sources your `~/.zprofile` and `~/.zshrc` before launching Claude, so auth tokens, PATH entries, and other shell exports are available just as they are in your regular terminal. You can also add custom environment variables in **Settings → Environment Variables**.
-
----
-
-## Requirements
-
-- macOS 26 (Tahoe) or later
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview) installed
-
----
+<img width="1312" height="912" alt="Screenshot 2026-03-27 at 20 58 13" src="https://github.com/user-attachments/assets/7bb22328-6028-41e5-a23c-776b77afb1ae" />
 
 ## Installation
 
@@ -66,6 +26,39 @@ brew install --cask rostmen/tenvy/tenvy
 3. Launch Tenvy from Applications
 
 > Tenvy is notarized by Apple — no "unidentified developer" warnings.
+
+---
+
+## Features
+
+### Session Management
+Browse all your Claude Code sessions in one place. Resume any session instantly, rename sessions for easier identification, and delete ones you no longer need. Sessions are discovered automatically from `~/.claude/projects/`.
+
+### Embedded Terminal
+Each session runs in a full terminal embedded directly in the app — choose between **SwiftTerm** (default) or **Ghostty** in Settings. Every session gets its own isolated window or tab — no cross-contamination between projects. Tenvy monitors CPU usage to detect when Claude is thinking, waiting, or idle, and reflects that state in real time.
+
+### Smart Notifications
+Tenvy hooks into Claude Code's event system to notify you when:
+- **Claude is waiting for your input** — get a macOS notification when a background session needs attention
+- **Permission is required** — approve or deny tool use directly from the notification without switching windows
+
+Notifications are suppressed for the session you're actively viewing and shown only for background sessions.
+
+### Appearance
+Choose between **Light**, **Dark**, or **System** (follows macOS) in **Settings → Appearance**. Tenvy applies the chosen mode across all windows — including the Settings and Release Notes windows — and automatically syncs the Claude CLI theme in `~/.claude.json` so Claude's output colors match. Idle sessions are restarted transparently so the new theme takes effect immediately.
+
+### Multi-Window Support
+Open multiple Claude Code sessions side by side, each in its own window or tab. Tenvy enforces one process per session — no duplicate terminals, no wasted resources.
+
+### Shell Environment
+Tenvy sources your `~/.zprofile` and `~/.zshrc` before launching Claude, so auth tokens, PATH entries, and other shell exports are available just as they are in your regular terminal. You can also add custom environment variables in **Settings → Environment Variables**.
+
+---
+
+## Requirements
+
+- macOS 26 (Tahoe) or later
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview) installed
 
 ---
 
