@@ -67,6 +67,7 @@ struct TenvyApp: App {
     Settings {
       SettingsView()
         .environment(appDelegate.appModel)
+        .preferredColorScheme(AppSettings.shared.appearanceMode.colorScheme)
     }
   }
 }
@@ -173,7 +174,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     )
     window.title = "What's New in Tenvy \(version)"
     window.contentView = hostingView
-    window.appearance = NSAppearance(named: .darkAqua)
+    switch AppSettings.shared.appearanceMode {
+    case .dark:   window.appearance = NSAppearance(named: .darkAqua)
+    case .light:  window.appearance = NSAppearance(named: .aqua)
+    case .system: window.appearance = nil  // follows system
+    }
     window.center()
     window.makeKeyAndOrderFront(nil)
     releaseNotesWindow = window

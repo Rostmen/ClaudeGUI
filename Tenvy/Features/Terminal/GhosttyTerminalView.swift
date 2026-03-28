@@ -36,6 +36,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
   let onSessionActivated: ((String) -> Void)?
   let onRegisterForInput: ((GhosttyInputProxy, String) -> Void)?
   let onUnregisterForInput: ((String) -> Void)?
+  @Environment(\.colorScheme) private var colorScheme
 
   func makeNSView(context: Context) -> GhosttyHostView {
     let hostView = GhosttyHostView()
@@ -55,6 +56,13 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
   func updateNSView(_ nsView: GhosttyHostView, context: Context) {
     nsView.onStateChange = onStateChange
+
+    // Sync Ghostty appearance when color scheme changes
+    if context.coordinator.lastColorScheme != colorScheme {
+      context.coordinator.lastColorScheme = colorScheme
+      GhosttyEmbedApp.shared.applyAppearance(isDark: colorScheme == .dark)
+    }
+
     if isSelected {
       DispatchQueue.main.async {
         if nsView.window?.firstResponder !== nsView.surfaceViewIfReady {
@@ -65,7 +73,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
   }
 
   func makeCoordinator() -> Coordinator { Coordinator() }
-  class Coordinator {}
+  class Coordinator {
+    var lastColorScheme: ColorScheme = .dark
+  }
 }
 
 // MARK: - GhosttyInputProxy
@@ -110,6 +120,11 @@ final class GhosttyHostView: NSView {
 
   override var isFlipped: Bool { true }
   override var isOpaque: Bool { false }
+
+  override func layout() {
+    super.layout()
+    surface?.notifyResize(bounds.size)
+  }
 
   func setup(
     session: ClaudeSession?,

@@ -54,6 +54,22 @@ struct SettingsView: View {
       }
 #endif
 
+      // Appearance section
+      Section {
+        Picker("Appearance", selection: $settings.appearanceMode) {
+          ForEach(AppearanceMode.allCases, id: \.self) { mode in
+            Text(mode.displayName).tag(mode)
+          }
+        }
+        .pickerStyle(MenuPickerStyle())
+      } header: {
+        Text("Appearance")
+      } footer: {
+        Text("System follows your macOS appearance setting automatically.")
+          .font(.caption)
+          .foregroundColor(.secondary)
+      }
+
       // Terminal section
       Section {
         Picker("Terminal Type", selection: $settings.terminalType) {

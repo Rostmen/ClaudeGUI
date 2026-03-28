@@ -55,6 +55,9 @@ protocol TerminalInput: AnyObject {
 
   /// Restart all active terminal sessions (called after hook install/uninstall)
   func restartAllSessions()
+
+  /// Restart a single session's terminal
+  func restartSession(for sessionId: String)
 }
 
 // MARK: - Conformance

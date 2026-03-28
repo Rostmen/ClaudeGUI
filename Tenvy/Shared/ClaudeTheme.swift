@@ -29,10 +29,10 @@ enum ClaudeTheme {
   static let sidebar = SwiftUI.Color.black.opacity(0.5)
   static let surface = SwiftUI.Color(hex: "#1a1a1a")
 
-  // Text colors
-  static let textPrimary = SwiftUI.Color(hex: "#eaeaea")
-  static let textSecondary = SwiftUI.Color(hex: "#8b8b9e")
-  static let textTertiary = SwiftUI.Color(hex: "#5a5a6e")  // Dimmer for dividers
+  // Text colors — use system-adaptive primaries so dark/light mode flips automatically
+  static let textPrimary = SwiftUI.Color.primary
+  static let textSecondary = SwiftUI.Color.secondary
+  static let textTertiary = SwiftUI.Color.secondary.opacity(0.6)
 
   // Accent colors
   static let accent = SwiftUI.Color(hex: "#da7756")
@@ -48,29 +48,52 @@ enum ClaudeTheme {
 }
 
 enum ClaudeTerminalColors {
-  // ANSI color palette for SwiftTerm (16 colors)
-  // Order: black, red, green, yellow, blue, magenta, cyan, white (normal then bright)
-  static let palette: [SwiftTerm.Color] = [
-    // Normal colors (0-7)
-    SwiftTerm.Color(red: 0x00, green: 0x00, blue: 0x00),  // black
-    SwiftTerm.Color(red: 0xff, green: 0x6b, blue: 0x6b),  // red
-    SwiftTerm.Color(red: 0x4e, green: 0xcd, blue: 0xc4),  // green
-    SwiftTerm.Color(red: 0xff, green: 0xe6, blue: 0x6d),  // yellow
-    SwiftTerm.Color(red: 0x6c, green: 0x9b, blue: 0xd1),  // blue
-    SwiftTerm.Color(red: 0xc7, green: 0x92, blue: 0xea),  // magenta
-    SwiftTerm.Color(red: 0x89, green: 0xdd, blue: 0xff),  // cyan
-    SwiftTerm.Color(red: 0xd0, green: 0xd0, blue: 0xd0),  // white
+  // SwiftTerm.Color uses UInt16 (0–65535). Convert 8-bit values with * 257.
+  private static func c(_ r: Int, _ g: Int, _ b: Int) -> SwiftTerm.Color {
+    SwiftTerm.Color(red: UInt16(r * 257), green: UInt16(g * 257), blue: UInt16(b * 257))
+  }
 
-    // Bright colors (8-15)
-    SwiftTerm.Color(red: 0x50, green: 0x50, blue: 0x50),  // bright black (gray)
-    SwiftTerm.Color(red: 0xff, green: 0x87, blue: 0x87),  // bright red
-    SwiftTerm.Color(red: 0x7e, green: 0xe2, blue: 0xd9),  // bright green
-    SwiftTerm.Color(red: 0xff, green: 0xf3, blue: 0xa3),  // bright yellow
-    SwiftTerm.Color(red: 0x8c, green: 0xb4, blue: 0xe8),  // bright blue
-    SwiftTerm.Color(red: 0xd4, green: 0xa6, blue: 0xf5),  // bright magenta
-    SwiftTerm.Color(red: 0xa6, green: 0xee, blue: 0xff),  // bright cyan
-    SwiftTerm.Color(red: 0xea, green: 0xea, blue: 0xea),  // bright white
+  // ANSI palette — dark background (matches original proven palette)
+  static let darkPalette: [SwiftTerm.Color] = [
+    c(  0,   0,   0),  //  0 black
+    c(194,  54,  33),  //  1 red
+    c( 37, 188,  36),  //  2 green
+    c(173, 173,  39),  //  3 yellow
+    c( 73,  46, 225),  //  4 blue
+    c(211,  56, 211),  //  5 magenta
+    c( 51, 187, 200),  //  6 cyan
+    c(203, 204, 205),  //  7 white
+    c(129, 131, 131),  //  8 bright black (gray)
+    c(252,  57,  31),  //  9 bright red
+    c( 49, 231,  34),  // 10 bright green
+    c(234, 236,  35),  // 11 bright yellow
+    c( 88,  51, 255),  // 12 bright blue
+    c(249,  53, 248),  // 13 bright magenta
+    c( 20, 240, 240),  // 14 bright cyan
+    c(233, 235, 235),  // 15 bright white
   ]
+
+  // ANSI palette — light background (dark, saturated for contrast on white)
+  static let lightPalette: [SwiftTerm.Color] = [
+    c( 26,  26,  26),  //  0 black → near black
+    c(180,   0,   0),  //  1 red → dark red
+    c(  0, 110,  80),  //  2 green → dark teal
+    c(130,  85,   0),  //  3 yellow → dark amber
+    c(  0,  70, 180),  //  4 blue → deep blue
+    c(120,   0, 150),  //  5 magenta → dark purple
+    c(  0, 110, 140),  //  6 cyan → dark teal
+    c( 55,  55,  55),  //  7 white → dark gray (was light — must be readable on white)
+    c(100, 100, 100),  //  8 bright black → medium gray
+    c(200,  20,  20),  //  9 bright red
+    c(  0, 140, 100),  // 10 bright green
+    c(160, 105,   0),  // 11 bright yellow → amber
+    c(  0,  95, 210),  // 12 bright blue
+    c(150,   0, 190),  // 13 bright magenta
+    c(  0, 145, 170),  // 14 bright cyan
+    c( 15,  15,  15),  // 15 bright white → near black (was near-white — must be readable on white)
+  ]
+
+  static let palette = darkPalette
 }
 
 extension SwiftUI.Color {

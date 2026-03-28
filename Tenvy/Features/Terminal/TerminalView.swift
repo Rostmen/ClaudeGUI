@@ -89,7 +89,7 @@ struct TerminalContentView: NSViewRepresentable {
   let onSessionActivated: ((String) -> Void)?
   let onRegisterForInput: ((DraggableTerminalView, String) -> Void)?
   let onUnregisterForInput: ((String) -> Void)?
-
+  @Environment(\.colorScheme) private var colorScheme
 
   func makeNSView(context: Context) -> DraggableTerminalView {
     let terminalView = DraggableTerminalView(frame: .zero)
@@ -103,9 +103,7 @@ struct TerminalContentView: NSViewRepresentable {
     terminalView.onRegisterForInput = onRegisterForInput
     terminalView.onUnregisterForInput = onUnregisterForInput
 
-    terminalView.installColors(TerminalColors.darkPalette)
-    terminalView.nativeBackgroundColor = NSColor(red: 0, green: 0, blue: 0, alpha: kWindowOpacity)
-    terminalView.nativeForegroundColor = NSColor(calibratedWhite: 1, alpha: 1)
+    applyColors(to: terminalView, colorScheme: colorScheme)
 
     terminalView.wantsLayer = true
     terminalView.layer?.backgroundColor = NSColor.clear.cgColor
@@ -135,6 +133,12 @@ struct TerminalContentView: NSViewRepresentable {
     nsView.isNewSession = session?.isNewSession ?? false
     context.coordinator.onStateChange = onStateChange
 
+    // Re-apply colors when color scheme changes
+    if context.coordinator.lastColorScheme != colorScheme {
+      context.coordinator.lastColorScheme = colorScheme
+      applyColors(to: nsView, colorScheme: colorScheme)
+    }
+
     if context.coordinator.currentSessionId != session?.id {
       context.coordinator.currentSessionId = session?.id
       context.coordinator.startProcess(in: nsView, session: session)
@@ -149,18 +153,34 @@ struct TerminalContentView: NSViewRepresentable {
     }
   }
 
+  private func applyColors(to terminalView: DraggableTerminalView, colorScheme: ColorScheme) {
+    if colorScheme == .dark {
+      terminalView.installColors(ClaudeTerminalColors.darkPalette)
+      terminalView.nativeBackgroundColor = NSColor(red: 0, green: 0, blue: 0, alpha: kWindowOpacity)
+      terminalView.nativeForegroundColor = NSColor(calibratedWhite: 1, alpha: 1)
+    } else {
+      terminalView.installColors(ClaudeTerminalColors.lightPalette)
+      terminalView.nativeBackgroundColor = NSColor(red: 1, green: 1, blue: 1, alpha: kWindowOpacity)
+      terminalView.nativeForegroundColor = NSColor(calibratedWhite: 0.1, alpha: 1)
+    }
+    // Force SwiftTerm to redraw the existing buffer with the new palette.
+    terminalView.setNeedsDisplay(terminalView.bounds)
+  }
+
   func makeCoordinator() -> Coordinator {
-    Coordinator(currentSessionId: session?.id, onStateChange: onStateChange)
+    Coordinator(currentSessionId: session?.id, onStateChange: onStateChange, colorScheme: colorScheme)
   }
 
   class Coordinator {
     var currentSessionId: String?
     var terminalView: DraggableTerminalView?
     var onStateChange: ((SessionMonitorInfo) -> Void)?
+    var lastColorScheme: ColorScheme
 
-    init(currentSessionId: String?, onStateChange: ((SessionMonitorInfo) -> Void)?) {
+    init(currentSessionId: String?, onStateChange: ((SessionMonitorInfo) -> Void)?, colorScheme: ColorScheme) {
       self.currentSessionId = currentSessionId
       self.onStateChange = onStateChange
+      self.lastColorScheme = colorScheme
     }
 
     func startProcess(in terminalView: DraggableTerminalView, session: ClaudeSession?) {
@@ -527,27 +547,6 @@ class SessionStateMonitor {
 }
 
 
-enum TerminalColors {
-  /// SwiftTerm's default dark palette
-  static let darkPalette: [SwiftTerm.Color] = [
-    SwiftTerm.Color(red: 0, green: 0, blue: 0),                           // 0  black
-    SwiftTerm.Color(red: 194 * 257, green: 54 * 257, blue: 33 * 257),     // 1  red
-    SwiftTerm.Color(red: 37 * 257, green: 188 * 257, blue: 36 * 257),     // 2  green
-    SwiftTerm.Color(red: 173 * 257, green: 173 * 257, blue: 39 * 257),    // 3  yellow
-    SwiftTerm.Color(red: 73 * 257, green: 46 * 257, blue: 225 * 257),     // 4  blue
-    SwiftTerm.Color(red: 211 * 257, green: 56 * 257, blue: 211 * 257),    // 5  magenta
-    SwiftTerm.Color(red: 51 * 257, green: 187 * 257, blue: 200 * 257),    // 6  cyan
-    SwiftTerm.Color(red: 203 * 257, green: 204 * 257, blue: 205 * 257),   // 7  white
-    SwiftTerm.Color(red: 129 * 257, green: 131 * 257, blue: 131 * 257),   // 8  bright black
-    SwiftTerm.Color(red: 252 * 257, green: 57 * 257, blue: 31 * 257),     // 9  bright red
-    SwiftTerm.Color(red: 49 * 257, green: 231 * 257, blue: 34 * 257),     // 10 bright green
-    SwiftTerm.Color(red: 234 * 257, green: 236 * 257, blue: 35 * 257),    // 11 bright yellow
-    SwiftTerm.Color(red: 88 * 257, green: 51 * 257, blue: 255 * 257),     // 12 bright blue
-    SwiftTerm.Color(red: 249 * 257, green: 53 * 257, blue: 248 * 257),    // 13 bright magenta
-    SwiftTerm.Color(red: 20 * 257, green: 240 * 257, blue: 240 * 257),    // 14 bright cyan
-    SwiftTerm.Color(red: 233 * 257, green: 235 * 257, blue: 235 * 257),   // 15 bright white
-  ]
-}
 
 #Preview("Terminal") {
   TerminalView(session: nil)

@@ -28,6 +28,9 @@ import Foundation
 extension Notification.Name {
   /// Posted when user taps notification to open a session in a specific window
   static let openSessionFromNotification = Notification.Name("openSessionFromNotification")
+
+  /// Posted when the user changes the appearance mode in Settings
+  static let appearanceModeDidChange = Notification.Name("appearanceModeDidChange")
 }
 
 /// Application-level model that owns all services and shared state.
@@ -243,7 +246,31 @@ final class AppModel {
     hookMonitor.startMonitoring()
   }
 
+  /// Restart sessions that are safely idle (waiting for user input, not actively working).
+  /// Called after appearance mode changes so the new Claude CLI theme takes effect immediately.
+  func restartWaitingSessions() {
+    for sessionId in activatedSessions.keys {
+      let info = runtimeRegistry.info(for: sessionId)
+      let isWaiting = info.hookState == .waiting
+        || (info.hookState == nil && info.state == .waitingForInput)
+      let isBusy = info.hookState == .processing
+        || info.hookState == .thinking
+        || info.hookState == .waitingPermission
+      guard isWaiting && !isBusy else { continue }
+      terminalInput.restartSession(for: sessionId)
+    }
+  }
+
   private func setupWindowObservers() {
+    NotificationCenter.default.addObserver(
+      forName: .appearanceModeDidChange,
+      object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      guard let self else { return }
+      Task { @MainActor [self] in self.restartWaitingSessions() }
+    }
+
     NotificationCenter.default.addObserver(
       forName: NSApplication.didBecomeActiveNotification,
       object: nil,
