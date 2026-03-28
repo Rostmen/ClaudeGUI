@@ -36,6 +36,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
   let onSessionActivated: ((String) -> Void)?
   let onRegisterForInput: ((GhosttyInputProxy, String) -> Void)?
   let onUnregisterForInput: ((String) -> Void)?
+  @Environment(\.colorScheme) private var colorScheme
 
   func makeNSView(context: Context) -> GhosttyHostView {
     let hostView = GhosttyHostView()
@@ -55,6 +56,13 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
   func updateNSView(_ nsView: GhosttyHostView, context: Context) {
     nsView.onStateChange = onStateChange
+
+    // Sync Ghostty appearance when color scheme changes
+    if context.coordinator.lastColorScheme != colorScheme {
+      context.coordinator.lastColorScheme = colorScheme
+      GhosttyEmbedApp.shared.applyAppearance(isDark: colorScheme == .dark)
+    }
+
     if isSelected {
       DispatchQueue.main.async {
         if nsView.window?.firstResponder !== nsView.surfaceViewIfReady {
@@ -65,7 +73,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
   }
 
   func makeCoordinator() -> Coordinator { Coordinator() }
-  class Coordinator {}
+  class Coordinator {
+    var lastColorScheme: ColorScheme = .dark
+  }
 }
 
 // MARK: - GhosttyInputProxy
@@ -99,6 +109,7 @@ final class GhosttyHostView: NSView {
   private var registeredPID: pid_t = 0
   private var sessionId: String?
   private var isNewSession: Bool = false
+  private var launchScriptPath: String?
 
   var onStateChange: ((SessionMonitorInfo) -> Void)?
   private var onShellStart: ((pid_t) -> Void)?
@@ -110,6 +121,11 @@ final class GhosttyHostView: NSView {
 
   override var isFlipped: Bool { true }
   override var isOpaque: Bool { false }
+
+  override func layout() {
+    super.layout()
+    surface?.notifyResize(bounds.size)
+  }
 
   func setup(
     session: ClaudeSession?,
@@ -133,8 +149,19 @@ final class GhosttyHostView: NSView {
       args = ["--resume", session.id]
     }
 
-    let command = ([claudePath] + args).joined(separator: " ")
     let workingDirectory = session?.workingDirectory ?? NSHomeDirectory()
+
+    // Build launch via login shell (same as SwiftTerm) so ~/.zprofile is sourced
+    // and PATH includes Homebrew, NVM, etc. Write the shell script to a temp file
+    // to avoid quoting issues with Ghostty's command string parser.
+    let launch = TerminalEnvironment.shellArgs(executable: claudePath, args: args, currentDirectory: workingDirectory)
+    let scriptContent = launch.args.last ?? ""
+    let scriptPath = (NSTemporaryDirectory() as NSString).appendingPathComponent("tenvy-\(UUID().uuidString).sh")
+    try? scriptContent.write(toFile: scriptPath, atomically: true, encoding: .utf8)
+    try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptPath)
+    launchScriptPath = scriptPath
+    let command = "\(launch.executable) -l \(scriptPath)"
+
     let envVars = TerminalEnvironment.build().reduce(into: [String: String]()) { dict, pair in
       let parts = pair.split(separator: "=", maxSplits: 1)
       if parts.count == 2 { dict[String(parts[0])] = String(parts[1]) }
@@ -210,6 +237,9 @@ final class GhosttyHostView: NSView {
     if let sid = sessionId {
       let unregister = onUnregisterForInput
       Task { @MainActor in unregister?(sid) }
+    }
+    if let path = launchScriptPath {
+      try? FileManager.default.removeItem(atPath: path)
     }
   }
 }

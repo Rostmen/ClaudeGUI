@@ -32,11 +32,31 @@ public class GhosttyEmbedApp {
         if FileManager.default.fileExists(atPath: userConfig) {
             lines.insert("config-file = \(userConfig)", at: 0)
         }
-        let configPath = (NSTemporaryDirectory() as NSString)
-            .appendingPathComponent("tenvy-ghostty.conf")
+        let configPath = Self.configPath
         try? lines.joined(separator: "\n").write(toFile: configPath, atomically: true, encoding: .utf8)
 
         ghosttyApp = Ghostty.App(configPath: configPath)
+    }
+
+    private static let configPath = (NSTemporaryDirectory() as NSString)
+        .appendingPathComponent("tenvy-ghostty.conf")
+
+    /// Rewrites the Ghostty config for the given appearance and reloads it.
+    /// Safe to call on appearance changes; existing surfaces pick up the new colors.
+    @MainActor
+    public func applyAppearance(isDark: Bool) {
+        let userConfig = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/ghostty/config").path
+        var lines = isDark
+            ? ["background = #000000", "background-opacity = 0.5"]
+            : ["background = #ffffff", "background-opacity = 0.55",
+               "foreground = #1a1a1a"]
+        if FileManager.default.fileExists(atPath: userConfig) {
+            lines.insert("config-file = \(userConfig)", at: 0)
+        }
+        try? lines.joined(separator: "\n")
+            .write(toFile: Self.configPath, atomically: true, encoding: .utf8)
+        ghosttyApp.reloadConfig()
     }
 }
 
@@ -58,6 +78,13 @@ public class GhosttyEmbedSurface {
 
     /// The underlying NSView for embedding in AppKit/SwiftUI.
     public var nsView: NSView { surfaceView }
+
+    /// Notify Ghostty that the visible area has changed size.
+    /// Must be called whenever the host view's bounds change.
+    public func notifyResize(_ size: CGSize) {
+        guard size.width > 0, size.height > 0 else { return }
+        surfaceView.sizeDidChange(size)
+    }
 }
 
 // MARK: - Surface Factory

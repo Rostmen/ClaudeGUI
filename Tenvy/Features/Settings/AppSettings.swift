@@ -21,6 +21,32 @@
 // SOFTWARE.
 
 import Foundation
+import SwiftUI
+
+// MARK: - AppearanceMode
+
+enum AppearanceMode: String, CaseIterable {
+  case system, light, dark
+
+  var displayName: String {
+    switch self {
+    case .system: return "System"
+    case .light:  return "Light"
+    case .dark:   return "Dark"
+    }
+  }
+
+  /// Returns `nil` for System so SwiftUI follows the OS automatically.
+  var colorScheme: ColorScheme? {
+    switch self {
+    case .system: return nil
+    case .light:  return .light
+    case .dark:   return .dark
+    }
+  }
+}
+
+// MARK: - AppSettings
 
 /// App-wide settings stored in UserDefaults
 @Observable
@@ -66,6 +92,15 @@ final class AppSettings {
     didSet { UserDefaults.standard.set(terminalType.rawValue, forKey: "settings.terminalType") }
   }
 
+  /// Appearance mode (System / Light / Dark)
+  var appearanceMode: AppearanceMode {
+    didSet {
+      UserDefaults.standard.set(appearanceMode.rawValue, forKey: "settings.appearanceMode")
+      ClaudeThemeSync.apply(appearanceMode)
+      NotificationCenter.default.post(name: .appearanceModeDidChange, object: nil)
+    }
+  }
+
   private init() {
     // Load initial values from UserDefaults
     self.gitChangesEnabled = UserDefaults.standard.object(forKey: "settings.gitChangesEnabled") as? Bool ?? false
@@ -87,6 +122,17 @@ final class AppSettings {
     } else {
       self.terminalType = .swiftTerm
     }
+
+    // Load appearance mode, defaulting to System
+    if let rawValue = UserDefaults.standard.object(forKey: "settings.appearanceMode") as? String,
+       let mode = AppearanceMode(rawValue: rawValue) {
+      self.appearanceMode = mode
+    } else {
+      self.appearanceMode = .system
+    }
+
+    // Sync Claude CLI theme on launch
+    ClaudeThemeSync.apply(self.appearanceMode)
   }
 }
 

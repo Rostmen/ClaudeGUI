@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 import SwiftUI
+import AppKit
 
 // MARK: - Preference Key for Terminal Frame
 struct TerminalFrameKey: PreferenceKey {
@@ -36,6 +37,7 @@ struct TerminalFrameKey: PreferenceKey {
 let kWindowOpacity: CGFloat = 0.5
 
 struct ContentView: View {
+  @Environment(\.colorScheme) private var colorScheme
   @State private var viewModel: ContentViewModel
 
   init(appModel: AppModel) {
@@ -153,7 +155,13 @@ struct ContentView: View {
     .onPreferenceChange(TerminalFrameKey.self) { frame in
       terminalFrame = frame
     }
-    .preferredColorScheme(.dark)
+    .preferredColorScheme(AppSettings.shared.appearanceMode.colorScheme)
+    .onChange(of: colorScheme) { _, _ in
+      // Re-sync Claude theme when system appearance changes (relevant for System mode)
+      if AppSettings.shared.appearanceMode == .system {
+        ClaudeThemeSync.apply(.system)
+      }
+    }
     .onAppear {
       viewModel.handleAppear()
     }
@@ -201,12 +209,16 @@ struct ContentView: View {
 
 private struct DarkOverlayCanvas: View {
   let terminalFrame: CGRect
+  @Environment(\.colorScheme) private var colorScheme
 
   var body: some View {
     Canvas { context, size in
+      let overlayColor: Color = colorScheme == .dark
+        ? .black.opacity(kWindowOpacity)
+        : .white.opacity(0.55)
       context.fill(
         Path(CGRect(origin: .zero, size: size)),
-        with: .color(.black.opacity(kWindowOpacity))
+        with: .color(overlayColor)
       )
       if terminalFrame != .zero {
         context.blendMode = .destinationOut

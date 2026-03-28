@@ -63,6 +63,11 @@ final class TerminalRegistry {
     }
   }
 
+  /// Restart a single session's terminal
+  func restartSession(for sessionId: String) {
+    terminal(for: sessionId)?.restartSession()
+  }
+
   /// Get count of active sessions
   var activeSessionCount: Int {
     cleanup()
