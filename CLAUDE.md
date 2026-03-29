@@ -158,6 +158,10 @@ CPU-based state detection:
 - `< 3% CPU` → waiting (green)
 - Rolling 3-sample average, 0.5s polling
 
+**Process enumeration**: `ProcessPoller` uses `sysctl(KERN_PROC_ALL)` + `KERN_PROCARGS2` + `proc_pidinfo(PROC_PIDTASKINFO)` — pure kernel syscalls, no subprocess fork. Forking via `Process()`/`ps` deadlocks when Ghostty is active because Ghostty installs a `SIGCHLD` handler that reaps all child processes (including `ps`) before `waitUntilExit()` can observe the exit.
+
+**Ghostty PID discovery**: Ghostty manages its own PTY so no shell PID is available (`shellPid` is always 0). `ProcessTreeAnalyzer` uses `ProcessInfo.processInfo.processIdentifier` (the app PID) as the ancestor for `isDescendant` checks — Ghostty forks PTY processes directly from the Tenvy process, so all PTY-spawned children are descendants of the app.
+
 ### Claude Code Hooks
 
 Hook events are written to `~/.claude/chat-sessions-events.jsonl` by `Hooks/chat-sessions-hook.sh`.
@@ -202,8 +206,8 @@ zsh -l -c '[ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc" 2>/dev/null; exec /pat
 
 ### Process Cleanup
 
-Shell PID (not Claude PID) is used for termination:
-- Killing shell terminates entire process tree
+- **Kill target**: `runtimeInfo.shellPid` when set (legacy); `runtimeInfo.pid` (sysctl-discovered claude PID) as fallback for Ghostty sessions where `shellPid` is always 0
+- `ProcessManager.terminateProcess` sends SIGTERM then SIGKILL after 100 ms; child processes are found via `sysctl(KERN_PROC_ALL)` (not `ps`) for the same SIGCHLD-deadlock reason
 - Signal handlers: SIGTERM, SIGINT, SIGHUP
 - Fallback: `atexit` handler
 

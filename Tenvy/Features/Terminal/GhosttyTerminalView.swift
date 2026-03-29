@@ -282,22 +282,11 @@ final class GhosttyHostView: NSView {
   }
 
   private func startMonitoring() {
-    // Find claude's PID from the process tree
-    // Ghostty forks its own shell; we search for claude in that tree
-    guard let sid = sessionId ?? (isNewSession ? nil : sessionId) else {
-      startMonitoringWithoutSessionId()
-      return
-    }
-    startMonitoringWithSessionId(sid)
-  }
-
-  private func startMonitoringWithoutSessionId() {
-    // For new sessions we don't have the ID yet; monitor without session filter
-    startMonitorWithKnownPID(sessionId: nil)
-  }
-
-  private func startMonitoringWithSessionId(_ sid: String) {
-    startMonitorWithKnownPID(sessionId: sid)
+    // For new sessions the session ID is a temporary placeholder that never appears
+    // in the process args — pass nil so the monitor matches any claude descendant.
+    // For resumed sessions pass the real session ID for precise matching.
+    let monitorSessionId: String? = isNewSession ? nil : sessionId
+    startMonitorWithKnownPID(sessionId: monitorSessionId)
   }
 
   private func startMonitorWithKnownPID(sessionId: String?) {

@@ -20,25 +20,26 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+import Darwin
 import Dependencies
 import Foundation
 
 /// A shared, single-source-of-truth process snapshot updated every 500 ms.
 ///
-/// Before this actor, each active session ran its own `ps` subprocess every 500 ms.
-/// With N open sessions that produced N concurrent `ps` invocations per interval.
-/// `ProcessPoller` replaces all of them with **one** `ps` call, distributing the
-/// result to every registered `SessionStateMonitor` subscriber.
+/// Uses `sysctl(KERN_PROC_ALL)` + `KERN_PROCARGS2` + `proc_pidinfo` instead of
+/// spawning a `ps` subprocess.  Spawning subprocesses via `Process()` deadlocks
+/// when Ghostty is active because Ghostty installs a SIGCHLD handler that reaps
+/// ALL child processes — including the `ps` child — before `waitUntilExit()` can
+/// observe the exit.
 actor ProcessPoller {
   static let shared = ProcessPoller()
 
   // MARK: - Types
 
-  /// A single row from the `ps` snapshot.
   struct ProcessRecord {
     let pid: pid_t
     let ppid: pid_t
-    let cpu: Double
+    let cpu: Double     // percentage (0–100)
     let memoryKB: UInt64
     let args: String
   }
@@ -49,29 +50,26 @@ actor ProcessPoller {
   private var listeners: [UUID: ([pid_t: ProcessRecord]) -> Void] = [:]
   private var pollingTask: Task<Void, Never>?
 
-  // MARK: - Dependencies
-  // Resolved at init time. Override with withDependencies { … } before creating the instance.
+  // CPU delta tracking: previous cumulative CPU time (ns) per PID
+  private var prevCPUTime: [pid_t: UInt64] = [:]
+  private var prevPollDate: Date = Date()
 
-  private let processSnapshot: @Sendable () -> [pid_t: ProcessRecord]
+  // MARK: - Dependencies
+
   private let clock: any Clock<Duration>
 
-  // MARK: - Lifecycle
-
   private init() {
-    @Dependency(\.processSnapshot) var snapshot
     @Dependency(\.continuousClock) var clk
-    self.processSnapshot = snapshot
     self.clock = clk
   }
 
-  /// Subscribe to snapshot updates. Returns immediately; the handler is called
-  /// on the actor's executor each time a new snapshot arrives.
+  // MARK: - Public API
+
   func subscribe(id: UUID, handler: @escaping ([pid_t: ProcessRecord]) -> Void) {
     listeners[id] = handler
     startIfNeeded()
   }
 
-  /// Remove a subscription. Polling stops automatically when no subscribers remain.
   func unsubscribe(id: UUID) {
     listeners.removeValue(forKey: id)
     if listeners.isEmpty { stop() }
@@ -96,36 +94,123 @@ actor ProcessPoller {
   }
 
   private func poll() {
-    let result = processSnapshot()
+    let now = Date()
+    let elapsed = now.timeIntervalSince(prevPollDate)
+    prevPollDate = now
+
+    let result = Self.sysctlSnapshot(prevCPUTime: &prevCPUTime, elapsed: elapsed)
     snapshot = result
     for handler in listeners.values {
       handler(result)
     }
   }
 
-  // MARK: - ps Invocation
+  // MARK: - sysctl-based snapshot (no fork/subprocess)
 
-  /// Single `ps` call capturing pid, ppid, %cpu, rss, and args for every process.
-  /// This is a pure function with no side effects beyond spawning one subprocess.
-  static func runPs() -> [pid_t: ProcessRecord] {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/bin/ps")
-    process.arguments = ["-eo", "pid,ppid,%cpu,rss,args"]
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    process.standardError = FileHandle.nullDevice
-    do { try process.run() } catch { return [:] }
-    process.waitUntilExit()
+  /// Builds a process snapshot using pure kernel syscalls.
+  /// `KERN_PROC_ALL` → all PIDs + PPIDs in one call.
+  /// `KERN_PROCARGS2` → full argv for each process.
+  /// `proc_pidinfo(PROC_PIDTASKINFO)` → RSS + cumulative CPU time.
+  /// CPU% is derived from the delta in cumulative CPU time between polls.
+  static func sysctlSnapshot(
+    prevCPUTime: inout [pid_t: UInt64],
+    elapsed: TimeInterval
+  ) -> [pid_t: ProcessRecord] {
+    // --- 1. Fetch all kinfo_proc in one sysctl call ---
+    var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
+    var size = 0
+    guard sysctl(&mib, 4, nil, &size, nil, 0) == 0, size > 0 else { return [:] }
 
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    guard let output = String(data: data, encoding: .utf8) else { return [:] }
-    return parsePs(output: output)
+    let count = size / MemoryLayout<kinfo_proc>.size
+    var procs = [kinfo_proc](repeating: kinfo_proc(), count: count)
+    guard sysctl(&mib, 4, &procs, &size, nil, 0) == 0 else { return [:] }
+
+    // --- 2. Build records ---
+    var records: [pid_t: ProcessRecord] = [:]
+    let elapsedNS = max(1, UInt64(elapsed * 1_000_000_000))
+
+    for proc in procs {
+      let pid  = proc.kp_proc.p_pid
+      let ppid = proc.kp_eproc.e_ppid
+      guard pid > 0 else { continue }
+
+      // Memory + cumulative CPU time via proc_pidinfo
+      var taskInfo = proc_taskinfo()
+      let infoRet = withUnsafeMutablePointer(to: &taskInfo) { ptr in
+        Darwin.proc_pidinfo(pid, PROC_PIDTASKINFO, 0, ptr,
+                            Int32(MemoryLayout<proc_taskinfo>.size))
+      }
+      let memoryKB: UInt64
+      let cpuTimeNS: UInt64
+      if infoRet >= Int32(MemoryLayout<proc_taskinfo>.size) {
+        memoryKB  = taskInfo.pti_resident_size / 1024
+        cpuTimeNS = taskInfo.pti_total_user + taskInfo.pti_total_system
+      } else {
+        memoryKB  = 0
+        cpuTimeNS = 0
+      }
+
+      // CPU%: delta cumulative time ÷ wall-clock elapsed
+      var cpuPercent = 0.0
+      if let prev = prevCPUTime[pid], cpuTimeNS >= prev {
+        cpuPercent = min(100.0, Double(cpuTimeNS - prev) / Double(elapsedNS) * 100.0)
+      }
+      prevCPUTime[pid] = cpuTimeNS
+
+      // Full argv via KERN_PROCARGS2
+      let args = processArgs(pid: pid)
+
+      records[pid] = ProcessRecord(pid: pid, ppid: ppid,
+                                   cpu: cpuPercent, memoryKB: memoryKB,
+                                   args: args)
+    }
+
+    // Remove stale CPU entries for dead processes
+    let livePIDs = Set(records.keys)
+    for key in prevCPUTime.keys where !livePIDs.contains(key) {
+      prevCPUTime.removeValue(forKey: key)
+    }
+
+    return records
   }
 
-  /// Pure parser: convert raw `ps` output into a PID-keyed dictionary.
+  /// Returns the full command-line string for `pid` using `KERN_PROCARGS2`.
+  /// Format on disk: Int32 argc, then null-separated strings (exec path + args).
+  private static func processArgs(pid: pid_t) -> String {
+    var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+    var size = 0
+    guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return "" }
+
+    var buf = [UInt8](repeating: 0, count: size)
+    guard sysctl(&mib, 3, &buf, &size, nil, 0) == 0, size > 4 else { return "" }
+
+    // Skip the argc Int32
+    var offset = 4
+
+    // Collect null-terminated strings; the first is the executable path,
+    // subsequent ones are the actual arguments.
+    var parts: [String] = []
+    var start = offset
+    while offset < size {
+      if buf[offset] == 0 {
+        if offset > start {
+          if let s = String(bytes: buf[start..<offset], encoding: .utf8), !s.isEmpty {
+            parts.append(s)
+          }
+        }
+        start = offset + 1
+      }
+      offset += 1
+    }
+
+    return parts.joined(separator: " ")
+  }
+
+  // MARK: - Legacy ps parser (used by tests via AppDependencies override)
+
   static func parsePs(output: String) -> [pid_t: ProcessRecord] {
     var records: [pid_t: ProcessRecord] = [:]
-    for line in output.components(separatedBy: "\n").dropFirst() {  // skip header
+    for line in output.components(separatedBy: "\n").dropFirst() {
       let parts = line.trimmingCharacters(in: .whitespaces)
         .components(separatedBy: .whitespaces)
         .filter { !$0.isEmpty }

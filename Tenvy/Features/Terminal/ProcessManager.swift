@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+import Darwin
 import Foundation
 import AppKit
 
@@ -147,57 +148,36 @@ final class ProcessManager {
     killProcess(pid)
   }
 
-  /// Find all descendant processes of a given PID
+  /// Find all descendant processes of a given PID using sysctl (no subprocess fork).
+  /// Using Process()/ps would deadlock when Ghostty's SIGCHLD handler is active.
   private func findChildProcesses(of parentPid: pid_t) -> [pid_t] {
-    var children: [pid_t] = []
+    var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
+    var size = 0
+    guard sysctl(&mib, 4, nil, &size, nil, 0) == 0, size > 0 else { return [] }
+    let count = size / MemoryLayout<kinfo_proc>.size
+    var procs = [kinfo_proc](repeating: kinfo_proc(), count: count)
+    guard sysctl(&mib, 4, &procs, &size, nil, 0) == 0 else { return [] }
 
-    let task = Process()
-    task.executableURL = URL(fileURLWithPath: "/bin/ps")
-    task.arguments = ["-eo", "pid,ppid"]
-
-    let pipe = Pipe()
-    task.standardOutput = pipe
-    task.standardError = FileHandle.nullDevice
-
-    do {
-      try task.run()
-      task.waitUntilExit()
-    } catch {
-      return children
-    }
-
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    guard let output = String(data: data, encoding: .utf8) else { return children }
-
-    // Build parent-child map
     var parentMap: [pid_t: pid_t] = [:]
     var allPids: [pid_t] = []
-
-    let lines = output.components(separatedBy: "\n")
-    for line in lines {
-      let parts = line.trimmingCharacters(in: .whitespaces)
-        .components(separatedBy: .whitespaces)
-        .filter { !$0.isEmpty }
-      guard parts.count >= 2,
-            let pid = Int32(parts[0]),
-            let ppid = Int32(parts[1]) else { continue }
+    for proc in procs {
+      let pid = proc.kp_proc.p_pid
+      let ppid = proc.kp_eproc.e_ppid
+      guard pid > 0 else { continue }
       parentMap[pid] = ppid
       allPids.append(pid)
     }
 
-    // Find all descendants using BFS
+    var children: [pid_t] = []
     var queue: [pid_t] = [parentPid]
     var visited: Set<pid_t> = [parentPid]
 
     while !queue.isEmpty {
       let current = queue.removeFirst()
-
-      for pid in allPids {
-        if parentMap[pid] == current && !visited.contains(pid) {
-          visited.insert(pid)
-          children.append(pid)
-          queue.append(pid)
-        }
+      for pid in allPids where parentMap[pid] == current && !visited.contains(pid) {
+        visited.insert(pid)
+        children.append(pid)
+        queue.append(pid)
       }
     }
 
