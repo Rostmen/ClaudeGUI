@@ -20,8 +20,9 @@ Packages/
 .idea/
 *.moved-aside
 
-# Claude Code local settings
+# Claude Code
 .claude/settings.local.json
+.claude/worktrees/
 
 # Ghostty submodule build artifacts (xcframework is built, not committed)
 ghostty/macos/GhosttyKit.xcframework

@@ -45,4 +45,10 @@ enum TerminalAction {
 
   /// Terminal input should be unregistered (terminal closing).
   case inputUnregistered(sessionId: String)
+
+  /// User chose "Close Session" from the context menu.
+  case closeRequested
+
+  /// User chose "Rename" from the context menu.
+  case renameRequested
 }

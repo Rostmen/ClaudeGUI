@@ -214,6 +214,14 @@ struct ContentView: View {
         showUpdatePrompt = shouldShow
       }
     }
+    .alert("Rename", isPresented: Binding(
+      get: { viewModel.sessionToRename != nil },
+      set: { if !$0 { viewModel.sessionToRename = nil } }
+    )) {
+      TextField("Name", text: $viewModel.renameText)
+      Button("Cancel", role: .cancel) { viewModel.sessionToRename = nil }
+      Button("Rename") { viewModel.commitRename() }
+    }
     .onReceive(NotificationCenter.default.publisher(for: .openSessionFromNotification)) { notification in
       if let session = notification.object as? ClaudeSession {
         // If session is already open in another window, just focus that window
@@ -268,7 +276,7 @@ private struct DetailView<Key: PreferenceKey>: View where Key.Value == CGRect {
                 viewModel.shouldRenderTerminal(for: session) {
         // Normal single-terminal mode
         if viewModel.isPlainTerminal(session.terminalId) {
-          GhosttyPlainTerminalView(
+          PlainTerminalView(
             workingDirectory: session.workingDirectory,
             isSelected: viewModel.isTerminalVisible,
             onAction: { viewModel.handleTerminalAction($0, for: session) },
@@ -281,7 +289,7 @@ private struct DetailView<Key: PreferenceKey>: View where Key.Value == CGRect {
           .background(terminalFrameReader(visible: viewModel.isTerminalVisible))
           .padding(16)
         } else {
-          GhosttyTerminalView(
+          ClaudeSessionTerminalView(
             session: session,
             isSelected: viewModel.isTerminalVisible,
             forkSourceSessionId: viewModel.forkSourceSessionId(for: session.terminalId),
@@ -362,7 +370,7 @@ private struct PaneSplitTreeRenderer: View {
   private func leafView(session: ClaudeSession) -> some View {
     if viewModel.shouldRenderTerminal(for: session) {
       if viewModel.isPlainTerminal(session.terminalId) {
-        GhosttyPlainTerminalView(
+        PlainTerminalView(
           workingDirectory: session.workingDirectory,
           isSelected: viewModel.selectedSession?.id == session.id,
           onAction: { viewModel.handleTerminalAction($0, for: session) },
@@ -371,7 +379,7 @@ private struct PaneSplitTreeRenderer: View {
         )
         .id(session.terminalId)
       } else {
-        GhosttyTerminalView(
+        ClaudeSessionTerminalView(
           session: session,
           isSelected: viewModel.selectedSession?.id == session.id,
           forkSourceSessionId: viewModel.forkSourceSessionId(for: session.terminalId),

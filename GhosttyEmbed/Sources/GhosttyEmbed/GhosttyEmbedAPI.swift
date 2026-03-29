@@ -118,6 +118,15 @@ public class GhosttyEmbedSurface {
         return pid_t(pid64)
     }
 
+    /// Reset the terminal (clears screen, resets escape state).
+    /// Equivalent to `tput reset`.
+    @MainActor
+    public func resetTerminal() {
+        guard let surface = surfaceView.surface else { return }
+        let action = "reset"
+        ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))
+    }
+
     /// Notify Ghostty that the visible area has changed size.
     /// Must be called whenever the host view's bounds change.
     public func notifyResize(_ size: CGSize) {

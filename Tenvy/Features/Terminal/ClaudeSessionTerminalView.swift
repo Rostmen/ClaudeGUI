@@ -23,11 +23,11 @@
 import SwiftUI
 import GhosttyEmbed
 
-/// SwiftUI wrapper for a Ghostty terminal running a Claude session.
-struct GhosttyTerminalView: NSViewRepresentable {
+/// Terminal view for a Claude Code session.
+/// Launches the Claude CLI, monitors the process, and provides a session-specific context menu.
+struct ClaudeSessionTerminalView: NSViewRepresentable {
   let session: ClaudeSession?
   let isSelected: Bool
-  /// Source session ID for fork (launches `claude --resume <id> --fork-session`).
   var forkSourceSessionId: String? = nil
   let onAction: (TerminalAction) -> Void
   let existingHostView: GhosttyHostView?
@@ -40,7 +40,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
     let hostView = GhosttyHostView()
     let workingDirectory = session?.workingDirectory ?? NSHomeDirectory()
 
-    // Build Claude command
     let claudePath = ClaudePathResolver.findClaudePath()
     var args: [String] = []
     if let forkId = forkSourceSessionId {
@@ -51,6 +50,12 @@ struct GhosttyTerminalView: NSViewRepresentable {
     let launch = TerminalEnvironment.shellArgs(executable: claudePath, args: args, currentDirectory: workingDirectory)
 
     hostView.setupSurface(launch: launch, workingDirectory: workingDirectory, onAction: onAction)
+    hostView.contextMenuProvider = { [weak hostView] in
+      guard let hostView else { return NSMenu() }
+      let target = SessionMenuTarget(onAction: hostView.onAction)
+      hostView.menuTarget = target
+      return Self.buildMenu(surfaceView: hostView.surfaceViewIfReady, target: target)
+    }
     hostView.setupMonitoring(sessionId: session?.id, isNewSession: session?.isNewSession ?? false)
 
     if isSelected { hostView.pendingFocus = true }
@@ -83,4 +88,54 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
   func makeCoordinator() -> Coordinator { Coordinator() }
   class Coordinator { var lastColorScheme: ColorScheme = .dark }
+
+  // MARK: - Context Menu
+
+  private static func buildMenu(surfaceView: NSView?, target: SessionMenuTarget) -> NSMenu {
+    let menu = NSMenu()
+
+    if let surfaceView {
+      menu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "").target = surfaceView
+    }
+    menu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "").target = surfaceView
+
+    menu.addItem(.separator())
+    for (title, dir, icon) in splitItems {
+      let item = menu.addItem(withTitle: title, action: #selector(SessionMenuTarget.split(_:)), keyEquivalent: "")
+      item.target = target
+      item.representedObject = dir
+      item.image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)
+    }
+
+    menu.addItem(.separator())
+    menu.addItem(withTitle: "Rename Session...", action: #selector(SessionMenuTarget.rename), keyEquivalent: "").target = target
+    menu.addItem(withTitle: "Close Session", action: #selector(SessionMenuTarget.close), keyEquivalent: "").target = target
+
+    return menu
+  }
+
+  private static let splitItems: [(String, SplitDirection, String)] = [
+    ("Split Right", .right, "rectangle.righthalf.inset.filled"),
+    ("Split Left", .left, "rectangle.leadinghalf.inset.filled"),
+    ("Split Down", .down, "rectangle.bottomhalf.inset.filled"),
+    ("Split Up", .up, "rectangle.tophalf.inset.filled"),
+  ]
+}
+
+/// Action target for Claude session context menu.
+/// Captures the action handler directly — no host reference needed.
+private class SessionMenuTarget: NSObject {
+  let onAction: (TerminalAction) -> Void
+
+  init(onAction: @escaping (TerminalAction) -> Void) {
+    self.onAction = onAction
+  }
+
+  @objc func split(_ sender: NSMenuItem) {
+    guard let direction = sender.representedObject as? SplitDirection else { return }
+    onAction(.splitRequested(direction: direction))
+  }
+
+  @objc func rename(_ sender: Any) { onAction(.renameRequested) }
+  @objc func close(_ sender: Any) { onAction(.closeRequested) }
 }
