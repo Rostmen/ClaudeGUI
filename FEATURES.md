@@ -549,7 +549,7 @@ On change:
 | `settings.terminalType` | UserDefaults | SwiftTerm or Ghostty |
 | `settings.appearanceMode` | UserDefaults | Light / Dark / System |
 | `settings.sourceZshrc` | UserDefaults | Source ~/.zshrc on launch |
-| `settings.customEnvironmentVariables` | UserDefaults (JSON) | Extra env vars |
+| `customEnvironmentVariables` | macOS Keychain (JSON) | Extra env vars (encrypted at rest) |
 
 ---
 
