@@ -267,47 +267,34 @@ private struct DetailView<Key: PreferenceKey>: View where Key.Value == CGRect {
       } else if let session = viewModel.selectedSession,
                 viewModel.shouldRenderTerminal(for: session) {
         // Normal single-terminal mode
-        GhosttyTerminalView(
-          session: session,
-          isSelected: viewModel.isTerminalVisible,
-          isPlainTerminal: viewModel.isPlainTerminal(session.terminalId),
-          forkSourceSessionId: viewModel.forkSourceSessionId(for: session.terminalId),
-          onStateChange: { info in
-            let currentId = viewModel.selectedSession?.id ?? session.id
-            viewModel.updateRuntimeState(for: currentId, state: info.state, cpu: info.cpu, memory: info.memory, pid: info.pid)
-          },
-          onShellStart: { shellPid in
-            let currentId = viewModel.selectedSession?.id ?? session.id
-            viewModel.setShellPid(shellPid, for: currentId)
-          },
-          onSessionActivated: { sessionId in
-            viewModel.appModel.markSessionActivated(sessionId)
-            viewModel.appModel.trackSessionForHooks(sessionId)
-          },
-          onRegisterForInput: { terminal, sessionId in
-            viewModel.appModel.terminalInput.register(terminal, for: sessionId)
-          },
-          onUnregisterForInput: { sessionId in
-            viewModel.appModel.terminalInput.unregister(sessionId: sessionId)
-          },
-          onSplitRequested: { direction in
-            viewModel.handleSplitRequested(direction: direction)
-          },
-          onFocusGained: {
-            if let id = viewModel.selectedSession?.id {
-              viewModel.handleFocusGained(for: id)
-            }
-          },
-          existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
-          onHostViewCreated: { view in
-            viewModel.cacheGhosttyHostView(view, terminalId: session.terminalId)
-          }
-        )
-        .id(session.terminalId)
-        .opacity(viewModel.isTerminalVisible ? 1 : 0)
-        .allowsHitTesting(viewModel.isTerminalVisible)
-        .background(terminalFrameReader(visible: viewModel.isTerminalVisible))
-        .padding(16)
+        if viewModel.isPlainTerminal(session.terminalId) {
+          GhosttyPlainTerminalView(
+            workingDirectory: session.workingDirectory,
+            isSelected: viewModel.isTerminalVisible,
+            onAction: { viewModel.handleTerminalAction($0, for: session) },
+            existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
+            onHostViewCreated: { viewModel.cacheGhosttyHostView($0, terminalId: session.terminalId) }
+          )
+          .id(session.terminalId)
+          .opacity(viewModel.isTerminalVisible ? 1 : 0)
+          .allowsHitTesting(viewModel.isTerminalVisible)
+          .background(terminalFrameReader(visible: viewModel.isTerminalVisible))
+          .padding(16)
+        } else {
+          GhosttyTerminalView(
+            session: session,
+            isSelected: viewModel.isTerminalVisible,
+            forkSourceSessionId: viewModel.forkSourceSessionId(for: session.terminalId),
+            onAction: { viewModel.handleTerminalAction($0, for: session) },
+            existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
+            onHostViewCreated: { viewModel.cacheGhosttyHostView($0, terminalId: session.terminalId) }
+          )
+          .id(session.terminalId)
+          .opacity(viewModel.isTerminalVisible ? 1 : 0)
+          .allowsHitTesting(viewModel.isTerminalVisible)
+          .background(terminalFrameReader(visible: viewModel.isTerminalVisible))
+          .padding(16)
+        }
       }
 
       // Diff View (shown when diff file is selected)
@@ -374,48 +361,26 @@ private struct PaneSplitTreeRenderer: View {
   @ViewBuilder
   private func leafView(session: ClaudeSession) -> some View {
     if viewModel.shouldRenderTerminal(for: session) {
-      GhosttyTerminalView(
-        session: session,
-        isSelected: viewModel.selectedSession?.id == session.id,
-        isPlainTerminal: viewModel.isPlainTerminal(session.terminalId),
-        forkSourceSessionId: viewModel.forkSourceSessionId(for: session.terminalId),
-        onStateChange: { info in
-          viewModel.updateRuntimeState(
-            for: session.id, state: info.state,
-            cpu: info.cpu, memory: info.memory, pid: info.pid)
-          // Auto-close non-primary panes when their claude process ends.
-          // Plain terminals are untracked and never auto-close.
-          if viewModel.primarySession?.id != session.id
-              && !viewModel.isPlainTerminal(session.terminalId)
-              && info.state == .inactive {
-            viewModel.closeSplitPane(id: session.id)
-          }
-        },
-        onShellStart: { shellPid in
-          viewModel.setShellPid(shellPid, for: session.id)
-        },
-        onSessionActivated: { sessionId in
-          viewModel.appModel.markSessionActivated(sessionId)
-          viewModel.appModel.trackSessionForHooks(sessionId)
-        },
-        onRegisterForInput: { terminal, sessionId in
-          viewModel.appModel.terminalInput.register(terminal, for: sessionId)
-        },
-        onUnregisterForInput: { sessionId in
-          viewModel.appModel.terminalInput.unregister(sessionId: sessionId)
-        },
-        onSplitRequested: { direction in
-          viewModel.handleSplitRequested(direction: direction)
-        },
-        onFocusGained: {
-          viewModel.handleFocusGained(for: session.id)
-        },
-        existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
-        onHostViewCreated: { view in
-          viewModel.cacheGhosttyHostView(view, terminalId: session.terminalId)
-        }
-      )
-      .id(session.terminalId)
+      if viewModel.isPlainTerminal(session.terminalId) {
+        GhosttyPlainTerminalView(
+          workingDirectory: session.workingDirectory,
+          isSelected: viewModel.selectedSession?.id == session.id,
+          onAction: { viewModel.handleTerminalAction($0, for: session) },
+          existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
+          onHostViewCreated: { viewModel.cacheGhosttyHostView($0, terminalId: session.terminalId) }
+        )
+        .id(session.terminalId)
+      } else {
+        GhosttyTerminalView(
+          session: session,
+          isSelected: viewModel.selectedSession?.id == session.id,
+          forkSourceSessionId: viewModel.forkSourceSessionId(for: session.terminalId),
+          onAction: { viewModel.handleSplitTerminalAction($0, for: session) },
+          existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
+          onHostViewCreated: { viewModel.cacheGhosttyHostView($0, terminalId: session.terminalId) }
+        )
+        .id(session.terminalId)
+      }
     }
   }
 }

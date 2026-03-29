@@ -483,14 +483,36 @@ final class ContentViewModel {
     if let primary { selectedSession = primary }
   }
 
-  /// Update runtime state for a session
-  func updateRuntimeState(for sessionId: String, state: SessionState, cpu: Double, memory: UInt64, pid: pid_t) {
-    runtimeState.updateState(for: sessionId, state: state, cpu: cpu, memory: memory, pid: pid)
+  // MARK: - Terminal Action Handler
+
+  /// Central handler for all terminal actions.
+  func handleTerminalAction(_ action: TerminalAction, for session: ClaudeSession) {
+    switch action {
+    case .focusGained:
+      handleFocusGained(for: session.id)
+    case .splitRequested(let direction):
+      handleSplitRequested(direction: direction)
+    case .stateChanged(let info):
+      runtimeState.updateState(for: session.id, state: info.state, cpu: info.cpu, memory: info.memory, pid: info.pid)
+    case .shellStarted(let pid):
+      runtimeState.info(for: session.id).setShellPid(pid)
+    case .sessionActivated(let id):
+      appModel.markSessionActivated(id)
+      appModel.trackSessionForHooks(id)
+    case .inputReady(let proxy, let sessionId):
+      appModel.terminalInput.register(proxy, for: sessionId)
+    case .inputUnregistered(let sessionId):
+      appModel.terminalInput.unregister(sessionId: sessionId)
+    }
   }
 
-  /// Set shell PID for a session
-  func setShellPid(_ pid: pid_t, for sessionId: String) {
-    runtimeState.info(for: sessionId).setShellPid(pid)
+  /// Handler for split-pane terminals that also auto-closes when the claude process ends.
+  func handleSplitTerminalAction(_ action: TerminalAction, for session: ClaudeSession) {
+    handleTerminalAction(action, for: session)
+    if case .stateChanged(let info) = action,
+       primarySession?.id != session.id && info.state == .inactive {
+      closeSplitPane(id: session.id)
+    }
   }
 
   // MARK: - Lifecycle

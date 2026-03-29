@@ -23,12 +23,11 @@
 import SwiftUI
 import GhosttyEmbed
 
-/// SwiftUI wrapper for a Ghostty terminal running a Claude session.
-struct GhosttyTerminalView: NSViewRepresentable {
-  let session: ClaudeSession?
+/// SwiftUI wrapper for a Ghostty terminal running a plain login shell.
+/// No session monitoring, no session registration, no auto-close.
+struct GhosttyPlainTerminalView: NSViewRepresentable {
+  let workingDirectory: String
   let isSelected: Bool
-  /// Source session ID for fork (launches `claude --resume <id> --fork-session`).
-  var forkSourceSessionId: String? = nil
   let onAction: (TerminalAction) -> Void
   let existingHostView: GhosttyHostView?
   let onHostViewCreated: ((GhosttyHostView) -> Void)?
@@ -38,20 +37,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
     if let existing = existingHostView { return existing }
 
     let hostView = GhosttyHostView()
-    let workingDirectory = session?.workingDirectory ?? NSHomeDirectory()
-
-    // Build Claude command
-    let claudePath = ClaudePathResolver.findClaudePath()
-    var args: [String] = []
-    if let forkId = forkSourceSessionId {
-      args = ["--resume", forkId, "--fork-session"]
-    } else if let session = session, !session.isNewSession {
-      args = ["--resume", session.id]
-    }
-    let launch = TerminalEnvironment.shellArgs(executable: claudePath, args: args, currentDirectory: workingDirectory)
+    let launch = TerminalEnvironment.plainShellArgs(currentDirectory: workingDirectory)
 
     hostView.setupSurface(launch: launch, workingDirectory: workingDirectory, onAction: onAction)
-    hostView.setupMonitoring(sessionId: session?.id, isNewSession: session?.isNewSession ?? false)
 
     if isSelected { hostView.pendingFocus = true }
     onHostViewCreated?(hostView)
