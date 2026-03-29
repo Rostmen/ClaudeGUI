@@ -56,7 +56,11 @@ final class WindowDelegate: NSObject, NSWindowDelegate {
       let runtimeInfo = appModel.runtimeRegistry.info(for: sessionId)
       let isSessionActivated = appModel.isSessionActivated(sessionId)
 
-      if isSessionActivated || runtimeInfo.shellPid > 0 {
+      // With Ghostty, shellPid is never set (Ghostty manages its own PTY).
+      // Fall back to the sysctl-discovered claude PID for both the active-session
+      // check and the kill target.
+      let pidToKill = runtimeInfo.shellPid > 0 ? runtimeInfo.shellPid : runtimeInfo.pid
+      if isSessionActivated || pidToKill > 0 {
         isShowingAlert = true
         let action = showWindowCloseConfirmationAlert()
         isShowingAlert = false
@@ -65,8 +69,8 @@ final class WindowDelegate: NSObject, NSWindowDelegate {
         case .cancel:
           return false
         case .terminate:
-          if runtimeInfo.shellPid > 0 {
-            ProcessManager.shared.terminateProcess(pid: runtimeInfo.shellPid)
+          if pidToKill > 0 {
+            ProcessManager.shared.terminateProcess(pid: pidToKill)
           }
           runtimeInfo.reset()
           appModel.deactivateSession(sessionId)

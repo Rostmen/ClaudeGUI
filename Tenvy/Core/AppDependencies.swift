@@ -46,25 +46,3 @@ extension DependencyValues {
   }
 }
 
-// MARK: - ProcessSnapshot
-
-/// A function that captures the current state of all running processes.
-/// Default: runs `ps -eo pid,ppid,%cpu,rss,args`.
-/// Override in tests to return a canned snapshot without spawning a subprocess.
-private struct ProcessSnapshotKey: DependencyKey {
-  static let liveValue: @Sendable () -> [pid_t: ProcessPoller.ProcessRecord] = {
-    ProcessPoller.runPs()
-  }
-
-  static let testValue: @Sendable () -> [pid_t: ProcessPoller.ProcessRecord] = {
-    [:]
-  }
-}
-
-extension DependencyValues {
-  /// Returns the current process snapshot. Swap in tests to return canned data.
-  var processSnapshot: @Sendable () -> [pid_t: ProcessPoller.ProcessRecord] {
-    get { self[ProcessSnapshotKey.self] }
-    set { self[ProcessSnapshotKey.self] = newValue }
-  }
-}

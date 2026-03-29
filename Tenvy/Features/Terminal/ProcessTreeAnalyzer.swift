@@ -42,82 +42,20 @@ struct ProcessTreeAnalyzer {
     }
 
     if candidates.contains(shellPID) { return shellPID }
-    for pid in candidates where isDescendant(pid: pid, of: shellPID, parentMap: parentMap) {
+
+    // shellPID == 0 means no direct shell PID handle (Ghostty manages its own PTY).
+    // Fall back to the app's own PID as the ancestor: Ghostty forks inside the Tenvy
+    // process, so all PTY-spawned processes are direct children of the app process.
+    // This correctly excludes claude subprocesses spawned by Claude Desktop or other
+    // apps that also happen to have "claude" in their args.
+    let effectiveAncestor: pid_t = shellPID == 0
+      ? pid_t(ProcessInfo.processInfo.processIdentifier)
+      : shellPID
+
+    for pid in candidates where isDescendant(pid: pid, of: effectiveAncestor, parentMap: parentMap) {
       return pid
     }
     return 0
-  }
-
-  /// Find Claude process that is a descendant of a shell process.
-  /// Spawns its own `ps` — used for termination-time lookups (not the 500 ms hot path).
-  /// - Parameters:
-  ///   - shellPID: The shell process ID to search from (may actually be Claude's PID if spawned directly)
-  ///   - sessionId: Optional session ID to match in process arguments
-  /// - Returns: The Claude process PID, or 0 if not found
-  static func findClaudeProcess(shellPID: pid_t, sessionId: String?) -> pid_t {
-    let (parentMap, candidates) = getProcessTree(sessionId: sessionId)
-
-    // Check if shellPID itself is a Claude process (happens when claude is spawned directly,
-    // e.g., after "claude install" which installs a native binary)
-    if candidates.contains(shellPID) {
-      return shellPID
-    }
-
-    // Find candidate that is descendant of our shell
-    for candidatePid in candidates {
-      if isDescendant(pid: candidatePid, of: shellPID, parentMap: parentMap) {
-        return candidatePid
-      }
-    }
-
-    return 0
-  }
-
-  /// Get the process tree and Claude candidates
-  private static func getProcessTree(sessionId: String?) -> (parentMap: [pid_t: pid_t], candidates: [pid_t]) {
-    let task = Process()
-    task.launchPath = "/bin/bash"
-    task.arguments = ["-c", "ps -eo pid,ppid,args"]
-
-    let pipe = Pipe()
-    task.standardOutput = pipe
-    task.launch()
-
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    task.waitUntilExit()
-
-    guard let output = String(data: data, encoding: .utf8) else {
-      return ([:], [])
-    }
-
-    return parseProcessOutput(output, sessionId: sessionId)
-  }
-
-  /// Parse ps output into parent map and candidate PIDs
-  private static func parseProcessOutput(_ output: String, sessionId: String?) -> (parentMap: [pid_t: pid_t], candidates: [pid_t]) {
-    var parentMap: [pid_t: pid_t] = [:]
-    var candidates: [pid_t] = []
-
-    let lines = output.components(separatedBy: "\n")
-    for line in lines {
-      let parts = line.trimmingCharacters(in: .whitespaces)
-        .components(separatedBy: .whitespaces)
-        .filter { !$0.isEmpty }
-
-      guard parts.count >= 3,
-            let pid = Int32(parts[0]),
-            let ppid = Int32(parts[1]) else { continue }
-
-      parentMap[pid] = ppid
-
-      // Check if this is a Claude process
-      let args = parts[2...].joined(separator: " ")
-      if isClaudeProcess(args: args, sessionId: sessionId) {
-        candidates.append(pid)
-      }
-    }
-
-    return (parentMap, candidates)
   }
 
   /// Check if process arguments indicate a Claude process
