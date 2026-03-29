@@ -51,7 +51,6 @@ struct SessionListView: View {
   private var activeSessions: [ClaudeSession] {
     // Build list of active sessions, preferring sessionManager's version if available
     var sessions: [ClaudeSession] = []
-    let sessionManagerIds = Set(sessionManager.sessions.map { $0.id })
 
     for sessionId in activeSessionIds {
       if let managerSession = sessionManager.sessions.first(where: { $0.id == sessionId }) {

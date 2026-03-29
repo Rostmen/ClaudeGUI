@@ -36,6 +36,9 @@ struct TenvyApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
   init() {
+    // Skip heavy initialization when hosted by Xcode Previews
+    guard ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PLAYGROUNDS"] != "1" else { return }
+
     // Initialize ProcessManager early to setup termination handlers
     _ = ProcessManager.shared
 
@@ -43,10 +46,21 @@ struct TenvyApp: App {
     UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
   }
 
+  /// True when the process is hosted by Xcode Previews (XCODE_RUNNING_FOR_PLAYGROUNDS=1).
+  /// The full app UI (NavigationSplitView + List) crashes the preview sandbox, so we
+  /// render a lightweight placeholder instead and let individual `#Preview` blocks work.
+  private var isPreviewProcess: Bool {
+    ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PLAYGROUNDS"] == "1"
+  }
+
   var body: some Scene {
     WindowGroup(id: "main") {
-      ContentView(appModel: appDelegate.appModel)
-        .environment(appDelegate.appModel)
+      if isPreviewProcess {
+        Color.clear
+      } else {
+        ContentView(appModel: appDelegate.appModel)
+          .environment(appDelegate.appModel)
+      }
     }
     .windowStyle(.automatic)
     .defaultSize(width: 1200, height: 800)
@@ -65,9 +79,11 @@ struct TenvyApp: App {
     }
 
     Settings {
-      SettingsView()
-        .environment(appDelegate.appModel)
-        .preferredColorScheme(AppSettings.shared.appearanceMode.colorScheme)
+      if !isPreviewProcess {
+        SettingsView()
+          .environment(appDelegate.appModel)
+          .preferredColorScheme(AppSettings.shared.appearanceMode.colorScheme)
+      }
     }
   }
 }

@@ -206,6 +206,26 @@ final class AppModel {
 
   // MARK: - Private wiring
 
+  /// Resolve git branches for all known sessions.
+  /// Reads `.git/HEAD` directly — no subprocess, safe with Ghostty.
+  func refreshGitBranches() {
+    for session in sessionDiscovery.sessions {
+      let info = runtimeRegistry.info(for: session.id)
+      let branch = GitBranchService.currentBranch(at: session.workingDirectory)
+      if info.gitBranch != branch {
+        info.gitBranch = branch
+      }
+    }
+    // Also refresh for activated sessions not yet in sessionManager
+    for (sessionId, session) in activatedSessions {
+      let info = runtimeRegistry.info(for: sessionId)
+      let branch = GitBranchService.currentBranch(at: session.workingDirectory)
+      if info.gitBranch != branch {
+        info.gitBranch = branch
+      }
+    }
+  }
+
   private func wireCallbacks() {
     hookMonitor.onStateChange = { [weak self] sessionId, hookState, tool, message, eventTime in
       Task { @MainActor in

@@ -358,6 +358,39 @@ Uses [gitdiff](https://github.com/tornikegomareli/gitdiff) library:
 - Comfortable line spacing
 - Scrollable with header
 
+### Git Branch Tracking
+
+Displays the current git branch in the session sidebar row for sessions inside git repos.
+
+- **`GitBranchService`**: Reads `.git/HEAD` directly — no subprocess, safe alongside Ghostty (avoids SIGCHLD deadlock)
+- Supports worktrees (`.git` file with `gitdir:` pointer) and detached HEAD (short SHA)
+- Branch resolves via `commondir` for worktree git dirs so `refs/heads/` is read from the main repo
+- **`listLocalBranches(at:)`**: Enumerates `.git/refs/heads/` + parses `packed-refs` — pure filesystem, no subprocess
+- Refreshed every 5 seconds via a `.task` timer in `ContentView`
+
+### Worktree Split Panes
+
+When a user triggers a split (via Ghostty's context menu), the split request is intercepted to offer git worktree creation for parallel branch work.
+
+**Flow 1 — Git repo detected:**
+- Dialog shows: base branch picker, new branch name field, worktree destination path, fork session toggle
+- Base branch pre-selected to current session's branch
+- Branch name defaults to `MM-dd-yyyy-HH-mm-session-name`
+- Destination defaults to `<repo>/.claude/worktrees/<branch>/` (matches Claude CLI convention)
+- Fork session toggle (hidden for unsaved sessions): launches `claude --resume <id> --fork-session`
+- "Plain Terminal" button: opens a raw shell pane (no claude, no monitoring, not tracked in sidebar)
+- On confirm: runs `git worktree add -b <branch> <path> <base>` then creates split pane in worktree directory
+
+**Flow 2 — No git repo:**
+- Dialog offers: "Initialize Git & Create Worktree" (one-step: `git init` + `git worktree add`) or "Open Plain Terminal"
+- Plain terminal opens a raw shell — untracked, no auto-close
+
+**Implementation:**
+- `WorktreeService`: Git operations via `Process()` — runs before Ghostty surface creation, so SIGCHLD safe
+- `WorktreeSplitView` / `NoGitSplitView`: Dialog views with opaque background, centered overlay with dim backdrop
+- `ContentViewModel`: `pendingSplit` state triggers dialog; `confirmWorktreeSplit()`, `initGitAndCreateWorktree()`, `openPlainTerminalSplit()` handle each path
+- Plain terminals skip all monitoring (`SessionStateMonitor` not started, auto-close disabled)
+
 ---
 
 ## Process Management

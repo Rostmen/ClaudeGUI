@@ -28,6 +28,10 @@ import GhosttyEmbed
 struct GhosttyTerminalView: NSViewRepresentable {
   let session: ClaudeSession?
   let isSelected: Bool
+  /// When true, launches a plain shell instead of claude.
+  var isPlainTerminal: Bool = false
+  /// Source session ID for fork (launches `claude --resume <id> --fork-session`).
+  var forkSourceSessionId: String? = nil
   let onStateChange: ((SessionMonitorInfo) -> Void)?
   let onShellStart: ((pid_t) -> Void)?
   let onSessionActivated: ((String) -> Void)?
@@ -54,6 +58,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
     let hostView = GhosttyHostView()
     hostView.setup(
       session: session,
+      isPlainTerminal: isPlainTerminal,
+      forkSourceSessionId: forkSourceSessionId,
       onStateChange: onStateChange,
       onShellStart: onShellStart,
       onSessionActivated: onSessionActivated,
@@ -168,6 +174,8 @@ final class GhosttyHostView: NSView {
 
   func setup(
     session: ClaudeSession?,
+    isPlainTerminal: Bool = false,
+    forkSourceSessionId: String? = nil,
     onStateChange: ((SessionMonitorInfo) -> Void)?,
     onShellStart: ((pid_t) -> Void)?,
     onSessionActivated: ((String) -> Void)?,
@@ -186,18 +194,27 @@ final class GhosttyHostView: NSView {
     self.onSplitRequested = onSplitRequested
     self.onFocusGained = onFocusGained
 
-    let claudePath = ClaudePathResolver.findClaudePath()
-    var args: [String] = []
-    if let session = session, !session.isNewSession {
-      args = ["--resume", session.id]
-    }
-
     let workingDirectory = session?.workingDirectory ?? NSHomeDirectory()
 
-    // Build launch via login shell (same as SwiftTerm) so ~/.zprofile is sourced
-    // and PATH includes Homebrew, NVM, etc. Write the shell script to a temp file
-    // to avoid quoting issues with Ghostty's command string parser.
-    let launch = TerminalEnvironment.shellArgs(executable: claudePath, args: args, currentDirectory: workingDirectory)
+    let launch: (executable: String, args: [String])
+    if isPlainTerminal {
+      // Plain terminal: launch login shell only (no claude)
+      launch = TerminalEnvironment.plainShellArgs(currentDirectory: workingDirectory)
+    } else {
+      let claudePath = ClaudePathResolver.findClaudePath()
+      var args: [String] = []
+      if let forkId = forkSourceSessionId {
+        // Fork session: resume from source and fork
+        args = ["--resume", forkId, "--fork-session"]
+      } else if let session = session, !session.isNewSession {
+        args = ["--resume", session.id]
+      }
+      launch = TerminalEnvironment.shellArgs(executable: claudePath, args: args, currentDirectory: workingDirectory)
+    }
+
+    // Build launch via login shell so ~/.zprofile is sourced and PATH includes
+    // Homebrew, NVM, etc. Write the shell script to a temp file to avoid quoting
+    // issues with Ghostty's command string parser.
     let scriptContent = launch.args.last ?? ""
     let scriptPath = (NSTemporaryDirectory() as NSString).appendingPathComponent("tenvy-\(UUID().uuidString).sh")
     try? scriptContent.write(toFile: scriptPath, atomically: true, encoding: .utf8)
@@ -244,6 +261,9 @@ final class GhosttyHostView: NSView {
       }
       self?.onSplitRequested?(appDirection)
     }
+
+    // Plain terminals are untracked — no monitoring, no session registration.
+    guard !isPlainTerminal else { return }
 
     // Notify callers once the process starts (small delay for PTY fork)
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in

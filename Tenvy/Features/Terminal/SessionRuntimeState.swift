@@ -41,6 +41,9 @@ final class SessionRuntimeInfo {
   var activatedAt: Date?          // When session was activated in app (to filter stale events)
   var hasUserInteracted: Bool = false  // True after first UserPromptSubmit (user sent a message)
 
+  // Git branch tracking
+  var gitBranch: String?          // Current git branch (nil if not a git repo)
+
   func update(state: SessionState, cpu: Double, memory: UInt64, pid: pid_t) {
     self.state = state
     self.cpu = cpu
@@ -102,6 +105,7 @@ final class SessionRuntimeInfo {
     hookTimestamp = nil
     activatedAt = nil
     hasUserInteracted = false
+    gitBranch = nil
   }
 }
 
@@ -149,6 +153,7 @@ final class SessionRuntimeRegistry {
     newInfo.hookTimestamp = oldInfo.hookTimestamp
     newInfo.activatedAt = oldInfo.activatedAt
     newInfo.hasUserInteracted = oldInfo.hasUserInteracted
+    newInfo.gitBranch = oldInfo.gitBranch
     // Remove old entry
     instances.removeValue(forKey: oldId)
   }
