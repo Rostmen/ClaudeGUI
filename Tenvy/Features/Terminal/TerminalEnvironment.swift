@@ -84,6 +84,22 @@ struct TerminalEnvironment {
     let command = "\(cdClause)\(zshrcClause)exec \(claudeCommand)"
     return (loginShell, ["-l", "-c", command])
   }
+  /// Returns shell args for a plain login shell (no claude).
+  /// Used for "plain terminal" split panes.
+  static func plainShellArgs(currentDirectory: String? = nil) -> (executable: String, args: [String]) {
+    let cdClause: String
+    if let dir = currentDirectory {
+      let escaped = dir.replacingOccurrences(of: "'", with: "'\\''")
+      cdClause = "cd '\(escaped)' || exit 1; "
+    } else {
+      cdClause = ""
+    }
+    let zshrcClause = AppSettings.shared.sourceZshrc
+      ? "[ -f \"$HOME/.zshrc\" ] && source \"$HOME/.zshrc\" 2>/dev/null; "
+      : ""
+    let command = "\(cdClause)\(zshrcClause)exec \(loginShell)"
+    return (loginShell, ["-l", "-c", command])
+  }
 }
 
 // MARK: - Array Extension for Environment Variables

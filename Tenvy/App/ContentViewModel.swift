@@ -23,6 +23,27 @@
 import AppKit
 import Foundation
 
+// MARK: - Worktree Split Types
+
+/// Holds pending split request info while the dialog is shown.
+struct PendingSplitRequest {
+  let direction: SplitDirection
+  let sourceSession: ClaudeSession
+  let hasGitRepo: Bool
+}
+
+/// Form data for the worktree creation dialog.
+struct WorktreeSplitFormData {
+  var baseBranch: String
+  var newBranchName: String
+  var worktreePath: String
+  var forkSession: Bool
+  var availableBranches: [String]
+  let sourceSessionId: String
+  let sourceIsNewSession: Bool
+  let repoRoot: String
+}
+
 /// ViewModel for ContentView managing session selection and window coordination
 @MainActor
 @Observable
@@ -50,6 +71,28 @@ final class ContentViewModel {
 
   /// Reference to this view's window
   private(set) weak var currentWindow: NSWindow?
+
+  // MARK: - Worktree Split State
+
+  /// When non-nil, a split dialog is shown. Holds direction + source session info.
+  var pendingSplit: PendingSplitRequest?
+
+  /// Form data for the worktree creation dialog (Flow 1: git repo).
+  var worktreeSplitForm: WorktreeSplitFormData?
+
+  /// Error message from git operations (shown in dialog).
+  var worktreeError: String?
+
+  /// Whether a git operation is in progress.
+  var isCreatingWorktree = false
+
+  /// Maps terminalId → source session ID for fork launches.
+  @ObservationIgnored
+  private var pendingForkSessions: [String: String] = [:]
+
+  /// Terminal IDs that should launch a plain shell instead of claude.
+  @ObservationIgnored
+  private var plainTerminalIds: Set<String> = []
 
   // MARK: - Dependencies
 
@@ -198,31 +241,191 @@ final class ContentViewModel {
   }
 
   /// Called when the user requests a split from Ghostty's context menu.
-  /// Splits the focused pane in the given direction using the tree model.
+  /// Intercepts the split to show a worktree dialog instead of immediately splitting.
   func handleSplitRequested(direction: SplitDirection = .right) {
-    // The pane to split is whichever is currently focused.
     guard let focused = selectedSession ?? primarySession else { return }
+
+    let runtimeInfo = runtimeState.info(for: focused.id)
+    let hasGitRepo = runtimeInfo.gitBranch != nil
+
+    pendingSplit = PendingSplitRequest(
+      direction: direction,
+      sourceSession: focused,
+      hasGitRepo: hasGitRepo
+    )
+
+    if hasGitRepo {
+      let branches = GitBranchService.listLocalBranches(at: focused.workingDirectory)
+      let currentBranch = runtimeInfo.gitBranch ?? "main"
+      let repoRoot = WorktreeService.findRepoRoot(from: focused.workingDirectory) ?? focused.workingDirectory
+
+      let dateFormatter = DateFormatter()
+      dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm"
+      let defaultBranchName = "\(dateFormatter.string(from: Date()))-\(focused.title)"
+        .replacingOccurrences(of: " ", with: "-")
+        .lowercased()
+
+      worktreeSplitForm = WorktreeSplitFormData(
+        baseBranch: currentBranch,
+        newBranchName: defaultBranchName,
+        worktreePath: WorktreeService.defaultWorktreePath(repoRoot: repoRoot, branchName: defaultBranchName),
+        forkSession: false,
+        availableBranches: branches,
+        sourceSessionId: focused.id,
+        sourceIsNewSession: focused.isNewSession,
+        repoRoot: repoRoot
+      )
+    }
+  }
+
+  /// Called when user confirms worktree creation from the dialog.
+  func confirmWorktreeSplit() {
+    guard let pending = pendingSplit,
+          let form = worktreeSplitForm else { return }
+
+    isCreatingWorktree = true
+    worktreeError = nil
+
+    Task {
+      do {
+        try WorktreeService.createWorktree(
+          repoPath: form.repoRoot,
+          newBranch: form.newBranchName,
+          baseBranch: form.baseBranch,
+          destinationPath: form.worktreePath
+        )
+        isCreatingWorktree = false
+        performSplitWithWorktree(
+          direction: pending.direction,
+          worktreePath: form.worktreePath,
+          forkSession: form.forkSession,
+          sourceSession: pending.sourceSession
+        )
+        dismissSplitDialog()
+      } catch {
+        isCreatingWorktree = false
+        worktreeError = error.localizedDescription
+      }
+    }
+  }
+
+  /// Called when user chooses "Initialize Git & Create Worktree" for a non-git directory.
+  func initGitAndCreateWorktree() {
+    guard let pending = pendingSplit else { return }
+
+    isCreatingWorktree = true
+    worktreeError = nil
+
+    Task {
+      do {
+        let workDir = pending.sourceSession.workingDirectory
+        try WorktreeService.initGitRepo(at: workDir)
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm"
+        let branchName = "\(dateFormatter.string(from: Date()))-\(pending.sourceSession.title)"
+          .replacingOccurrences(of: " ", with: "-")
+          .lowercased()
+        let worktreePath = WorktreeService.defaultWorktreePath(repoRoot: workDir, branchName: branchName)
+
+        try WorktreeService.createWorktree(
+          repoPath: workDir,
+          newBranch: branchName,
+          baseBranch: "main",
+          destinationPath: worktreePath
+        )
+
+        isCreatingWorktree = false
+        performSplitWithWorktree(
+          direction: pending.direction,
+          worktreePath: worktreePath,
+          forkSession: false,
+          sourceSession: pending.sourceSession
+        )
+        dismissSplitDialog()
+        // Refresh git branches so the original session now shows its branch
+        appModel.refreshGitBranches()
+      } catch {
+        isCreatingWorktree = false
+        worktreeError = error.localizedDescription
+      }
+    }
+  }
+
+  /// Called when user chooses "Open Plain Terminal" for a non-git directory.
+  func openPlainTerminalSplit() {
+    guard let pending = pendingSplit else { return }
+
     let newSession = ClaudeSession(
       id: UUID().uuidString,
-      title: "New Session",
-      projectPath: focused.projectPath,
-      workingDirectory: focused.workingDirectory,
+      title: "Terminal",
+      projectPath: pending.sourceSession.projectPath,
+      workingDirectory: pending.sourceSession.workingDirectory,
       lastModified: Date(),
       filePath: nil,
       isNewSession: true
     )
+    plainTerminalIds.insert(newSession.terminalId)
     appModel.activateSession(newSession)
+    insertSplitPane(newSession, at: pending.sourceSession.id, direction: pending.direction)
+    dismissSplitDialog()
+  }
 
+  /// Cancel the split dialog.
+  func cancelSplitDialog() {
+    dismissSplitDialog()
+  }
+
+  /// Whether a given terminal should launch as a plain shell (no claude).
+  func isPlainTerminal(_ terminalId: String) -> Bool {
+    plainTerminalIds.contains(terminalId)
+  }
+
+  /// Returns and consumes the source session ID for fork, if applicable.
+  func forkSourceSessionId(for terminalId: String) -> String? {
+    pendingForkSessions.removeValue(forKey: terminalId)
+  }
+
+  // MARK: - Worktree Split Helpers
+
+  private func performSplitWithWorktree(
+    direction: SplitDirection,
+    worktreePath: String,
+    forkSession: Bool,
+    sourceSession: ClaudeSession
+  ) {
+    let newSession = ClaudeSession(
+      id: UUID().uuidString,
+      title: "New Session",
+      projectPath: worktreePath,
+      workingDirectory: worktreePath,
+      lastModified: Date(),
+      filePath: nil,
+      isNewSession: !forkSession
+    )
+    if forkSession {
+      pendingForkSessions[newSession.terminalId] = sourceSession.id
+    }
+    appModel.activateSession(newSession)
+    insertSplitPane(newSession, at: sourceSession.id, direction: direction)
+  }
+
+  private func insertSplitPane(_ newSession: ClaudeSession, at sourceId: String, direction: SplitDirection) {
     if let tree = splitTree {
-      // Tree already exists — split the focused leaf.
-      splitTree = tree.inserting(newSession, at: focused.id, direction: direction)
+      splitTree = tree.inserting(newSession, at: sourceId, direction: direction)
     } else {
-      // First split: build tree from primary session then split it.
-      let primary = primarySession ?? focused
+      let primary = primarySession ?? (selectedSession ?? newSession)
       let tree = PaneSplitTree(primary)
-      splitTree = tree.inserting(newSession, at: primary.id, direction: direction)
+      splitTree = tree.inserting(newSession, at: sourceId, direction: direction)
     }
     selectedSession = newSession
+  }
+
+  private func dismissSplitDialog() {
+    pendingSplit = nil
+    worktreeSplitForm = nil
+    worktreeError = nil
+    isCreatingWorktree = false
   }
 
   /// Update the ratio of a specific split node (called by the drag divider).

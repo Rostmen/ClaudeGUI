@@ -150,6 +150,21 @@ struct ContentView: View {
         }
         .transition(.move(edge: .bottom).combined(with: .opacity))
       }
+
+      // Worktree split dialog overlay (centered, with dim backdrop)
+      if viewModel.pendingSplit != nil {
+        Color.black.opacity(0.3)
+          .ignoresSafeArea()
+          .onTapGesture { viewModel.cancelSplitDialog() }
+
+        if viewModel.pendingSplit?.hasGitRepo == true {
+          WorktreeSplitView(viewModel: viewModel)
+            .transition(.opacity)
+        } else {
+          NoGitSplitView(viewModel: viewModel)
+            .transition(.opacity)
+        }
+      }
     }
     .coordinateSpace(name: "window")
     .onPreferenceChange(TerminalFrameKey.self) { frame in
@@ -164,6 +179,13 @@ struct ContentView: View {
     }
     .onAppear {
       viewModel.handleAppear()
+    }
+    .task {
+      // Periodically refresh git branches (reads .git/HEAD — microsecond filesystem op)
+      while !Task.isCancelled {
+        viewModel.appModel.refreshGitBranches()
+        try? await Task.sleep(for: .seconds(5))
+      }
     }
     .onChange(of: currentWindow) { _, newWindow in
       viewModel.setWindow(newWindow)
@@ -248,6 +270,8 @@ private struct DetailView<Key: PreferenceKey>: View where Key.Value == CGRect {
         GhosttyTerminalView(
           session: session,
           isSelected: viewModel.isTerminalVisible,
+          isPlainTerminal: viewModel.isPlainTerminal(session.terminalId),
+          forkSourceSessionId: viewModel.forkSourceSessionId(for: session.terminalId),
           onStateChange: { info in
             let currentId = viewModel.selectedSession?.id ?? session.id
             viewModel.updateRuntimeState(for: currentId, state: info.state, cpu: info.cpu, memory: info.memory, pid: info.pid)
@@ -353,12 +377,17 @@ private struct PaneSplitTreeRenderer: View {
       GhosttyTerminalView(
         session: session,
         isSelected: viewModel.selectedSession?.id == session.id,
+        isPlainTerminal: viewModel.isPlainTerminal(session.terminalId),
+        forkSourceSessionId: viewModel.forkSourceSessionId(for: session.terminalId),
         onStateChange: { info in
           viewModel.updateRuntimeState(
             for: session.id, state: info.state,
             cpu: info.cpu, memory: info.memory, pid: info.pid)
-          // Auto-close non-primary panes when their process ends
-          if viewModel.primarySession?.id != session.id && info.state == .inactive {
+          // Auto-close non-primary panes when their claude process ends.
+          // Plain terminals are untracked and never auto-close.
+          if viewModel.primarySession?.id != session.id
+              && !viewModel.isPlainTerminal(session.terminalId)
+              && info.state == .inactive {
             viewModel.closeSplitPane(id: session.id)
           }
         },

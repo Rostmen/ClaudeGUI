@@ -79,6 +79,7 @@ final class ClaudeSessionModel: Identifiable {
   var hookState: HookState? { runtime.hookState }
   var currentTool: String? { runtime.currentTool }
   var hasUserInteracted: Bool { runtime.hasUserInteracted }
+  var gitBranch: String? { runtime.gitBranch }
 
   // MARK: - Init
 
