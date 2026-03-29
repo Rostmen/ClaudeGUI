@@ -86,6 +86,10 @@ final class ContentViewModel {
   /// Whether a git operation is in progress.
   var isCreatingWorktree = false
 
+  /// Session pending rename from context menu.
+  var sessionToRename: ClaudeSession?
+  var renameText: String = ""
+
   /// Maps terminalId → source session ID for fork launches.
   @ObservationIgnored
   private var pendingForkSessions: [String: String] = [:]
@@ -503,7 +507,27 @@ final class ContentViewModel {
       appModel.terminalInput.register(proxy, for: sessionId)
     case .inputUnregistered(let sessionId):
       appModel.terminalInput.unregister(sessionId: sessionId)
+    case .closeRequested:
+      handleCloseRequested(for: session)
+    case .renameRequested:
+      sessionToRename = session
+      renameText = session.title
     }
+  }
+
+  /// Commit a rename initiated from the terminal context menu.
+  func commitRename() {
+    guard let session = sessionToRename, !renameText.isEmpty else {
+      sessionToRename = nil
+      return
+    }
+    do {
+      try sessionDiscovery.renameSession(session, to: renameText)
+    } catch {
+      // Rename failed silently — session title stays unchanged
+    }
+    currentWindow?.title = renameText
+    sessionToRename = nil
   }
 
   /// Handler for split-pane terminals that also auto-closes when the claude process ends.
@@ -512,6 +536,52 @@ final class ContentViewModel {
     if case .stateChanged(let info) = action,
        primarySession?.id != session.id && info.state == .inactive {
       closeSplitPane(id: session.id)
+    }
+  }
+
+  /// Handle "Close Session" from the context menu.
+  /// For active Claude sessions, shows a confirmation alert before terminating.
+  /// For plain terminals or split panes, closes directly.
+  private func handleCloseRequested(for session: ClaudeSession) {
+    let isPlain = isPlainTerminal(session.terminalId)
+    let runtimeInfo = runtimeState.info(for: session.id)
+    let isActive = !isPlain && runtimeInfo.state != .inactive
+
+    if isActive {
+      // Show confirmation for active Claude sessions
+      let alert = NSAlert()
+      alert.messageText = "Close Session?"
+      alert.informativeText = "This will terminate the active Claude session \"\(session.title)\"."
+      alert.alertStyle = .warning
+      let terminateButton = alert.addButton(withTitle: "Terminate")
+      terminateButton.hasDestructiveAction = true
+      alert.addButton(withTitle: "Cancel")
+
+      guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+      // Kill the claude process
+      let pid = runtimeInfo.shellPid > 0 ? runtimeInfo.shellPid : runtimeInfo.pid
+      if pid > 0 {
+        ProcessManager.shared.terminateProcess(pid: pid)
+      }
+    }
+
+    // Close the pane
+    if isInSplitMode {
+      closeSplitPane(id: session.id)
+    } else {
+      // Single terminal — deactivate and clear selection
+      evictGhosttyHostView(terminalId: session.terminalId)
+      appModel.deactivateSession(session.id)
+      appModel.terminalInput.unregister(sessionId: session.id)
+      runtimeInfo.reset()
+
+      if let window = currentWindow {
+        appModel.windowRegistry.unregister(sessionId: session.id)
+        window.sessionId = nil
+        windowConfigured = false
+      }
+      selectedSession = nil
     }
   }
 

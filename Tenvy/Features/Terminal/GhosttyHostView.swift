@@ -24,8 +24,12 @@ import AppKit
 import GhosttyEmbed
 
 /// Thin NSView container that owns the Ghostty `SurfaceView` as a child.
-/// Shared by both `GhosttyTerminalView` (Claude) and `GhosttyPlainTerminalView` (shell).
-/// Use `setupSurface` for the terminal surface, then optionally `setupMonitoring` for Claude sessions.
+///
+/// This is a generic terminal host — it handles surface lifecycle, focus, layout,
+/// and process monitoring. It does NOT know about Claude sessions, plain terminals,
+/// or context menu contents. The owning view provides:
+/// - `onAction`: callback for upstream events (monitoring, focus)
+/// - `contextMenuProvider`: closure that returns the menu to show on right-click
 final class GhosttyHostView: NSView {
   private(set) var surface: GhosttyEmbedSurface?
   private var stateMonitor: SessionStateMonitor?
@@ -33,11 +37,19 @@ final class GhosttyHostView: NSView {
   private var sessionId: String?
   private var isNewSession: Bool = false
   private var launchScriptPath: String?
-  private var splitObserver: NSObjectProtocol?
   private var windowObservation: NSKeyValueObservation?
+  private var rightClickMonitor: Any?
 
-  /// Single action handler for all terminal events.
+  /// Upstream action handler — set by the owning view.
   var onAction: (TerminalAction) -> Void = { _ in }
+
+  /// Called on right-click to build the context menu.
+  /// The owning view sets this to provide its own menu.
+  /// If nil, Ghostty's default context menu is used.
+  var contextMenuProvider: (() -> NSMenu)?
+
+  /// Retains the current menu action target while the context menu is open.
+  var menuTarget: AnyObject?
 
   var surfaceViewIfReady: NSView? { surface?.nsView }
 
@@ -46,6 +58,11 @@ final class GhosttyHostView: NSView {
 
   func makeFocused() {
     surface?.makeFocused()
+  }
+
+  /// Resets the terminal (clears screen, resets escape state).
+  func resetTerminal() {
+    surface?.resetTerminal()
   }
 
   override var isFlipped: Bool { true }
@@ -59,7 +76,6 @@ final class GhosttyHostView: NSView {
   // MARK: - Surface Setup
 
   /// Creates the Ghostty terminal surface with the given launch command.
-  /// Handles surface creation, layout, focus reset, and split request forwarding.
   func setupSurface(
     launch: (executable: String, args: [String]),
     workingDirectory: String,
@@ -91,9 +107,6 @@ final class GhosttyHostView: NSView {
     surfaceView.translatesAutoresizingMaskIntoConstraints = false
     addSubview(surfaceView)
 
-    // Ghostty SurfaceView defaults focused=true. Reset to false so that
-    // performKeyEquivalent doesn't route paste/shortcuts to a non-active
-    // pane in split mode. Focus is granted only via makeFocused().
     _ = surfaceView.resignFirstResponder()
     NSLayoutConstraint.activate([
       surfaceView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -102,16 +115,18 @@ final class GhosttyHostView: NSView {
       surfaceView.bottomAnchor.constraint(equalTo: bottomAnchor)
     ])
 
-    // Forward split requests from Ghostty's context menu.
-    splitObserver = embedSurface.onSplitRequest { [weak self] direction in
-      let appDirection: SplitDirection
-      switch direction {
-      case .right: appDirection = .right
-      case .down:  appDirection = .down
-      case .left:  appDirection = .left
-      case .up:    appDirection = .up
-      }
-      self?.onAction(.splitRequested(direction: appDirection))
+    // Intercept right-click to show the owning view's context menu.
+    rightClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { [weak self] event in
+      guard let self,
+            let surfaceView = self.surface?.nsView,
+            let provider = self.contextMenuProvider,
+            surfaceView.window == event.window else { return event }
+
+      let locationInSurface = surfaceView.convert(event.locationInWindow, from: nil)
+      guard surfaceView.bounds.contains(locationInSurface) else { return event }
+
+      NSMenu.popUpContextMenu(provider(), with: event, for: surfaceView)
+      return nil
     }
   }
 
@@ -123,7 +138,6 @@ final class GhosttyHostView: NSView {
     self.sessionId = sessionId
     self.isNewSession = isNewSession
 
-    // Delay for PTY fork to complete
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
       self?.startMonitoring()
     }
@@ -183,7 +197,7 @@ final class GhosttyHostView: NSView {
   deinit {
     stateMonitor?.stop()
     windowObservation?.invalidate()
-    if let obs = splitObserver { NotificationCenter.default.removeObserver(obs) }
+    if let monitor = rightClickMonitor { NSEvent.removeMonitor(monitor) }
     if let sid = sessionId {
       let action = onAction
       Task { @MainActor in action(.inputUnregistered(sessionId: sid)) }

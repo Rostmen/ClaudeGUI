@@ -37,7 +37,11 @@ Tenvy/
 │   │   ├── SessionRuntimeState.swift  # Per-session runtime info (@Observable)
 │   │   ├── ProcessManager.swift    # Process tracking & cleanup
 │   │   ├── TerminalView.swift      # Shared types: SplitDirection, SessionMonitorInfo, SessionStateMonitor
-│   │   ├── GhosttyTerminalView.swift  # Ghostty terminal backend + GhosttyHostView + focus transfer
+│   │   ├── TerminalAction.swift    # Action enum for terminal → ViewModel communication
+│   │   ├── GhosttyHostView.swift   # Generic Ghostty NSView host (surface, focus, monitoring)
+│   │   ├── GhosttyInputProxy.swift # Terminal input sender (TerminalInputSender)
+│   │   ├── ClaudeSessionTerminalView.swift  # Claude session terminal (NSViewRepresentable)
+│   │   ├── PlainTerminalView.swift # Plain shell terminal (NSViewRepresentable)
 │   │   ├── PaneSplitView.swift     # Two-pane split view with draggable divider
 │   │   ├── EmptyTerminalView.swift # Empty state placeholder
 │   │   ├── ClaudePathResolver.swift   # Finds claude CLI binary
@@ -258,8 +262,18 @@ SwiftUI destroys and recreates `NSViewRepresentable`-backed views when they move
 
 ### Ghostty Terminal Backend
 
-- `GhosttyTerminalView` (NSViewRepresentable) is the sole terminal backend; used directly in `ContentView`
-- Launches via a login-shell wrapper: writes a temp shell script to `NSTemporaryDirectory()`, runs `zsh -l /tmp/tenvy-UUID.sh` so `~/.zprofile` is sourced and PATH is correct; script deleted in `deinit`
+Three-layer architecture with clear separation of concerns:
+
+- **`GhosttyHostView`** (NSView): generic terminal host — surface lifecycle, focus, layout, optional process monitoring. Does NOT know about Claude sessions or plain terminals. Exposes `setupSurface()` and `setupMonitoring()` as composable building blocks.
+- **`ClaudeSessionTerminalView`** (NSViewRepresentable): Claude Code sessions — builds CLI command, calls both `setupSurface` + `setupMonitoring`, owns session-specific context menu (Copy, Paste, Splits, Rename Session, Close Session).
+- **`PlainTerminalView`** (NSViewRepresentable): plain login shell — calls only `setupSurface` (no monitoring), owns terminal-specific context menu (Copy, Paste, Splits, Reset Terminal, Rename Terminal, Close Terminal).
+
+**Action pattern**: Views communicate upstream via `TerminalAction` enum and a single `onAction: (TerminalAction) -> Void` handler (no callback closures).
+
+**Launch**: both views write a temp shell script to `NSTemporaryDirectory()`, run `zsh -l /tmp/tenvy-UUID.sh` so `~/.zprofile` is sourced; script deleted in `deinit`.
+
+**Context menu**: SwiftUI `.contextMenu { }` does NOT work on these views — Ghostty's `SurfaceView` overrides `menu(for:)` and intercepts right-clicks at the AppKit level before SwiftUI sees them. Fix: `GhosttyHostView` installs `NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown)` to intercept before Ghostty, then calls `contextMenuProvider` (set by the owning view) to get the menu. Menu action targets are stored on `hostView.menuTarget` to stay alive while the menu is open.
+
 - Resize: `GhosttyHostView.layout()` calls `surface.notifyResize(bounds.size)` → `surfaceView.sizeDidChange(_:)`
 - Input: `GhosttyInputProxy` conforms to `TerminalInputSender`; restart is a no-op (Ghostty doesn't support programmatic restart)
 
@@ -293,11 +307,40 @@ Each SwiftUI view should have its own dedicated file with a `#Preview` macro.
 
 ---
 
+### Action Enum Pattern
+
+Use action enums instead of multiple `on*` callback closures in views:
+
+```swift
+enum Action {
+  /// Description of what this action does
+  case someAction(param: Type)
+}
+
+// In views:
+let onAction: (Action) -> Void
+
+// In ViewModels:
+func handle(action: Action) {
+  switch action { ... }
+}
+```
+
+Structural/lifecycle params (`existingHostView`, `onHostViewCreated`) stay as separate params — they're configuration, not actions.
+
+---
+
 ## Claude Code Workflow Rules
 
 **Git commits and pushes:**
 - **DO NOT** commit or push until the user explicitly verifies the changes are good
 - Always wait for user approval before running `git commit` or `git push`
+
+**Documentation on architecture changes:**
+- **ALWAYS** update CLAUDE.md architecture diagram when adding/removing/renaming files
+- **ALWAYS** update "Critical Implementation Details" when adding new patterns or constraints
+- **ALWAYS** update memory files (`.claude/` in repo) for non-obvious findings
+- Do this as part of the implementation, not as an afterthought
 
 ---
 
