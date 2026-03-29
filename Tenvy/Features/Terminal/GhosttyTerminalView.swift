@@ -283,17 +283,20 @@ final class GhosttyHostView: NSView {
 
   private func startMonitoring() {
     // For new sessions the session ID is a temporary placeholder that never appears
-    // in the process args — pass nil so the monitor matches any claude descendant.
+    // in the process args — pass nil so the monitor matches by PID/ancestry only.
     // For resumed sessions pass the real session ID for precise matching.
     let monitorSessionId: String? = isNewSession ? nil : sessionId
-    startMonitorWithKnownPID(sessionId: monitorSessionId)
+
+    // Use ghostty_surface_foreground_pid to get the exact PTY foreground PID for
+    // this specific terminal surface. Since the launch script uses `exec claude`,
+    // the shell has already been replaced by the time we reach here (0.5 s delay).
+    // This eliminates ambiguity when multiple sessions are open in the same folder —
+    // each surface reports its own PTY's foreground PID rather than a shared ancestor.
+    let ptyPid: pid_t = surface?.foregroundPid ?? 0
+    startMonitorWithPID(ptyPid, sessionId: monitorSessionId)
   }
 
-  private func startMonitorWithKnownPID(sessionId: String?) {
-    // We don't have a direct PID handle from Ghostty.
-    // Use a dummy PID of 0 so the monitor falls back to process-tree search.
-    // The SessionStateMonitor will find claude via ProcessPoller.
-    let pid: pid_t = 0
+  private func startMonitorWithPID(_ pid: pid_t, sessionId: String?) {
     registeredPID = pid
 
     if let sid = sessionId {
