@@ -58,7 +58,7 @@ class SessionStateMonitor {
   private var cpuHistory: [Double] = []
   private var stateStartTime: Date = Date()
   private let processStartTime: Date = Date()
-  private var claudePID: pid_t = 0
+  private(set) var claudePID: pid_t = 0
 
   // Thresholds based on ClaudeCodeMonitor
   private let cpuHighThreshold: Double = 25.0  // CPU > 25% = thinking
@@ -90,8 +90,16 @@ class SessionStateMonitor {
   }
 
   private func handleSnapshot(_ snapshot: [pid_t: ProcessPoller.ProcessRecord], shellPID: pid_t, sessionId: String?) {
-    let pid = ProcessTreeAnalyzer.findClaudeProcess(in: snapshot, shellPID: shellPID, sessionId: sessionId)
-    claudePID = pid
+    // Once a claude PID is locked in, keep using it as long as it's still alive.
+    // Re-searching every poll causes PID flipping when multiple sessions in the
+    // same folder produce multiple candidates with non-deterministic dictionary order.
+    let pid: pid_t
+    if claudePID > 0, snapshot[claudePID] != nil {
+      pid = claudePID
+    } else {
+      pid = ProcessTreeAnalyzer.findClaudeProcess(in: snapshot, shellPID: shellPID, sessionId: sessionId)
+      claudePID = pid
+    }
 
     guard pid > 0, let record = snapshot[pid] else {
       emit(.inactive, cpu: 0, memory: 0)
@@ -133,6 +141,11 @@ class SessionStateMonitor {
     let cb = onStateChange
     let pid = claudePID
     DispatchQueue.main.async { cb?(SessionMonitorInfo(state: state, cpu: cpu, memory: memory, pid: pid)) }
+  }
+
+  /// Test-only entry point: feeds a snapshot directly without going through ProcessPoller.
+  func testHandleSnapshot(_ snapshot: [pid_t: ProcessPoller.ProcessRecord], shellPID: pid_t, sessionId: String?) {
+    handleSnapshot(snapshot, shellPID: shellPID, sessionId: sessionId)
   }
 
   private func reportStats(cpu: Double, memory: UInt64) {

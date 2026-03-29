@@ -108,6 +108,16 @@ public class GhosttyEmbedSurface {
         surfaceView.window?.makeFirstResponder(surfaceView)
     }
 
+    /// The PID of the foreground process currently running in this terminal's PTY.
+    /// Returns 0 if the surface is not yet ready.
+    /// Uses `ghostty_surface_foreground_pid` from the Ghostty C API (added in PR #11922).
+    @MainActor
+    public var foregroundPid: pid_t {
+        guard let surface = surfaceView.surface else { return 0 }
+        let pid64 = ghostty_surface_foreground_pid(surface)
+        return pid_t(pid64)
+    }
+
     /// Notify Ghostty that the visible area has changed size.
     /// Must be called whenever the host view's bounds change.
     public func notifyResize(_ size: CGSize) {
