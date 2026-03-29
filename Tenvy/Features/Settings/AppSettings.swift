@@ -73,12 +73,12 @@ final class AppSettings {
     didSet { UserDefaults.standard.set(lastSeenVersion, forKey: "settings.lastSeenVersion") }
   }
 
-  /// Custom environment variables injected into every terminal session
+  private static let envVarsKeychainAccount = "environmentVariables"
+
+  /// Custom environment variables injected into every terminal session (stored in Keychain)
   var customEnvironmentVariables: [String: String] {
     didSet {
-      if let data = try? JSONEncoder().encode(customEnvironmentVariables) {
-        UserDefaults.standard.set(data, forKey: "settings.customEnvironmentVariables")
-      }
+      KeychainService.save(customEnvironmentVariables, account: Self.envVarsKeychainAccount)
     }
   }
 
@@ -102,9 +102,15 @@ final class AppSettings {
     self.hookPromptDismissed = UserDefaults.standard.object(forKey: "settings.hookPromptDismissed") as? Bool ?? false
     self.notificationPromptDismissed = UserDefaults.standard.object(forKey: "settings.notificationPromptDismissed") as? Bool ?? false
     self.lastSeenVersion = UserDefaults.standard.object(forKey: "settings.lastSeenVersion") as? String ?? ""
-    if let data = UserDefaults.standard.data(forKey: "settings.customEnvironmentVariables"),
-       let vars = try? JSONDecoder().decode([String: String].self, from: data) {
+    // Load env vars from Keychain, with one-time migration from UserDefaults
+    if let vars = KeychainService.load([String: String].self, account: Self.envVarsKeychainAccount) {
       self.customEnvironmentVariables = vars
+    } else if let data = UserDefaults.standard.data(forKey: "settings.customEnvironmentVariables"),
+              let vars = try? JSONDecoder().decode([String: String].self, from: data) {
+      // Migrate from UserDefaults to Keychain
+      self.customEnvironmentVariables = vars
+      KeychainService.save(vars, account: Self.envVarsKeychainAccount)
+      UserDefaults.standard.removeObject(forKey: "settings.customEnvironmentVariables")
     } else {
       self.customEnvironmentVariables = [:]
     }

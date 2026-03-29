@@ -66,6 +66,7 @@ Tenvy/
 │   ├── Settings/                   # Settings
 │   │   ├── AppSettings.swift       # User preferences (UserDefaults) + AppearanceMode
 │   │   ├── ClaudeThemeSync.swift   # Writes theme to ~/.claude.json on appearance change
+│   │   ├── KeychainService.swift   # macOS Keychain storage for sensitive data (env vars)
 │   │   └── SettingsView.swift      # App preferences view
 │   └── Updates/                    # Update checker
 │       ├── UpdateService.swift     # GitHub releases API + brew install
@@ -213,7 +214,7 @@ zsh -l -c '[ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc" 2>/dev/null; exec /pat
 - `~/.zshrc` is sourced manually (not via `-i` which triggers `/etc/zshrc` terminal key-binding setup and causes errors without a TTY)
 - `exec` replaces the shell with claude at the same PID — process tracking is unaffected
 - `LANG=en_US.UTF-8` is set if missing (GUI apps launched by launchd don't inherit it)
-- Custom environment variables can be added in **Settings → Environment Variables** — stored in UserDefaults, applied after `~/.zshrc`
+- Custom environment variables can be added in **Settings → Environment Variables** — stored in macOS Keychain (encrypted at rest), applied after `~/.zshrc`
 
 ### Process Cleanup
 
