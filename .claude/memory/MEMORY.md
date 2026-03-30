@@ -14,9 +14,12 @@
 - [project_terminal_views.md](project_terminal_views.md) — Three-layer terminal architecture: ClaudeSessionTerminalView / PlainTerminalView / GhosttyHostView
 - [project_context_menu.md](project_context_menu.md) — Why SwiftUI .contextMenu fails on Ghostty; right-click interception; view-owned menus
 - [project_session_drag_drop.md](project_session_drag_drop.md) — Sidebar drag-and-drop: drag handle, cross-window transfer, outside-window detection, SessionListAction enum
+- [project_new_session_flow.md](project_new_session_flow.md) — "+" button flow: folder picker, git detection, worktree dialog, tab/window routing
+- [project_worktree_dialog.md](project_worktree_dialog.md) — Worktree dialog system: PendingSplitRequest, dual-mode (split vs new session), form data, confirmation
 
 ## Feedback
 - [feedback_commits.md](feedback_commits.md) — Never commit/push without explicit user approval
 - [feedback_action_enums.md](feedback_action_enums.md) — Use action enums instead of multiple callback closures in views
 - [feedback_document_architecture.md](feedback_document_architecture.md) — Always update CLAUDE.md and memory on architecture changes
 - [feedback_no_overlay_hacks.md](feedback_no_overlay_hacks.md) — Never overlay NSViews on SwiftUI List rows; use dedicated AppKit subviews
+- [feedback_pr_docs_audit.md](feedback_pr_docs_audit.md) — Before any PR, audit all memory/docs for outdated or missing coverage

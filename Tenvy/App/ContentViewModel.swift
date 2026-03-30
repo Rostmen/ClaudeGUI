@@ -30,6 +30,15 @@ struct PendingSplitRequest {
   let direction: SplitDirection
   let sourceSession: ClaudeSession
   let hasGitRepo: Bool
+  /// When true, the dialog creates a new standalone session (not a split pane).
+  let isNewSessionFlow: Bool
+
+  init(direction: SplitDirection, sourceSession: ClaudeSession, hasGitRepo: Bool, isNewSessionFlow: Bool = false) {
+    self.direction = direction
+    self.sourceSession = sourceSession
+    self.hasGitRepo = hasGitRepo
+    self.isNewSessionFlow = isNewSessionFlow
+  }
 }
 
 /// Form data for the worktree creation dialog.
@@ -383,6 +392,43 @@ final class ContentViewModel {
   /// its own session file with a different ID. The DirectoryMonitor will pick it up
   /// automatically when Claude creates the file.
   func createNewSession(_ session: ClaudeSession) {
+    // Check if the selected folder is under git control
+    if let repoRoot = WorktreeService.findRepoRoot(from: session.workingDirectory) {
+      let branches = GitBranchService.listLocalBranches(at: session.workingDirectory)
+      let currentBranch = GitBranchService.currentBranch(at: session.workingDirectory) ?? "main"
+
+      let dateFormatter = DateFormatter()
+      dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm"
+      let defaultBranchName = "\(dateFormatter.string(from: Date()))-\(session.title)"
+        .replacingOccurrences(of: " ", with: "-")
+        .lowercased()
+
+      pendingSplit = PendingSplitRequest(
+        direction: .right,
+        sourceSession: session,
+        hasGitRepo: true,
+        isNewSessionFlow: true
+      )
+
+      worktreeSplitForm = WorktreeSplitFormData(
+        baseBranch: currentBranch,
+        newBranchName: defaultBranchName,
+        worktreePath: WorktreeService.defaultWorktreePath(repoRoot: repoRoot, branchName: defaultBranchName),
+        forkSession: false,
+        availableBranches: branches,
+        sourceSessionId: session.id,
+        sourceIsNewSession: true,
+        repoRoot: repoRoot
+      )
+      return
+    }
+
+    // No git repo — proceed directly
+    activateNewSession(session)
+  }
+
+  /// Activates a new session in the current window or a new tab.
+  private func activateNewSession(_ session: ClaudeSession) {
     // If there's already a session in this window, open new session in a new tab
     if selectedSession != nil {
       appModel.activateSession(session)
@@ -457,13 +503,27 @@ final class ContentViewModel {
           destinationPath: form.worktreePath
         )
         isCreatingWorktree = false
-        performSplitWithWorktree(
-          direction: pending.direction,
-          worktreePath: form.worktreePath,
-          forkSession: form.forkSession,
-          sourceSession: pending.sourceSession
-        )
-        dismissSplitDialog()
+        if pending.isNewSessionFlow {
+          let newSession = ClaudeSession(
+            id: UUID().uuidString,
+            title: "New Session",
+            projectPath: form.worktreePath,
+            workingDirectory: form.worktreePath,
+            lastModified: Date(),
+            filePath: nil,
+            isNewSession: true
+          )
+          dismissSplitDialog()
+          activateNewSession(newSession)
+        } else {
+          performSplitWithWorktree(
+            direction: pending.direction,
+            worktreePath: form.worktreePath,
+            forkSession: form.forkSession,
+            sourceSession: pending.sourceSession
+          )
+          dismissSplitDialog()
+        }
       } catch {
         isCreatingWorktree = false
         worktreeError = error.localizedDescription
@@ -514,9 +574,16 @@ final class ContentViewModel {
     }
   }
 
-  /// Called when user chooses "Open Plain Terminal" for a non-git directory.
+  /// Called when user chooses "Plain Terminal" (split flow) or "Skip" (new session flow).
   func openPlainTerminalSplit() {
     guard let pending = pendingSplit else { return }
+
+    if pending.isNewSessionFlow {
+      // New session flow: create session at the original path without worktree
+      dismissSplitDialog()
+      activateNewSession(pending.sourceSession)
+      return
+    }
 
     let newSession = ClaudeSession(
       id: UUID().uuidString,

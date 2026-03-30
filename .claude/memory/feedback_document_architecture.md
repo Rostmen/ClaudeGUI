@@ -14,3 +14,4 @@ Every time we change architecture concepts, add new patterns, or discover import
 - Create/update memory files for non-obvious findings (e.g., why a certain approach doesn't work)
 - Keep MEMORY.md index under 200 lines — use references to separate .md files for details
 - Do this AS PART of the implementation, not as an afterthought
+- Before PRs: run a full documentation audit per `.claude/rules/pr-documentation.md`

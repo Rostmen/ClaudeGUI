@@ -23,10 +23,14 @@
 import SwiftUI
 import AppKit
 
-/// Dialog shown when user triggers a split in a git-controlled session.
+/// Dialog shown when user triggers a split in a git-controlled session or creates a new session in a git repo.
 /// Lets the user configure a worktree: base branch, new branch name, destination, and fork toggle.
 struct WorktreeSplitView: View {
   @Bindable var viewModel: ContentViewModel
+
+  private var isNewSessionFlow: Bool {
+    viewModel.pendingSplit?.isNewSessionFlow == true
+  }
 
   private var form: Binding<WorktreeSplitFormData> {
     Binding(
@@ -64,7 +68,7 @@ struct WorktreeSplitView: View {
         .font(.title2)
         .foregroundStyle(.orange)
 
-      Text("Create Worktree Split")
+      Text(isNewSessionFlow ? "New Session in Worktree" : "Create Worktree Split")
         .font(.headline)
 
       Spacer()
@@ -173,7 +177,7 @@ struct WorktreeSplitView: View {
 
       Spacer()
 
-      Button("Plain Terminal") {
+      Button(isNewSessionFlow ? "Skip" : "Plain Terminal") {
         viewModel.openPlainTerminalSplit()
       }
       .buttonStyle(.bordered)

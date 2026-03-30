@@ -77,7 +77,7 @@ struct ClaudeSession {
 |-----------|-------------|
 | **Load** | Scans `~/.claude/projects/` directories for `.jsonl` files |
 | **Resume** | Launches Claude CLI with `--resume <session-id>` |
-| **Create** | New session without `--resume` flag |
+| **Create** | New session without `--resume` flag; shows worktree dialog if folder is git-controlled |
 | **Rename** | Updates the summary line in `.jsonl` file |
 | **Delete** | Removes `.jsonl` file and associated folder |
 
@@ -368,27 +368,34 @@ Displays the current git branch in the session sidebar row for sessions inside g
 - **`listLocalBranches(at:)`**: Enumerates `.git/refs/heads/` + parses `packed-refs` — pure filesystem, no subprocess
 - Refreshed every 5 seconds via a `.task` timer in `ContentView`
 
-### Worktree Split Panes
+### Worktree Dialog
 
-When a user triggers a split (via Ghostty's context menu), the split request is intercepted to offer git worktree creation for parallel branch work.
+The worktree creation dialog is shared between two flows: **split panes** (context menu) and **new session creation** ("+" sidebar button). Both intercept to offer git worktree creation when a git repo is detected.
 
-**Flow 1 — Git repo detected:**
+**Trigger 1 — Split from context menu:** `TerminalAction.splitRequested` → checks `runtimeInfo.gitBranch`
+**Trigger 2 — New session from "+":** `createNewSession()` → checks `WorktreeService.findRepoRoot(from: path)`
+
+Both set `pendingSplit` (with `isNewSessionFlow` flag) and populate `worktreeSplitForm`, which triggers the dialog overlay.
+
+**Git repo detected:**
 - Dialog shows: base branch picker, new branch name field, worktree destination path, fork session toggle
 - Base branch pre-selected to current session's branch
 - Branch name defaults to `MM-dd-yyyy-HH-mm-session-name`
 - Destination defaults to `<repo>/.claude/worktrees/<branch>/` (matches Claude CLI convention)
 - Fork session toggle (hidden for unsaved sessions): launches `claude --resume <id> --fork-session`
-- "Plain Terminal" button: opens a raw shell pane (no claude, no monitoring, not tracked in sidebar)
-- On confirm: runs `git worktree add -b <branch> <path> <base>` then creates split pane in worktree directory
+- Header adapts: "New Session in Worktree" vs "Create Worktree Split"
+- Skip button adapts: "Skip" (new session at original path) vs "Plain Terminal" (raw shell pane)
+- On confirm: runs `git worktree add -b <branch> <path> <base>` then creates split pane or standalone session in worktree directory
 
-**Flow 2 — No git repo:**
+**No git repo (split flow only):**
 - Dialog offers: "Initialize Git & Create Worktree" (one-step: `git init` + `git worktree add`) or "Open Plain Terminal"
 - Plain terminal opens a raw shell — untracked, no auto-close
 
 **Implementation:**
+- `PendingSplitRequest`: holds `isNewSessionFlow: Bool` to distinguish the two flows
 - `WorktreeService`: Git operations via `Process()` — runs before Ghostty surface creation, so SIGCHLD safe
 - `WorktreeSplitView` / `NoGitSplitView`: Dialog views with opaque background, centered overlay with dim backdrop
-- `ContentViewModel`: `pendingSplit` state triggers dialog; `confirmWorktreeSplit()`, `initGitAndCreateWorktree()`, `openPlainTerminalSplit()` handle each path
+- `ContentViewModel`: `pendingSplit` state triggers dialog; `confirmWorktreeSplit()`, `initGitAndCreateWorktree()`, `openPlainTerminalSplit()` handle each path; new session flow uses `activateNewSession()` instead of `insertSplitPane()`
 - Plain terminals skip all monitoring (`SessionStateMonitor` not started, auto-close disabled)
 
 ---
