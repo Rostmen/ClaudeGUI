@@ -256,8 +256,16 @@ struct WorktreeSplitView: View {
 
       Spacer()
 
-      Button(isNewSessionFlow ? "Skip" : "Plain Terminal") {
-        viewModel.openPlainTerminalSplit(initScript: form.wrappedValue.initScript)
+      if isNewSessionFlow {
+        Button("Skip") {
+          viewModel.openPlainTerminalSplit(initScript: form.wrappedValue.initScript)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+      }
+
+      Button("Plain Terminal") {
+        viewModel.openPlainTerminalSplit(initScript: form.wrappedValue.initScript, asPlainTerminal: true)
       }
       .buttonStyle(.bordered)
 

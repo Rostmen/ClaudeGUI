@@ -430,8 +430,13 @@ final class ContentViewModel {
       return
     }
 
-    // No git repo — proceed directly
-    activateNewSession(session)
+    // No git repo — show dialog so user can choose plain terminal or proceed
+    pendingSplit = PendingSplitRequest(
+      direction: .right,
+      sourceSession: session,
+      hasGitRepo: false,
+      isNewSessionFlow: true
+    )
   }
 
   /// Activates a new session in the current window or a new tab.
@@ -585,17 +590,42 @@ final class ContentViewModel {
     }
   }
 
-  /// Called when user chooses "Plain Terminal" (split flow) or "Skip" (new session flow).
-  func openPlainTerminalSplit(initScript: String? = nil) {
+  /// Called when user chooses "Plain Terminal" in split or new session flow.
+  /// When `asPlainTerminal` is true, opens a plain shell; otherwise opens a Claude session.
+  func openPlainTerminalSplit(initScript: String? = nil, asPlainTerminal: Bool = false) {
     guard let pending = pendingSplit else { return }
 
     if pending.isNewSessionFlow {
-      // New session flow: create session at the original path without worktree
-      dismissSplitDialog()
-      activateNewSession(pending.sourceSession)
+      if asPlainTerminal {
+        // New session flow: open as plain terminal
+        let newSession = ClaudeSession(
+          id: UUID().uuidString,
+          title: "Terminal",
+          projectPath: pending.sourceSession.projectPath,
+          workingDirectory: pending.sourceSession.workingDirectory,
+          lastModified: Date(),
+          filePath: nil,
+          isNewSession: true
+        )
+        plainTerminalIds.insert(newSession.terminalId)
+        if let initScript {
+          splitInitScripts[newSession.terminalId] = initScript
+        }
+        dismissSplitDialog()
+        activateNewSession(newSession)
+      } else {
+        // New session flow: open as Claude session (skip worktree)
+        let session = pending.sourceSession
+        if let initScript {
+          splitInitScripts[session.terminalId] = initScript
+        }
+        dismissSplitDialog()
+        activateNewSession(session)
+      }
       return
     }
 
+    // Split flow: create plain terminal pane
     let newSession = ClaudeSession(
       id: UUID().uuidString,
       title: "Terminal",

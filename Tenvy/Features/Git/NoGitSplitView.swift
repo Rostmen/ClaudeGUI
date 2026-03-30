@@ -30,6 +30,10 @@ struct NoGitSplitView: View {
   @State private var selectedTab: SplitTab = .options
   @State private var initScript: String = AppSettings.shared.shellInitScript
 
+  private var isNewSessionFlow: Bool {
+    viewModel.pendingSplit?.isNewSessionFlow == true
+  }
+
   private enum SplitTab: String, CaseIterable {
     case options = "Options"
     case terminal = "Shell Init Script"
@@ -73,7 +77,9 @@ struct NoGitSplitView: View {
   // MARK: - Tab Content
 
   private var optionsContent: some View {
-    Text("Running parallel Claude sessions on the same files can cause collisions. Choose how to proceed:")
+    Text(isNewSessionFlow
+      ? "This folder is not a git repository. You can open it directly, as a plain terminal, or initialize git first."
+      : "Running parallel Claude sessions on the same files can cause collisions. Choose how to proceed:")
       .font(.subheadline)
       .foregroundStyle(.secondary)
       .fixedSize(horizontal: false, vertical: true)
@@ -150,8 +156,16 @@ struct NoGitSplitView: View {
 
       Spacer()
 
-      Button("Open Plain Terminal") {
-        viewModel.openPlainTerminalSplit(initScript: initScript)
+      if isNewSessionFlow {
+        Button("Skip") {
+          viewModel.openPlainTerminalSplit(initScript: initScript)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+      }
+
+      Button("Plain Terminal") {
+        viewModel.openPlainTerminalSplit(initScript: initScript, asPlainTerminal: true)
       }
       .buttonStyle(.bordered)
 
