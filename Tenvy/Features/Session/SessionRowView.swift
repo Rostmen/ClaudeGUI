@@ -24,6 +24,9 @@ import SwiftUI
 
 struct SessionRowView: View {
   let sessionModel: ClaudeSessionModel
+  /// Whether this session is in the activated set — the single source of truth for "active".
+  /// Passed by the parent list which owns `activeSessionIds`.
+  var isActive: Bool = false
   /// Callback for drag-to-new-window. When set, a drag handle appears for active sessions.
   var onDragToNewWindow: ((String) -> Void)?
 
@@ -31,13 +34,9 @@ struct SessionRowView: View {
   @State private var isBlinking = false
 
   private var session: ClaudeSession { sessionModel.session }
-  
+
   /// Get the runtime info - accessing this in body sets up observation
   private var runtimeInfo: SessionRuntimeInfo { sessionModel.runtime }
-  
-  private var isActive: Bool {
-    runtimeInfo.state != .inactive
-  }
   
   /// Whether the dot should blink (waiting for user input or permission)
   private var shouldBlink: Bool {

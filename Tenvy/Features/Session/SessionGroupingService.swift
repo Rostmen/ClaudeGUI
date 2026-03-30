@@ -22,9 +22,9 @@
 
 import Foundation
 
-/// Service for grouping and filtering sessions by working directory
+/// Service for grouping and filtering sessions by working directory or date
 struct SessionGroupingService {
-  /// A group of sessions in the same folder
+  /// A group of sessions sharing a common label (folder path or date heading)
   struct SessionGroup: Identifiable {
     let folder: String
     let sessions: [ClaudeSession]
@@ -40,6 +40,40 @@ struct SessionGroupingService {
     return grouped
       .map { SessionGroup(folder: $0.key, sessions: $0.value.sorted { $0.lastModified > $1.lastModified }) }
       .sorted { folderName($0.folder) < folderName($1.folder) }
+  }
+
+  /// Group sessions by day (based on `lastModified`), most recent day first.
+  /// Sessions within each day are sorted newest first.
+  static func groupByDate(_ sessions: [ClaudeSession]) -> [SessionGroup] {
+    let calendar = Calendar.current
+    let now = Date()
+    let grouped = Dictionary(grouping: sessions) { session in
+      calendar.startOfDay(for: session.lastModified)
+    }
+
+    return grouped
+      .map { (day, sessions) in
+        SessionGroup(
+          folder: dayLabel(for: day, now: now, calendar: calendar),
+          sessions: sessions.sorted { $0.lastModified > $1.lastModified }
+        )
+      }
+      .sorted { $0.sessions.first!.lastModified > $1.sessions.first!.lastModified }
+  }
+
+  /// Human-readable label for a day: "Today", "Yesterday", or a formatted date.
+  private static func dayLabel(for day: Date, now: Date, calendar: Calendar) -> String {
+    if calendar.isDateInToday(day) { return "Today" }
+    if calendar.isDateInYesterday(day) { return "Yesterday" }
+    let daysAgo = calendar.dateComponents([.day], from: day, to: calendar.startOfDay(for: now)).day ?? 0
+    if daysAgo < 7 {
+      let formatter = DateFormatter()
+      formatter.dateFormat = "EEEE" // e.g. "Thursday"
+      return formatter.string(from: day)
+    }
+    let formatter = DateFormatter()
+    formatter.dateFormat = "MMM d, yyyy"
+    return formatter.string(from: day)
   }
 
   /// Filter sessions by search text (matches title or working directory)

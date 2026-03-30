@@ -1000,7 +1000,6 @@ final class ContentViewModel {
       evictGhosttyHostView(terminalId: session.terminalId)
       appModel.deactivateSession(session.id)
       appModel.terminalInput.unregister(sessionId: session.id)
-      runtimeInfo.reset()
 
       if let window = currentWindow {
         appModel.windowRegistry.unregister(sessionId: session.id)
