@@ -65,7 +65,6 @@ struct SessionListView: View {
   @State private var importError: String?
   @State private var showImportError = false
   @State private var dropTargetedSessionId: String?
-  @State private var isNewWindowDropTargeted = false
 
   /// Active sessions shown at the top (includes optimistic new sessions)
   private var activeSessions: [ClaudeSession] {
@@ -175,29 +174,6 @@ struct SessionListView: View {
               .contextMenu { sessionContextMenu(for: session) }
           }
 
-          // "New Window" drop zone
-          HStack(spacing: 6) {
-            Image(systemName: "macwindow.badge.plus")
-            Text("New Window")
-          }
-          .font(.caption)
-          .foregroundStyle(isNewWindowDropTargeted ? Color.accentColor : .secondary)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.vertical, 4)
-          .overlay {
-            if isNewWindowDropTargeted {
-              RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.accentColor, lineWidth: 2)
-            }
-          }
-          .dropDestination(for: String.self) { items, _ in
-            isNewWindowDropTargeted = false
-            guard let sessionId = items.first else { return false }
-            onAction(.dragToNewWindow(sessionId: sessionId))
-            return true
-          } isTargeted: { targeted in
-            isNewWindowDropTargeted = targeted
-          }
         } header: {
           Label("Active Sessions", systemImage: "bolt.fill")
             .font(.caption)
