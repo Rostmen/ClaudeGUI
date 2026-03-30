@@ -91,8 +91,30 @@ jobs:
           sudo xcode-select -s "$XCODE"
           xcodebuild -version
 
-      - name: Install Metal Toolchain
-        run: sudo xcodebuild -downloadComponent MetalToolchain
+      - name: Get Xcode version for cache key
+        id: xcode-version
+        run: echo "version=$(xcodebuild -version | head -1 | tr ' ' '-')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Metal Toolchain
+        id: cache-metal
+        uses: actions/cache@v4
+        with:
+          path: /tmp/metalToolchainExport
+          key: metal-toolchain-${{ steps.xcode-version.outputs.version }}
+
+      - name: Install Metal Toolchain (from cache)
+        if: steps.cache-metal.outputs.cache-hit == 'true'
+        run: |
+          BUNDLE=$(ls /tmp/metalToolchainExport/*.exportedBundle 2>/dev/null | head -1)
+          echo "Importing cached Metal toolchain: $BUNDLE"
+          sudo xcodebuild -importComponent metalToolchain -importPath "$BUNDLE"
+
+      - name: Install Metal Toolchain (download + export for cache)
+        if: steps.cache-metal.outputs.cache-hit != 'true'
+        run: |
+          sudo xcodebuild -downloadComponent MetalToolchain
+          mkdir -p /tmp/metalToolchainExport
+          xcodebuild -exportComponent metalToolchain -exportPath /tmp/metalToolchainExport/
 
       - name: Install tools
         run: brew install create-dmg
