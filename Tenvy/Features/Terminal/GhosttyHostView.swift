@@ -60,6 +60,23 @@ final class GhosttyHostView: NSView {
     surface?.makeFocused()
   }
 
+  /// Tears down the surface so Ghostty's C layer stops accessing it.
+  /// Removes the surface view from the hierarchy, stops monitoring, and removes event monitors.
+  /// The caller must keep `self` alive briefly (e.g. via `DispatchQueue.main.async`)
+  /// so that `ghostty_surface_free` (scheduled in `Surface.deinit`) runs before the
+  /// `SurfaceView` is deallocated — otherwise the C layer's userdata pointer dangles.
+  func close() {
+    stateMonitor?.stop()
+    stateMonitor = nil
+    if let monitor = rightClickMonitor {
+      NSEvent.removeMonitor(monitor)
+      rightClickMonitor = nil
+    }
+    windowObservation?.invalidate()
+    windowObservation = nil
+    surface?.nsView.removeFromSuperview()
+  }
+
   /// Resets the terminal (clears screen, resets escape state).
   func resetTerminal() {
     surface?.resetTerminal()

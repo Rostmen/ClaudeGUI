@@ -6,7 +6,7 @@ extension Transferable {
     /// Converts this Transferable to an NSPasteboardItem with lazy data loading.
     /// Data is only fetched when the pasteboard consumer requests it. This allows
     /// bridging a Transferable to NSDraggingSource.
-    func pasteboardItem() -> NSPasteboardItem? {
+    public func pasteboardItem() -> NSPasteboardItem? {
         let itemProvider = NSItemProvider()
         itemProvider.register(self)
 

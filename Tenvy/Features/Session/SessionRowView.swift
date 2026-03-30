@@ -24,10 +24,12 @@ import SwiftUI
 
 struct SessionRowView: View {
   let sessionModel: ClaudeSessionModel
-  
+  /// Callback for drag-to-new-window. When set, a drag handle appears for active sessions.
+  var onDragToNewWindow: ((String) -> Void)?
+
   /// Animation state for blinking dot
   @State private var isBlinking = false
-  
+
   private var session: ClaudeSession { sessionModel.session }
   
   /// Get the runtime info - accessing this in body sets up observation
@@ -90,16 +92,32 @@ struct SessionRowView: View {
   
   var body: some View {
     
-    HStack(alignment: .firstTextBaseline, spacing: 8) {
-      statusUpdateDot
-      VStack(alignment: .leading, spacing: 4) {
+    VStack(alignment: .leading, spacing: 4) {
+      HStack(spacing: 8) {
+        statusUpdateDot
         sessionNameRow
-        dateRow
-        destinationInfoRow
-        processInfoRow
-        hookUpdatesRow
+        Spacer()
+        if isActive, onDragToNewWindow != nil {
+          SessionDragHandle(
+            sessionId: session.id,
+            session: session,
+            runtime: runtimeInfo,
+            onDragToNewWindow: onDragToNewWindow
+          )
+          .frame(width: 16, height: 16)
+        }
       }
-      Spacer()
+      .fixedSize(horizontal: false, vertical: true)
+      HStack(spacing: 0) {
+        // Indent to align with the title (dot width + spacing)
+        Spacer().frame(width: 16)
+        VStack(alignment: .leading, spacing: 4) {
+          dateRow
+          destinationInfoRow
+          processInfoRow
+          hookUpdatesRow
+        }
+      }
     }
     .onChange(of: shouldBlink) { _, newValue in
       isBlinking = newValue
@@ -252,77 +270,23 @@ private func formatToolName(_ tool: String) -> String {
 
 #if DEBUG
 
-#Preview("Inactive") {
-  SessionRowView(sessionModel: .previewInactive)
-    .frame(width: 280)
-    .padding()
-}
-
-#Preview("Inactive + Git Branch") {
-  SessionRowView(sessionModel: .previewInactiveWithBranch)
-    .frame(width: 280)
-    .padding()
-}
-
-#Preview("Thinking (Editing)") {
-  SessionRowView(sessionModel: .previewThinking)
-    .frame(width: 280)
-    .padding()
-}
-
-#Preview("Running Bash") {
-  SessionRowView(sessionModel: .previewRunningBash)
-    .frame(width: 280)
-    .padding()
-}
-
-#Preview("Waiting for Input") {
-  SessionRowView(sessionModel: .previewWaiting)
-    .frame(width: 280)
-    .padding()
-}
-
-#Preview("Waiting Permission") {
-  SessionRowView(sessionModel: .previewWaitingPermission)
-    .frame(width: 280)
-    .padding()
-}
-
-#Preview("Processing") {
-  SessionRowView(sessionModel: .previewProcessing)
-    .frame(width: 280)
-    .padding()
-}
-
-#Preview("Started") {
-  SessionRowView(sessionModel: .previewStarted)
-    .frame(width: 280)
-    .padding()
-}
-
-#Preview("No Git Repo") {
-  SessionRowView(sessionModel: .previewNoGit)
-    .frame(width: 280)
-    .padding()
-}
-
 #Preview("All States") {
   VStack(alignment: .leading, spacing: 12) {
     SessionRowView(sessionModel: .previewInactive)
     Divider()
     SessionRowView(sessionModel: .previewInactiveWithBranch)
     Divider()
-    SessionRowView(sessionModel: .previewThinking)
+    SessionRowView(sessionModel: .previewThinking, onDragToNewWindow: { _ in })
     Divider()
-    SessionRowView(sessionModel: .previewRunningBash)
+    SessionRowView(sessionModel: .previewRunningBash, onDragToNewWindow: { _ in })
     Divider()
-    SessionRowView(sessionModel: .previewWaiting)
+    SessionRowView(sessionModel: .previewWaiting, onDragToNewWindow: { _ in })
     Divider()
-    SessionRowView(sessionModel: .previewWaitingPermission)
+    SessionRowView(sessionModel: .previewWaitingPermission, onDragToNewWindow: { _ in })
     Divider()
-    SessionRowView(sessionModel: .previewProcessing)
+    SessionRowView(sessionModel: .previewProcessing, onDragToNewWindow: { _ in })
     Divider()
-    SessionRowView(sessionModel: .previewStarted)
+    SessionRowView(sessionModel: .previewStarted, onDragToNewWindow: { _ in })
     Divider()
     SessionRowView(sessionModel: .previewNoGit)
   }

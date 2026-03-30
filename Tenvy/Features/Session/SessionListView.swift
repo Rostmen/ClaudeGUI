@@ -23,14 +23,32 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Actions emitted by the session list sidebar.
+/// Handled by `ContentViewModel.handleSessionListAction(_:)`.
+enum SessionListAction {
+  /// User clicked a session to select it.
+  case select(ClaudeSession)
+  /// User created a new session via the "+" button.
+  case createNew(ClaudeSession)
+  /// Context menu: open inactive session in a new window.
+  case openInNewWindow(ClaudeSession)
+  /// Context menu: move active split session to a new window.
+  case moveToNewWindow(ClaudeSession)
+  /// Drag: dropped a session onto another to merge into split.
+  case dropOntoSession(droppedSessionId: String, targetSessionId: String)
+  /// Drag: session dragged to "New Window" zone or outside the window.
+  case dragToNewWindow(sessionId: String)
+}
+
 struct SessionListView: View {
   var sessionManager: any SessionDiscovery
   @Binding var selectedSession: ClaudeSession?
-  var onCreateNewSession: ((ClaudeSession) -> Void)?
-  var onSelectSession: ((ClaudeSession) -> Void)?
+  var onAction: (SessionListAction) -> Void = { _ in }
   var runtimeState: SessionRuntimeRegistry
   var activeSessionIds: Set<String>
   var activatedSessions: [String: ClaudeSession]
+  /// Session IDs that are part of this window's split tree.
+  var splitSessionIds: Set<String> = []
 
   /// Local selection state for responsive UI - synced with selectedSession
   @State private var localSelection: ClaudeSession?
@@ -46,6 +64,8 @@ struct SessionListView: View {
   @State private var isImporting = false
   @State private var importError: String?
   @State private var showImportError = false
+  @State private var dropTargetedSessionId: String?
+  @State private var isNewWindowDropTargeted = false
 
   /// Active sessions shown at the top (includes optimistic new sessions)
   private var activeSessions: [ClaudeSession] {
@@ -87,6 +107,25 @@ struct SessionListView: View {
   /// Context menu for session rows - extracted to simplify type checking
   @ViewBuilder
   private func sessionContextMenu(for session: ClaudeSession) -> some View {
+    let isActive = activeSessionIds.contains(session.id)
+    let isInSplitTree = splitSessionIds.contains(session.id)
+
+    // Inactive sessions: offer to open in a new window instead of the default split
+    if !isActive {
+      Button("Open in New Window") {
+        onAction(.openInNewWindow(session))
+      }
+      Divider()
+    }
+
+    // Active sessions in this window's split tree: offer to move to a new window
+    if isActive && isInSplitTree {
+      Button("Move to New Window") {
+        onAction(.moveToNewWindow(session))
+      }
+      Divider()
+    }
+
     Button("Rename...") {
       sessionToRename = session
       newSessionTitle = session.title
@@ -113,9 +152,51 @@ struct SessionListView: View {
       if !activeSessions.isEmpty {
         Section(isExpanded: isExpanded("__active__")) {
           ForEach(activeSessions) { session in
-            SessionRowView(sessionModel: ClaudeSessionModel(session: session, runtime: runtimeState.info(for: session.id)))
+            SessionRowView(
+              sessionModel: ClaudeSessionModel(session: session, runtime: runtimeState.info(for: session.id)),
+              onDragToNewWindow: { sessionId in onAction(.dragToNewWindow(sessionId: sessionId)) }
+            )
               .tag(session)
+              .dropDestination(for: String.self) { items, _ in
+                dropTargetedSessionId = nil
+                guard let droppedId = items.first, droppedId != session.id else { return false }
+                onAction(.dropOntoSession(droppedSessionId: droppedId, targetSessionId: session.id))
+                return true
+              } isTargeted: { targeted in
+                dropTargetedSessionId = targeted ? session.id : nil
+              }
+              .overlay {
+                if dropTargetedSessionId == session.id {
+                  RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.accentColor, lineWidth: 2)
+                    .allowsHitTesting(false)
+                }
+              }
               .contextMenu { sessionContextMenu(for: session) }
+          }
+
+          // "New Window" drop zone
+          HStack(spacing: 6) {
+            Image(systemName: "macwindow.badge.plus")
+            Text("New Window")
+          }
+          .font(.caption)
+          .foregroundStyle(isNewWindowDropTargeted ? Color.accentColor : .secondary)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.vertical, 4)
+          .overlay {
+            if isNewWindowDropTargeted {
+              RoundedRectangle(cornerRadius: 6)
+                .stroke(Color.accentColor, lineWidth: 2)
+            }
+          }
+          .dropDestination(for: String.self) { items, _ in
+            isNewWindowDropTargeted = false
+            guard let sessionId = items.first else { return false }
+            onAction(.dragToNewWindow(sessionId: sessionId))
+            return true
+          } isTargeted: { targeted in
+            isNewWindowDropTargeted = targeted
           }
         } header: {
           Label("Active Sessions", systemImage: "bolt.fill")
@@ -195,19 +276,13 @@ struct SessionListView: View {
       // User clicked a session in the list
       guard let session = newValue, session.id != oldValue?.id else { return }
 
-      if let onSelectSession = onSelectSession {
-        // Let the callback decide what to do (may switch windows or open new tab)
-        onSelectSession(session)
-        // If selectedSession didn't change to this session, reset localSelection
-        // (the session was opened elsewhere, not in this window)
-        DispatchQueue.main.async {
-          if selectedSession?.id != session.id {
-            localSelection = selectedSession
-          }
+      onAction(.select(session))
+      // If selectedSession didn't change to this session, reset localSelection
+      // (the session was opened elsewhere, not in this window)
+      DispatchQueue.main.async {
+        if selectedSession?.id != session.id {
+          localSelection = selectedSession
         }
-      } else {
-        // No callback, just set directly
-        selectedSession = session
       }
     }
     .onChange(of: selectedSession) { _, newValue in
@@ -277,7 +352,7 @@ struct SessionListView: View {
         filePath: nil,
         isNewSession: true
       )
-      onCreateNewSession?(newSession)
+      onAction(.createNew(newSession))
     }
   }
 
