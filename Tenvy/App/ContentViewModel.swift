@@ -332,29 +332,14 @@ final class ContentViewModel {
         if wasSelected { selectedSession = nil }
       }
 
-      // Update window registration if the primary was removed
-      if wasPrimary, let window = currentWindow {
-        let newPrimary = splitTree?.allSessions.first ?? selectedSession
-        if let p = newPrimary {
-          appModel.windowRegistry.register(sessionId: p.id, for: window)
-          window.sessionId = p.id
-          window.title = p.title
-        } else {
-          appModel.windowRegistry.unregister(sessionId: sessionId)
-          window.sessionId = nil
-          window.title = "Tenvy"
-          windowConfigured = false
-        }
+      // Re-register window if the primary was removed
+      if wasPrimary {
+        bindWindowToSession(splitTree?.allSessions.first ?? selectedSession)
       }
     } else {
       // Single session — clear this window
-      if let window = currentWindow {
-        appModel.windowRegistry.unregister(sessionId: sessionId)
-        window.sessionId = nil
-        window.title = "Tenvy"
-        windowConfigured = false
-      }
       selectedSession = nil
+      bindWindowToSession(nil)
     }
 
     // Close the now-empty window (unless it's the last visible one)
@@ -857,7 +842,6 @@ final class ContentViewModel {
 
   /// Close a specific split pane by session ID.
   func closeSplitPane(id: String) {
-    let wasSelected = selectedSession?.id == id
     // Evict cached host view so its process terminates.
     if let terminalId = splitTree?.allSessions.first(where: { $0.id == id })?.terminalId {
       evictGhosttyHostView(terminalId: terminalId)
@@ -865,18 +849,28 @@ final class ContentViewModel {
     appModel.deactivateSession(id)
     appModel.terminalInput.unregister(sessionId: id)
 
-    if let newTree = splitTree?.removing(sessionId: id) {
-      let remaining = newTree.allSessions
-      if remaining.count <= 1 {
-        // Only one pane left — exit split mode
-        splitTree = nil
-        if wasSelected { selectedSession = remaining.first ?? primarySession }
-      } else {
-        splitTree = newTree
-        if wasSelected { selectedSession = primarySession ?? remaining.first }
-      }
-    } else {
+    guard let newTree = splitTree?.removing(sessionId: id) else {
       splitTree = nil
+      return
+    }
+
+    let remaining = newTree.allSessions
+    if remaining.count <= 1 {
+      // Exit split mode — single session remains
+      let survivor = remaining.first
+      splitTree = nil
+      selectedSession = survivor
+      bindWindowToSession(survivor)
+    } else {
+      // Still in split mode with 2+ panes
+      splitTree = newTree
+      if selectedSession?.id == id {
+        selectedSession = remaining.first
+      }
+      // Re-register window if the primary was closed
+      if currentWindow?.sessionId == id, let newPrimary = remaining.first {
+        bindWindowToSession(newPrimary)
+      }
     }
   }
 
@@ -891,7 +885,8 @@ final class ContentViewModel {
       }
     }
     splitTree = nil
-    if let primary { selectedSession = primary }
+    selectedSession = primary
+    bindWindowToSession(primary)
   }
 
   // MARK: - Session List Action Handler
@@ -1000,13 +995,9 @@ final class ContentViewModel {
       evictGhosttyHostView(terminalId: session.terminalId)
       appModel.deactivateSession(session.id)
       appModel.terminalInput.unregister(sessionId: session.id)
-
-      if let window = currentWindow {
-        appModel.windowRegistry.unregister(sessionId: session.id)
-        window.sessionId = nil
-        windowConfigured = false
-      }
+      runtimeInfo.reset()
       selectedSession = nil
+      bindWindowToSession(nil)
     }
   }
 
@@ -1060,10 +1051,7 @@ final class ContentViewModel {
       selectedSession = syncedSession
 
       // Update window registration
-      if let window = currentWindow {
-        windowRegistry.unregister(sessionId: current.id)
-        configureWindow(window, for: syncedSession)
-      }
+      bindWindowToSession(syncedSession)
     }
   }
 
@@ -1110,8 +1098,8 @@ final class ContentViewModel {
   func setWindow(_ window: NSWindow?) {
     currentWindow = window
     // Register session when window becomes available
-    if let window = window, let session = selectedSession {
-      configureWindow(window, for: session)
+    if window != nil, let session = selectedSession {
+      bindWindowToSession(session)
     }
   }
 
@@ -1129,32 +1117,31 @@ final class ContentViewModel {
     }
 
     selectedSession = session
+    bindWindowToSession(session)
 
-    // Unregister old session from this window
-    if let old = oldSession, let window = currentWindow {
-      windowRegistry.unregister(sessionId: old.id)
-      window.sessionId = nil
-      windowConfigured = false
-    }
-
-    // Register and activate new session
-    if let session = session {
+    if let session {
       appModel.activateSession(session)
-      if let window = currentWindow {
-        configureWindow(window, for: session)
-      }
-    } else if let window = currentWindow {
-      window.title = "Tenvy"
-      window.sessionId = nil
-      windowConfigured = false
     }
   }
 
-  /// Configure window for a session
-  private func configureWindow(_ window: NSWindow, for session: ClaudeSession) {
-    windowRegistry.register(sessionId: session.id, for: window)
-    window.sessionId = session.id
-    window.title = session.title
-    windowConfigured = true
+  /// Single point of truth for window-session binding.
+  /// Unregisters the previous session (if different) and registers the new one.
+  /// Pass `nil` to unbind the window entirely.
+  private func bindWindowToSession(_ session: ClaudeSession?) {
+    guard let window = currentWindow else { return }
+    // Unregister old session if it differs from the new one
+    if let oldId = window.sessionId, oldId != session?.id {
+      windowRegistry.unregister(sessionId: oldId)
+    }
+    if let session {
+      windowRegistry.register(sessionId: session.id, for: window)
+      window.sessionId = session.id
+      window.title = session.title
+      windowConfigured = true
+    } else {
+      window.sessionId = nil
+      window.title = "Tenvy"
+      windowConfigured = false
+    }
   }
 }
