@@ -112,9 +112,19 @@ jobs:
       - name: Install Metal Toolchain (download + export for cache)
         if: steps.cache-metal.outputs.cache-hit != 'true'
         run: |
-          sudo xcodebuild -downloadComponent MetalToolchain
-          mkdir -p /tmp/metalToolchainExport
-          xcodebuild -exportComponent metalToolchain -exportPath /tmp/metalToolchainExport/
+          for i in 1 2 3 4 5; do
+            echo "Attempt $i: downloading Metal toolchain..."
+            if sudo xcodebuild -downloadComponent MetalToolchain; then
+              echo "Download succeeded on attempt $i"
+              mkdir -p /tmp/metalToolchainExport
+              xcodebuild -exportComponent metalToolchain -exportPath /tmp/metalToolchainExport/
+              exit 0
+            fi
+            echo "Attempt $i failed, waiting 30s before retry..."
+            sleep 30
+          done
+          echo "All 5 attempts failed"
+          exit 1
 
       - name: Install tools
         run: brew install create-dmg
