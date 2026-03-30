@@ -220,8 +220,10 @@ final class AppModel {
   }
 
   /// Remove a session from the activated set (terminal closed or session terminated).
+  /// Also resets the runtime info so the sidebar no longer shows stale CPU/MEM/PID data.
   func deactivateSession(_ sessionId: String) {
     activatedSessions.removeValue(forKey: sessionId)
+    runtimeRegistry.info(for: sessionId).reset()
   }
 
   /// True if a session currently has a running terminal.

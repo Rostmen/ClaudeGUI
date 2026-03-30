@@ -72,7 +72,6 @@ final class WindowDelegate: NSObject, NSWindowDelegate {
           if pidToKill > 0 {
             ProcessManager.shared.terminateProcess(pid: pidToKill)
           }
-          runtimeInfo.reset()
           appModel.deactivateSession(sessionId)
         }
       } else {

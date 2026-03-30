@@ -85,10 +85,10 @@ struct SessionListView: View {
     return sessions.sorted { $0.lastModified > $1.lastModified }
   }
 
-  /// Group non-active sessions by their working directory
+  /// Group non-active sessions by day, most recent first
   private var groupedSessions: [SessionGroupingService.SessionGroup] {
     let nonActiveSessions = sessionManager.sessions.filter { !activeSessionIds.contains($0.id) }
-    return SessionGroupingService.groupByWorkingDirectory(nonActiveSessions)
+    return SessionGroupingService.groupByDate(nonActiveSessions)
   }
 
   private func isExpanded(_ folder: String) -> Binding<Bool> {
@@ -159,6 +159,7 @@ struct SessionListView: View {
           ForEach(activeSessions) { session in
             SessionRowView(
               sessionModel: ClaudeSessionModel(session: session, runtime: runtimeState.info(for: session.id)),
+              isActive: true,
               onDragToNewWindow: { sessionId in onAction(.dragToNewWindow(sessionId: sessionId)) }
             )
               .tag(session)
@@ -196,7 +197,7 @@ struct SessionListView: View {
               .contextMenu { sessionContextMenu(for: session) }
           }
         } header: {
-          Text(SessionGroupingService.displayPath(group.folder))
+          Text(group.folder)
             .font(.caption)
             .foregroundColor(ClaudeTheme.textSecondary)
         }
