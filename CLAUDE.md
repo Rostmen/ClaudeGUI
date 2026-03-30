@@ -245,7 +245,7 @@ Active sessions in the sidebar can be dragged to merge into split panes or moved
 2. `AppModel.registeredViewModels` (weak refs) lets the destination find and release from the source
 3. `ghosttyHostView(for:)` auto-checks the transfer store so new windows pick up views seamlessly
 
-**Drop targets**: `.dropDestination(for: String.self)` on session rows (merge) + "New Window" zone. Pasteboard uses `String.pasteboardItem()` from GhosttyEmbed's `Transferable` extension for format compatibility.
+**Drop targets**: `.dropDestination(for: String.self)` on session rows (merge into split). Dragging outside the window is detected by `draggingSession(_:endedAt:operation:)` and triggers "move to new window". Pasteboard uses `String.pasteboardItem()` from GhosttyEmbed's `Transferable` extension for format compatibility.
 
 **`SessionListAction` enum**: Consolidates all sidebar callbacks (`select`, `createNew`, `openInNewWindow`, `moveToNewWindow`, `dropOntoSession`, `dragToNewWindow`) into a single `onAction` handler, matching the `TerminalAction` pattern.
 

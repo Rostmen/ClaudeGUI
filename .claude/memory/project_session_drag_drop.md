@@ -43,7 +43,6 @@ Uses `String.pasteboardItem()` from GhosttyEmbed's `Transferable+Extension.swift
 ### Drop Targets
 
 - **Session rows:** `.dropDestination(for: String.self)` — dropping a session merges into split (with accent border highlight on hover)
-- **"New Window" drop zone:** Row at the bottom of active sessions section
 - **Outside window:** Detected by `draggingSession(_:endedAt:operation:)` when `operation == []` and point is outside all visible windows. Escape key cancels without triggering.
 
 ### SessionListAction Enum
@@ -72,7 +71,7 @@ Flows: `SessionListView` → `SidebarView` → `ContentView` → `ContentViewMod
 | File | Role |
 |------|------|
 | `SessionDragSource.swift` | `SessionDragHandle` + `SessionDragHandleView` (NSDraggingSource) + `PassthroughImageView` |
-| `SessionListView.swift` | `SessionListAction` enum, drop targets, "New Window" zone |
+| `SessionListView.swift` | `SessionListAction` enum, drop targets |
 | `SessionRowView.swift` | Drag handle placement (trailing top, inline with title) |
 | `ContentViewModel.swift` | `handleSessionListAction`, transfer methods, `prepareForTransfer`, `receiveTransferredSession` |
 | `AppModel.swift` | Transfer store, ViewModel registry, `releaseSessionForTransfer`, `mergeTransferredSession` |
