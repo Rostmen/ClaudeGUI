@@ -44,21 +44,26 @@ struct SessionMonitorInfo {
 // MARK: - Session State Monitor
 // Based on https://github.com/Aura-Technologies-llc/ClaudeCodeMonitor
 
-/// Monitors the CPU/memory of a single session's claude process.
+/// Monitors the CPU/memory of a single session's process group.
 ///
 /// Instead of running its own `ps` subprocess, it subscribes to the shared
 /// `ProcessPoller` actor, which runs one `ps` per 500 ms for all sessions combined.
+///
+/// PID discovery uses a `pidProvider` closure that returns the `login` process PID
+/// from Ghostty's PTY. This is the root of the session's process group — it's
+/// stable for the entire session lifetime. CPU and memory are summed across all
+/// descendants of `login` (e.g. claude + any tools/MCP servers it spawns).
 class SessionStateMonitor {
-  let shellPID: pid_t
-  let sessionId: String?
   var onStateChange: ((SessionMonitorInfo) -> Void)?
 
+  private let pidProvider: () -> pid_t
   private let pollerId = UUID()
   private var currentState: SessionState = .inactive
   private var cpuHistory: [Double] = []
   private var stateStartTime: Date = Date()
   private let processStartTime: Date = Date()
-  private(set) var claudePID: pid_t = 0
+  /// The `login` process PID — root of the session's process group.
+  private(set) var lockedPID: pid_t = 0
 
   // Thresholds based on ClaudeCodeMonitor
   private let cpuHighThreshold: Double = 25.0  // CPU > 25% = thinking
@@ -67,18 +72,15 @@ class SessionStateMonitor {
   private let minRunningTime: TimeInterval = 5  // Min time before state changes
   private let minStateTime: TimeInterval = 2    // Min time in state before transition
 
-  init(processPID: pid_t, sessionId: String? = nil) {
-    self.shellPID = processPID
-    self.sessionId = sessionId
+  init(pidProvider: @escaping () -> pid_t) {
+    self.pidProvider = pidProvider
   }
 
   func start() {
     let monitorId = pollerId
-    let shellPID = self.shellPID
-    let sessionId = self.sessionId
     Task {
       await ProcessPoller.shared.subscribe(id: monitorId) { [weak self] snapshot in
-        self?.handleSnapshot(snapshot, shellPID: shellPID, sessionId: sessionId)
+        self?.handleSnapshot(snapshot)
       }
     }
     emit(.waitingForInput, cpu: 0, memory: 0)
@@ -89,27 +91,27 @@ class SessionStateMonitor {
     Task { await ProcessPoller.shared.unsubscribe(id: monitorId) }
   }
 
-  private func handleSnapshot(_ snapshot: [pid_t: ProcessPoller.ProcessRecord], shellPID: pid_t, sessionId: String?) {
-    // Once a claude PID is locked in, keep using it as long as it's still alive.
-    // Re-searching every poll causes PID flipping when multiple sessions in the
-    // same folder produce multiple candidates with non-deterministic dictionary order.
-    let pid: pid_t
-    if claudePID > 0, snapshot[claudePID] != nil {
-      pid = claudePID
-    } else {
-      pid = ProcessTreeAnalyzer.findClaudeProcess(in: snapshot, shellPID: shellPID, sessionId: sessionId)
-      claudePID = pid
+  private func handleSnapshot(_ snapshot: [pid_t: ProcessPoller.ProcessRecord]) {
+    // Lock onto the login PID from the provider. It's the root of the process
+    // group and stays alive for the entire session.
+    if lockedPID == 0 || snapshot[lockedPID] == nil {
+      let providerPid = pidProvider()
+      if providerPid > 0, snapshot[providerPid] != nil {
+        lockedPID = providerPid
+      } else {
+        if lockedPID > 0 {
+          // Had a PID but it's gone — process group exited
+          emit(.inactive, cpu: 0, memory: 0)
+        }
+        return
+      }
     }
 
-    guard pid > 0, let record = snapshot[pid] else {
-      emit(.inactive, cpu: 0, memory: 0)
-      return
-    }
+    // Sum CPU and memory across all descendants of the locked PID
+    let (totalCPU, totalMemoryKB) = Self.sumProcessGroup(root: lockedPID, in: snapshot)
+    let memoryBytes = totalMemoryKB * 1024
 
-    let cpu = record.cpu
-    let memoryBytes = record.memoryKB * 1024
-
-    cpuHistory.append(cpu)
+    cpuHistory.append(totalCPU)
     if cpuHistory.count > historySize { cpuHistory.removeFirst() }
 
     let avgCPU = cpuHistory.reduce(0, +) / Double(cpuHistory.count)
@@ -139,19 +141,45 @@ class SessionStateMonitor {
     currentState = state
     stateStartTime = Date()
     let cb = onStateChange
-    let pid = claudePID
+    let pid = lockedPID
     DispatchQueue.main.async { cb?(SessionMonitorInfo(state: state, cpu: cpu, memory: memory, pid: pid)) }
   }
 
+  /// Sums CPU% and memory (KB) for the root PID and all its descendants.
+  /// Uses BFS to collect all processes in the group.
+  static func sumProcessGroup(
+    root: pid_t,
+    in snapshot: [pid_t: ProcessPoller.ProcessRecord]
+  ) -> (cpu: Double, memoryKB: UInt64) {
+    guard let rootRecord = snapshot[root] else { return (0, 0) }
+
+    var totalCPU = rootRecord.cpu
+    var totalMemKB = rootRecord.memoryKB
+    var queue: [pid_t] = [root]
+    var visited: Set<pid_t> = [root]
+
+    while !queue.isEmpty {
+      let current = queue.removeFirst()
+      for record in snapshot.values where record.ppid == current {
+        guard visited.insert(record.pid).inserted else { continue }
+        totalCPU += record.cpu
+        totalMemKB += record.memoryKB
+        queue.append(record.pid)
+      }
+    }
+
+    return (totalCPU, totalMemKB)
+  }
+
   /// Test-only entry point: feeds a snapshot directly without going through ProcessPoller.
-  func testHandleSnapshot(_ snapshot: [pid_t: ProcessPoller.ProcessRecord], shellPID: pid_t, sessionId: String?) {
-    handleSnapshot(snapshot, shellPID: shellPID, sessionId: sessionId)
+  func testHandleSnapshot(_ snapshot: [pid_t: ProcessPoller.ProcessRecord]) {
+    handleSnapshot(snapshot)
   }
 
   private func reportStats(cpu: Double, memory: UInt64) {
     let state = currentState
     let cb = onStateChange
-    let pid = claudePID
+    let pid = lockedPID
     DispatchQueue.main.async { cb?(SessionMonitorInfo(state: state, cpu: cpu, memory: memory, pid: pid)) }
   }
 }
