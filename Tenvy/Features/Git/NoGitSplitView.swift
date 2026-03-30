@@ -32,7 +32,7 @@ struct NoGitSplitView: View {
 
   private enum SplitTab: String, CaseIterable {
     case options = "Options"
-    case terminal = "Terminal"
+    case terminal = "Shell Init Script"
   }
 
   var body: some View {
@@ -81,8 +81,8 @@ struct NoGitSplitView: View {
 
   private var terminalContent: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text("Shell Init Script")
-        .font(.subheadline)
+      Text("Bash script executed before launching the terminal session.")
+        .font(.caption)
         .foregroundStyle(.secondary)
 
       CodeEditor(source: $initScript, language: .bash, theme: .ocean)

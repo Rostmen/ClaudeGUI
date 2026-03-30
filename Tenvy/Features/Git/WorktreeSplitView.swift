@@ -32,7 +32,7 @@ struct WorktreeSplitView: View {
 
   private enum SplitTab: String, CaseIterable {
     case worktree = "Worktree"
-    case terminal = "Terminal"
+    case terminal = "Shell Init Script"
   }
 
   private var isNewSessionFlow: Bool {
@@ -92,8 +92,8 @@ struct WorktreeSplitView: View {
 
   private var terminalContent: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text("Shell Init Script")
-        .font(.subheadline)
+      Text("Bash script executed before launching the terminal session.")
+        .font(.caption)
         .foregroundStyle(.secondary)
 
       CodeEditor(source: form.initScript, language: .bash, theme: .ocean)
