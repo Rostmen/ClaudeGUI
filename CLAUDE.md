@@ -96,6 +96,7 @@ Tenvy/
 |---------|---------|
 | [GhosttyEmbed](https://github.com/ghostty-org/ghostty) | Ghostty terminal backend |
 | [gitdiff](https://github.com/tornikegomareli/gitdiff) | Diff rendering |
+| [CodeEditor](https://github.com/ZeeZide/CodeEditor) | Syntax-highlighted code editor (bash init script in Settings & split dialogs) |
 
 ## Building
 
@@ -206,17 +207,20 @@ Registered events and their state mappings:
 
 ### Terminal Environment
 
-Claude is launched **through the user's login shell** to ensure `~/.zprofile` and `~/.zshrc` are sourced:
+Claude is launched **through the user's login shell** with a configurable init script:
 
 ```
-zsh -l -c '[ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc" 2>/dev/null; exec /path/to/claude [args]'
+zsh -l -c '<init-script>; exec /path/to/claude [args]'
 ```
 
+- **Shell Init Script**: Configurable in **Settings → Shell Init Script** using a syntax-highlighted bash editor (CodeEditor library). Default: `[ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc" 2>/dev/null;`. Stored in `AppSettings.shellInitScript` (UserDefaults key `settings.shellInitScript`).
+- **Per-split override**: Split dialogs (WorktreeSplitView, NoGitSplitView) have a "Terminal" tab with a segmented control, allowing per-split init script customization. Overrides are stored in `ContentViewModel.splitInitScripts` and consumed on first terminal launch.
 - `-l` sources `/etc/zprofile` and `~/.zprofile`
-- `~/.zshrc` is sourced manually (not via `-i` which triggers `/etc/zshrc` terminal key-binding setup and causes errors without a TTY)
+- The init script runs before `exec` (not via `-i` which triggers `/etc/zshrc` terminal key-binding setup and causes errors without a TTY)
 - `exec` replaces the shell with claude at the same PID — process tracking is unaffected
 - `LANG=en_US.UTF-8` is set if missing (GUI apps launched by launchd don't inherit it)
-- Custom environment variables can be added in **Settings → Environment Variables** — stored in macOS Keychain (encrypted at rest), applied after `~/.zshrc`
+- Custom environment variables can be added in **Settings → Environment Variables** — stored in macOS Keychain (encrypted at rest), applied after the init script runs
+- **Migration**: Old `sourceZshrc` boolean setting is automatically migrated to the new string format
 
 ### Process Cleanup
 

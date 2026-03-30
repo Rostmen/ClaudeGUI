@@ -21,20 +21,37 @@
 // SOFTWARE.
 
 import SwiftUI
+import CodeEditor
 
 /// Dialog shown when user triggers a split in a non-git directory.
 /// Offers to initialize git + create worktree, or open a plain terminal.
 struct NoGitSplitView: View {
   let viewModel: ContentViewModel
+  @State private var selectedTab: SplitTab = .options
+  @State private var initScript: String = AppSettings.shared.shellInitScript
+
+  private enum SplitTab: String, CaseIterable {
+    case options = "Options"
+    case terminal = "Terminal"
+  }
 
   var body: some View {
     VStack(spacing: 16) {
       header
 
-      Text("Running parallel Claude sessions on the same files can cause collisions. Choose how to proceed:")
-        .font(.subheadline)
-        .foregroundStyle(.secondary)
-        .fixedSize(horizontal: false, vertical: true)
+      Picker("", selection: $selectedTab) {
+        ForEach(SplitTab.allCases, id: \.self) { tab in
+          Text(tab.rawValue).tag(tab)
+        }
+      }
+      .pickerStyle(.segmented)
+
+      switch selectedTab {
+      case .options:
+        optionsContent
+      case .terminal:
+        terminalContent
+      }
 
       errorBanner
 
@@ -51,6 +68,36 @@ struct NoGitSplitView: View {
     .background(Color(nsColor: .windowBackgroundColor))
     .clipShape(RoundedRectangle(cornerRadius: 12))
     .shadow(color: .black.opacity(0.3), radius: 12, x: 0, y: 6)
+  }
+
+  // MARK: - Tab Content
+
+  private var optionsContent: some View {
+    Text("Running parallel Claude sessions on the same files can cause collisions. Choose how to proceed:")
+      .font(.subheadline)
+      .foregroundStyle(.secondary)
+      .fixedSize(horizontal: false, vertical: true)
+  }
+
+  private var terminalContent: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Shell Init Script")
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+
+      CodeEditor(source: $initScript, language: .bash, theme: .ocean)
+        .frame(height: 120)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+
+      HStack {
+        Spacer()
+        Button("Reset to Default") {
+          initScript = AppSettings.defaultShellInitScript
+        }
+        .font(.caption)
+        .disabled(initScript == AppSettings.defaultShellInitScript)
+      }
+    }
   }
 
   // MARK: - Subviews
@@ -104,7 +151,7 @@ struct NoGitSplitView: View {
       Spacer()
 
       Button("Open Plain Terminal") {
-        viewModel.openPlainTerminalSplit()
+        viewModel.openPlainTerminalSplit(initScript: initScript)
       }
       .buttonStyle(.bordered)
 

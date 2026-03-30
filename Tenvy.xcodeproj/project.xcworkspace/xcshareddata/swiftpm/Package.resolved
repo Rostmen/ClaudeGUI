@@ -1,6 +1,15 @@
 {
-  "originHash" : "2a6f05ba09538b10cc3d4df6b74d1ea0b76c33d75f0a5c253e41ee2f40e6683b",
+  "originHash" : "79b50f4cd075778f5ab9e21b5ae3f43f58e9e1aff5c2a8dcf8759e9e950451ff",
   "pins" : [
+    {
+      "identity" : "codeeditor",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ZeeZide/CodeEditor.git",
+      "state" : {
+        "revision" : "f5c076b94f4ceb05abff88ba91d75a8d57143f0c",
+        "version" : "1.2.6"
+      }
+    },
     {
       "identity" : "combine-schedulers",
       "kind" : "remoteSourceControl",
@@ -17,6 +26,15 @@
       "state" : {
         "revision" : "d773f17cc2b28f035fcb5ee2ce7cdfe50d89943c",
         "version" : "0.0.7"
+      }
+    },
+    {
+      "identity" : "highlightr",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/helje5/Highlightr",
+      "state" : {
+        "revision" : "bd0358056ff1f12ea83833a9fc1b3b5a396a9da0",
+        "version" : "3.0.2"
       }
     },
     {

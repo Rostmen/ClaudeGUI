@@ -22,11 +22,18 @@
 
 import SwiftUI
 import AppKit
+import CodeEditor
 
 /// Dialog shown when user triggers a split in a git-controlled session or creates a new session in a git repo.
 /// Lets the user configure a worktree: base branch, new branch name, destination, and fork toggle.
 struct WorktreeSplitView: View {
   @Bindable var viewModel: ContentViewModel
+  @State private var selectedTab: SplitTab = .worktree
+
+  private enum SplitTab: String, CaseIterable {
+    case worktree = "Worktree"
+    case terminal = "Terminal"
+  }
 
   private var isNewSessionFlow: Bool {
     viewModel.pendingSplit?.isNewSessionFlow == true
@@ -46,11 +53,21 @@ struct WorktreeSplitView: View {
   var body: some View {
     VStack(spacing: 16) {
       header
-      baseBranchPicker
-      newBranchField
-      destinationField
-      forkSessionToggle
-      submoduleOptions
+
+      Picker("", selection: $selectedTab) {
+        ForEach(SplitTab.allCases, id: \.self) { tab in
+          Text(tab.rawValue).tag(tab)
+        }
+      }
+      .pickerStyle(.segmented)
+
+      switch selectedTab {
+      case .worktree:
+        worktreeContent
+      case .terminal:
+        terminalContent
+      }
+
       errorBanner
       buttonRow
     }
@@ -59,6 +76,39 @@ struct WorktreeSplitView: View {
     .background(Color(nsColor: .windowBackgroundColor))
     .clipShape(RoundedRectangle(cornerRadius: 12))
     .shadow(color: .black.opacity(0.3), radius: 12, x: 0, y: 6)
+  }
+
+  // MARK: - Tab Content
+
+  private var worktreeContent: some View {
+    VStack(spacing: 16) {
+      baseBranchPicker
+      newBranchField
+      destinationField
+      forkSessionToggle
+      submoduleOptions
+    }
+  }
+
+  private var terminalContent: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Shell Init Script")
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+
+      CodeEditor(source: form.initScript, language: .bash, theme: .ocean)
+        .frame(height: 120)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+
+      HStack {
+        Spacer()
+        Button("Reset to Default") {
+          form.wrappedValue.initScript = AppSettings.defaultShellInitScript
+        }
+        .font(.caption)
+        .disabled(form.wrappedValue.initScript == AppSettings.defaultShellInitScript)
+      }
+    }
   }
 
   // MARK: - Subviews
@@ -207,7 +257,7 @@ struct WorktreeSplitView: View {
       Spacer()
 
       Button(isNewSessionFlow ? "Skip" : "Plain Terminal") {
-        viewModel.openPlainTerminalSplit()
+        viewModel.openPlainTerminalSplit(initScript: form.wrappedValue.initScript)
       }
       .buttonStyle(.bordered)
 

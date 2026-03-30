@@ -22,6 +22,7 @@
 
 import SwiftUI
 import Foundation
+import CodeEditor
 
 struct SettingsView: View {
   @Environment(AppModel.self) private var appModel
@@ -163,11 +164,30 @@ struct SettingsView: View {
           .foregroundColor(.secondary)
       }
 
+      // Shell Init Script section
+      Section {
+        CodeEditor(source: $settings.shellInitScript, language: .bash, theme: .ocean)
+          .frame(height: 120)
+          .clipShape(RoundedRectangle(cornerRadius: 6))
+
+        HStack {
+          Spacer()
+          Button("Reset to Default") {
+            settings.shellInitScript = AppSettings.defaultShellInitScript
+          }
+          .font(.caption)
+          .disabled(settings.shellInitScript == AppSettings.defaultShellInitScript)
+        }
+      } header: {
+        Text("Shell Start-up Script")
+      } footer: {
+        Text("Bash script executed before launching each terminal session. Runs inside the login shell before `exec`.")
+          .font(.caption)
+          .foregroundColor(.secondary)
+      }
+
       // Environment Variables section
       Section {
-        Toggle("Source ~/.zshrc on session start", isOn: $settings.sourceZshrc)
-          .help("Sources ~/.zshrc before launching claude. Disable if your .zshrc causes errors or slows session startup.")
-
         let sorted = settings.customEnvironmentVariables.sorted { $0.key < $1.key }
         ForEach(sorted, id: \.key) { key, value in
           HStack(spacing: 4) {
@@ -221,7 +241,7 @@ struct SettingsView: View {
       }
     }
     .formStyle(.grouped)
-    .frame(width: 420, height: 500)
+    .frame(width: 420, height: 600)
     .onAppear {
       appModel.hookSetup.checkInstallationStatus()
     }

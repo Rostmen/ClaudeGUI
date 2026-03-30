@@ -50,10 +50,10 @@ struct TerminalEnvironment {
   }
 
   /// Wraps a claude command in a login shell invocation so that ~/.zprofile is
-  /// sourced before claude runs (`-l`). If `sourceZshrc` is true (the default,
-  /// controlled by Settings → Environment Variables), ~/.zshrc is also sourced
-  /// manually — avoids using `-i` which triggers /etc/zshrc terminal key-binding
-  /// setup and causes errors without a TTY.
+  /// sourced before claude runs (`-l`). The shell init script (configured in
+  /// Settings, or overridden per-split) runs before `exec` — avoids using `-i`
+  /// which triggers /etc/zshrc terminal key-binding setup and causes errors
+  /// without a TTY.
   /// `exec` replaces the shell with claude at the same PID — process tracking is unaffected.
   ///
   /// When `currentDirectory` is provided the `cd` runs inside the child shell,
@@ -62,7 +62,8 @@ struct TerminalEnvironment {
   static func shellArgs(
     executable: String,
     args: [String],
-    currentDirectory: String? = nil
+    currentDirectory: String? = nil,
+    initScript: String? = nil
   ) -> (executable: String, args: [String]) {
     let claudeCommand = ([executable] + args)
       .map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
@@ -76,17 +77,17 @@ struct TerminalEnvironment {
       cdClause = ""
     }
 
-    // Optionally source ~/.zshrc (errors suppressed so /etc/zshrc side-effects
-    // don't appear in the terminal), then exec into claude.
-    let zshrcClause = AppSettings.shared.sourceZshrc
-      ? "[ -f \"$HOME/.zshrc\" ] && source \"$HOME/.zshrc\" 2>/dev/null; "
-      : ""
-    let command = "\(cdClause)\(zshrcClause)exec \(claudeCommand)"
+    let initClause = Self.buildInitClause(initScript)
+    let command = "\(cdClause)\(initClause)exec \(claudeCommand)"
     return (loginShell, ["-l", "-c", command])
   }
+
   /// Returns shell args for a plain login shell (no claude).
   /// Used for "plain terminal" split panes.
-  static func plainShellArgs(currentDirectory: String? = nil) -> (executable: String, args: [String]) {
+  static func plainShellArgs(
+    currentDirectory: String? = nil,
+    initScript: String? = nil
+  ) -> (executable: String, args: [String]) {
     let cdClause: String
     if let dir = currentDirectory {
       let escaped = dir.replacingOccurrences(of: "'", with: "'\\''")
@@ -94,11 +95,18 @@ struct TerminalEnvironment {
     } else {
       cdClause = ""
     }
-    let zshrcClause = AppSettings.shared.sourceZshrc
-      ? "[ -f \"$HOME/.zshrc\" ] && source \"$HOME/.zshrc\" 2>/dev/null; "
-      : ""
-    let command = "\(cdClause)\(zshrcClause)exec \(loginShell)"
+    let initClause = Self.buildInitClause(initScript)
+    let command = "\(cdClause)\(initClause)exec \(loginShell)"
     return (loginShell, ["-l", "-c", command])
+  }
+
+  /// Builds the init script clause for shell commands.
+  /// Uses the provided override, or falls back to the global setting.
+  private static func buildInitClause(_ override: String?) -> String {
+    let script = (override ?? AppSettings.shared.shellInitScript)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !script.isEmpty else { return "" }
+    return script + " "
   }
 }
 

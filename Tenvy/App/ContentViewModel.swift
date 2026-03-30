@@ -53,6 +53,7 @@ struct WorktreeSplitFormData {
   let sourceSessionId: String
   let sourceIsNewSession: Bool
   let repoRoot: String
+  var initScript: String = AppSettings.shared.shellInitScript
 }
 
 /// ViewModel for ContentView managing session selection and window coordination
@@ -108,6 +109,10 @@ final class ContentViewModel {
   /// Terminal IDs that should launch a plain shell instead of claude.
   @ObservationIgnored
   private var plainTerminalIds: Set<String> = []
+
+  /// Per-terminal init script overrides (keyed by terminalId). Consumed on first access.
+  @ObservationIgnored
+  private var splitInitScripts: [String: String] = [:]
 
   // MARK: - Dependencies
 
@@ -517,6 +522,7 @@ final class ContentViewModel {
             filePath: nil,
             isNewSession: true
           )
+          splitInitScripts[newSession.terminalId] = form.initScript
           dismissSplitDialog()
           activateNewSession(newSession)
         } else {
@@ -524,7 +530,8 @@ final class ContentViewModel {
             direction: pending.direction,
             worktreePath: form.worktreePath,
             forkSession: form.forkSession,
-            sourceSession: pending.sourceSession
+            sourceSession: pending.sourceSession,
+            initScript: form.initScript
           )
           dismissSplitDialog()
         }
@@ -579,7 +586,7 @@ final class ContentViewModel {
   }
 
   /// Called when user chooses "Plain Terminal" (split flow) or "Skip" (new session flow).
-  func openPlainTerminalSplit() {
+  func openPlainTerminalSplit(initScript: String? = nil) {
     guard let pending = pendingSplit else { return }
 
     if pending.isNewSessionFlow {
@@ -599,6 +606,9 @@ final class ContentViewModel {
       isNewSession: true
     )
     plainTerminalIds.insert(newSession.terminalId)
+    if let initScript {
+      splitInitScripts[newSession.terminalId] = initScript
+    }
     appModel.activateSession(newSession)
     insertSplitPane(newSession, at: pending.sourceSession.id, direction: pending.direction)
     dismissSplitDialog()
@@ -619,13 +629,19 @@ final class ContentViewModel {
     pendingForkSessions.removeValue(forKey: terminalId)
   }
 
+  /// Returns and consumes the per-split init script override, if any.
+  func initScript(for terminalId: String) -> String? {
+    splitInitScripts.removeValue(forKey: terminalId)
+  }
+
   // MARK: - Worktree Split Helpers
 
   private func performSplitWithWorktree(
     direction: SplitDirection,
     worktreePath: String,
     forkSession: Bool,
-    sourceSession: ClaudeSession
+    sourceSession: ClaudeSession,
+    initScript: String? = nil
   ) {
     let newSession = ClaudeSession(
       id: UUID().uuidString,
@@ -638,6 +654,9 @@ final class ContentViewModel {
     )
     if forkSession {
       pendingForkSessions[newSession.terminalId] = sourceSession.id
+    }
+    if let initScript {
+      splitInitScripts[newSession.terminalId] = initScript
     }
     appModel.activateSession(newSession)
     insertSplitPane(newSession, at: sourceSession.id, direction: direction)

@@ -279,6 +279,7 @@ private struct DetailView<Key: PreferenceKey>: View where Key.Value == CGRect {
           PlainTerminalView(
             workingDirectory: session.workingDirectory,
             isSelected: viewModel.isTerminalVisible,
+            initScript: viewModel.initScript(for: session.terminalId),
             onAction: { viewModel.handleTerminalAction($0, for: session) },
             existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
             onHostViewCreated: { viewModel.cacheGhosttyHostView($0, terminalId: session.terminalId) }
@@ -293,6 +294,7 @@ private struct DetailView<Key: PreferenceKey>: View where Key.Value == CGRect {
             session: session,
             isSelected: viewModel.isTerminalVisible,
             forkSourceSessionId: viewModel.forkSourceSessionId(for: session.terminalId),
+            initScript: viewModel.initScript(for: session.terminalId),
             onAction: { viewModel.handleTerminalAction($0, for: session) },
             existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
             onHostViewCreated: { viewModel.cacheGhosttyHostView($0, terminalId: session.terminalId) }
@@ -373,6 +375,7 @@ private struct PaneSplitTreeRenderer: View {
         PlainTerminalView(
           workingDirectory: session.workingDirectory,
           isSelected: viewModel.selectedSession?.id == session.id,
+          initScript: viewModel.initScript(for: session.terminalId),
           onAction: { viewModel.handleTerminalAction($0, for: session) },
           existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
           onHostViewCreated: { viewModel.cacheGhosttyHostView($0, terminalId: session.terminalId) }
@@ -383,6 +386,7 @@ private struct PaneSplitTreeRenderer: View {
           session: session,
           isSelected: viewModel.selectedSession?.id == session.id,
           forkSourceSessionId: viewModel.forkSourceSessionId(for: session.terminalId),
+          initScript: viewModel.initScript(for: session.terminalId),
           onAction: { viewModel.handleSplitTerminalAction($0, for: session) },
           existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
           onHostViewCreated: { viewModel.cacheGhosttyHostView($0, terminalId: session.terminalId) }
