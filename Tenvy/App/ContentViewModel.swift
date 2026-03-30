@@ -47,6 +47,8 @@ struct WorktreeSplitFormData {
   var newBranchName: String
   var worktreePath: String
   var forkSession: Bool
+  var initSubmodules: Bool = true
+  var symlinkBuildArtifacts: Bool = true
   var availableBranches: [String]
   let sourceSessionId: String
   let sourceIsNewSession: Bool
@@ -500,7 +502,9 @@ final class ContentViewModel {
           repoPath: form.repoRoot,
           newBranch: form.newBranchName,
           baseBranch: form.baseBranch,
-          destinationPath: form.worktreePath
+          destinationPath: form.worktreePath,
+          initSubmodules: form.initSubmodules,
+          symlinkBuildArtifacts: form.symlinkBuildArtifacts
         )
         isCreatingWorktree = false
         if pending.isNewSessionFlow {

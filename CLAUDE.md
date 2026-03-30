@@ -33,7 +33,8 @@ Tenvy/
 │   │   ├── SessionManager.swift    # Discovery & FSEvents monitoring
 │   │   ├── SessionListView.swift   # Session list + SessionListAction enum
 │   │   ├── SessionRowView.swift    # Session row with status dot + drag handle
-│   │   └── SessionDragSource.swift # AppKit drag handle (NSDraggingSource) for active sessions
+│   │   ├── SessionDragSource.swift # AppKit drag handle (NSDraggingSource) for active sessions
+│   │   └── DeleteSessionConfirmationView.swift  # Delete confirmation with worktree removal option
 │   ├── Terminal/                   # Terminal & process management
 │   │   ├── SessionRuntimeState.swift  # Per-session runtime info (@Observable)
 │   │   ├── ProcessManager.swift    # Process tracking & cleanup
