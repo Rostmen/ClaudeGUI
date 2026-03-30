@@ -62,9 +62,8 @@ Tenvy/
 │   │   ├── GitChangedFileRow.swift # Git file row
 │   │   ├── DiffView.swift          # Git diff viewer
 │   │   ├── GitBranchService.swift  # Branch detection & listing (filesystem, no subprocess)
-│   │   ├── WorktreeService.swift   # Git worktree creation & git init
-│   │   ├── WorktreeSplitView.swift # Worktree dialog (git repos) — used for both splits and new sessions
-│   │   └── NoGitSplitView.swift    # Split dialog for non-git directories
+│   │   ├── WorktreeService.swift    # Git worktree creation, branch creation & git init
+│   │   └── NewSessionDialogView.swift # Unified dialog for new sessions and splits (git/no-git)
 │   ├── Settings/                   # Settings
 │   │   ├── AppSettings.swift       # User preferences (UserDefaults) + AppearanceMode
 │   │   ├── ClaudeThemeSync.swift   # Writes theme to ~/.claude.json on appearance change

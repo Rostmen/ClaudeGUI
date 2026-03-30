@@ -32,12 +32,15 @@ struct PendingSplitRequest {
   let hasGitRepo: Bool
   /// When true, the dialog creates a new standalone session (not a split pane).
   let isNewSessionFlow: Bool
+  /// When true, the source is a plain terminal — only show shell init script options.
+  let isPlainTerminalSplit: Bool
 
-  init(direction: SplitDirection, sourceSession: ClaudeSession, hasGitRepo: Bool, isNewSessionFlow: Bool = false) {
+  init(direction: SplitDirection, sourceSession: ClaudeSession, hasGitRepo: Bool, isNewSessionFlow: Bool = false, isPlainTerminalSplit: Bool = false) {
     self.direction = direction
     self.sourceSession = sourceSession
     self.hasGitRepo = hasGitRepo
     self.isNewSessionFlow = isNewSessionFlow
+    self.isPlainTerminalSplit = isPlainTerminalSplit
   }
 }
 
@@ -46,7 +49,7 @@ struct WorktreeSplitFormData {
   var baseBranch: String
   var newBranchName: String
   var worktreePath: String
-  var forkSession: Bool
+  var forkSession: Bool = false
   var initSubmodules: Bool = true
   var symlinkBuildArtifacts: Bool = true
   var availableBranches: [String]
@@ -54,6 +57,20 @@ struct WorktreeSplitFormData {
   let sourceIsNewSession: Bool
   let repoRoot: String
   var initScript: String = AppSettings.shared.shellInitScript
+
+  /// Whether to run `git init` (only relevant when hasGitRepo == false)
+  var initGit: Bool = false
+
+  /// Whether to create a new branch (in new-session + git flow, or after git init)
+  var createBranch: Bool = false
+
+  /// Which git mode is active: branch-only or worktree
+  var gitMode: GitMode = .worktree
+
+  enum GitMode: String, CaseIterable {
+    case branch = "Branch"
+    case worktree = "Worktree"
+  }
 }
 
 /// ViewModel for ContentView managing session selection and window coordination
@@ -431,11 +448,28 @@ final class ContentViewModel {
     }
 
     // No git repo — show dialog so user can choose plain terminal or proceed
+    let workDir = session.workingDirectory
+    let dateFormatter = DateFormatter()
+    dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm"
+    let defaultBranchName = "\(dateFormatter.string(from: Date()))-\(session.title)"
+      .replacingOccurrences(of: " ", with: "-")
+      .lowercased()
+
     pendingSplit = PendingSplitRequest(
       direction: .right,
       sourceSession: session,
       hasGitRepo: false,
       isNewSessionFlow: true
+    )
+
+    worktreeSplitForm = WorktreeSplitFormData(
+      baseBranch: "main",
+      newBranchName: defaultBranchName,
+      worktreePath: WorktreeService.defaultWorktreePath(repoRoot: workDir, branchName: defaultBranchName),
+      availableBranches: ["main"],
+      sourceSessionId: session.id,
+      sourceIsNewSession: true,
+      repoRoot: workDir
     )
   }
 
@@ -465,6 +499,26 @@ final class ContentViewModel {
   func handleSplitRequested(direction: SplitDirection = .right) {
     guard let focused = selectedSession ?? primarySession else { return }
 
+    // Plain terminal splits skip the git dialog — just show shell init script
+    if isPlainTerminal(focused.terminalId) {
+      pendingSplit = PendingSplitRequest(
+        direction: direction,
+        sourceSession: focused,
+        hasGitRepo: false,
+        isPlainTerminalSplit: true
+      )
+      worktreeSplitForm = WorktreeSplitFormData(
+        baseBranch: "main",
+        newBranchName: "",
+        worktreePath: "",
+        availableBranches: [],
+        sourceSessionId: focused.id,
+        sourceIsNewSession: true,
+        repoRoot: focused.workingDirectory
+      )
+      return
+    }
+
     let runtimeInfo = runtimeState.info(for: focused.id)
     let hasGitRepo = runtimeInfo.gitBranch != nil
 
@@ -489,17 +543,94 @@ final class ContentViewModel {
         baseBranch: currentBranch,
         newBranchName: defaultBranchName,
         worktreePath: WorktreeService.defaultWorktreePath(repoRoot: repoRoot, branchName: defaultBranchName),
-        forkSession: false,
         availableBranches: branches,
         sourceSessionId: focused.id,
         sourceIsNewSession: focused.isNewSession,
         repoRoot: repoRoot
       )
+    } else {
+      // No git repo — still populate form for the unified dialog
+      let workDir = focused.workingDirectory
+      let dateFormatter2 = DateFormatter()
+      dateFormatter2.dateFormat = "MM-dd-yyyy-HH-mm"
+      let defaultBranchName = "\(dateFormatter2.string(from: Date()))-\(focused.title)"
+        .replacingOccurrences(of: " ", with: "-")
+        .lowercased()
+
+      worktreeSplitForm = WorktreeSplitFormData(
+        baseBranch: "main",
+        newBranchName: defaultBranchName,
+        worktreePath: WorktreeService.defaultWorktreePath(repoRoot: workDir, branchName: defaultBranchName),
+        availableBranches: ["main"],
+        sourceSessionId: focused.id,
+        sourceIsNewSession: focused.isNewSession,
+        repoRoot: workDir
+      )
     }
   }
 
-  /// Called when user confirms worktree creation from the dialog.
-  func confirmWorktreeSplit() {
+  /// Single entry point for the "Start" button in the unified dialog.
+  /// Dispatches to the appropriate action based on form state.
+  func confirmNewSessionDialog() {
+    guard let pending = pendingSplit,
+          let form = worktreeSplitForm else { return }
+
+    let hasGitRepo = pending.hasGitRepo
+    let needsGitInit = !hasGitRepo && form.initGit
+    let needsBranch = form.createBranch && form.gitMode == .branch
+    let needsWorktree = form.gitMode == .worktree && (hasGitRepo || (form.initGit && form.createBranch) || (!pending.isNewSessionFlow && form.initGit))
+
+    // No git ops needed — just open the session
+    if !hasGitRepo && !form.initGit {
+      let session = pending.sourceSession
+      splitInitScripts[session.terminalId] = form.initScript
+      dismissSplitDialog()
+      if pending.isNewSessionFlow {
+        activateNewSession(session)
+      }
+      return
+    }
+
+    // Git initialized, branch tab, no new branch — open as-is on current branch
+    if hasGitRepo && !needsBranch && !needsWorktree {
+      let session = pending.sourceSession
+      splitInitScripts[session.terminalId] = form.initScript
+      dismissSplitDialog()
+      if pending.isNewSessionFlow {
+        activateNewSession(session)
+      }
+      return
+    }
+
+    if needsWorktree {
+      confirmWorktreeSplit()
+    } else if needsBranch {
+      confirmBranchCreation()
+    } else if needsGitInit {
+      // Just git init, no branch/worktree
+      isCreatingWorktree = true
+      worktreeError = nil
+      Task {
+        do {
+          try WorktreeService.initGitRepo(at: form.repoRoot)
+          isCreatingWorktree = false
+          let session = pending.sourceSession
+          splitInitScripts[session.terminalId] = form.initScript
+          dismissSplitDialog()
+          if pending.isNewSessionFlow {
+            activateNewSession(session)
+          }
+          appModel.refreshGitBranches()
+        } catch {
+          isCreatingWorktree = false
+          worktreeError = error.localizedDescription
+        }
+      }
+    }
+  }
+
+  /// Creates a worktree, optionally initializing git first.
+  private func confirmWorktreeSplit() {
     guard let pending = pendingSplit,
           let form = worktreeSplitForm else { return }
 
@@ -508,6 +639,11 @@ final class ContentViewModel {
 
     Task {
       do {
+        // Initialize git if needed (no-git flow)
+        if !pending.hasGitRepo && form.initGit {
+          try WorktreeService.initGitRepo(at: form.repoRoot)
+        }
+
         try WorktreeService.createWorktree(
           repoPath: form.repoRoot,
           newBranch: form.newBranchName,
@@ -540,6 +676,7 @@ final class ContentViewModel {
           )
           dismissSplitDialog()
         }
+        appModel.refreshGitBranches()
       } catch {
         isCreatingWorktree = false
         worktreeError = error.localizedDescription
@@ -547,41 +684,33 @@ final class ContentViewModel {
     }
   }
 
-  /// Called when user chooses "Initialize Git & Create Worktree" for a non-git directory.
-  func initGitAndCreateWorktree() {
-    guard let pending = pendingSplit else { return }
+  /// Creates a new branch and opens the session at the same working directory.
+  private func confirmBranchCreation() {
+    guard let pending = pendingSplit,
+          let form = worktreeSplitForm else { return }
 
     isCreatingWorktree = true
     worktreeError = nil
 
     Task {
       do {
-        let workDir = pending.sourceSession.workingDirectory
-        try WorktreeService.initGitRepo(at: workDir)
+        // Initialize git if needed (no-git flow)
+        if !pending.hasGitRepo && form.initGit {
+          try WorktreeService.initGitRepo(at: form.repoRoot)
+        }
 
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm"
-        let branchName = "\(dateFormatter.string(from: Date()))-\(pending.sourceSession.title)"
-          .replacingOccurrences(of: " ", with: "-")
-          .lowercased()
-        let worktreePath = WorktreeService.defaultWorktreePath(repoRoot: workDir, branchName: branchName)
-
-        try WorktreeService.createWorktree(
-          repoPath: workDir,
-          newBranch: branchName,
-          baseBranch: "main",
-          destinationPath: worktreePath
+        try WorktreeService.createBranch(
+          repoPath: form.repoRoot,
+          newBranch: form.newBranchName,
+          baseBranch: form.baseBranch
         )
-
         isCreatingWorktree = false
-        performSplitWithWorktree(
-          direction: pending.direction,
-          worktreePath: worktreePath,
-          forkSession: false,
-          sourceSession: pending.sourceSession
-        )
+        let session = pending.sourceSession
+        splitInitScripts[session.terminalId] = form.initScript
         dismissSplitDialog()
-        // Refresh git branches so the original session now shows its branch
+        if pending.isNewSessionFlow {
+          activateNewSession(session)
+        }
         appModel.refreshGitBranches()
       } catch {
         isCreatingWorktree = false

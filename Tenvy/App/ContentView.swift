@@ -157,13 +157,8 @@ struct ContentView: View {
           .ignoresSafeArea()
           .onTapGesture { viewModel.cancelSplitDialog() }
 
-        if viewModel.pendingSplit?.hasGitRepo == true {
-          WorktreeSplitView(viewModel: viewModel)
-            .transition(.opacity)
-        } else {
-          NoGitSplitView(viewModel: viewModel)
-            .transition(.opacity)
-        }
+        NewSessionDialogView(viewModel: viewModel)
+          .transition(.opacity)
       }
     }
     .coordinateSpace(name: "window")
