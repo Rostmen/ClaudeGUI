@@ -57,6 +57,7 @@ struct SessionListView: View {
   @State private var showingRenameAlert = false
   @State private var showingDeleteConfirmation = false
   @State private var sessionToDelete: ClaudeSession?
+  @State private var removeWorktreeFolder = false
   @State private var expandedSections: Set<String> = []
   @State private var isExporting = false
   @State private var exportError: String?
@@ -132,7 +133,7 @@ struct SessionListView: View {
     }
 
     Button("Reveal in Finder") {
-      NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: session.projectPath)
+      NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: session.workingDirectory)
     }
 
     Button("Export...") {
@@ -144,6 +145,7 @@ struct SessionListView: View {
 
     Button("Delete", role: .destructive) {
       sessionToDelete = session
+      removeWorktreeFolder = false
       showingDeleteConfirmation = true
     }
   }
@@ -215,17 +217,20 @@ struct SessionListView: View {
         }
       }
     }
-    .confirmationDialog(
-      "Delete Session",
-      isPresented: $showingDeleteConfirmation,
-      presenting: sessionToDelete
-    ) { session in
-      Button("Delete \"\(session.title)\"", role: .destructive) {
-        deleteSession(session)
+    .sheet(isPresented: $showingDeleteConfirmation) {
+      if let session = sessionToDelete {
+        DeleteSessionConfirmationView(
+          session: session,
+          removeWorktreeFolder: $removeWorktreeFolder,
+          onDelete: {
+            deleteSession(session, removeWorktree: removeWorktreeFolder)
+            showingDeleteConfirmation = false
+          },
+          onCancel: {
+            showingDeleteConfirmation = false
+          }
+        )
       }
-      Button("Cancel", role: .cancel) {}
-    } message: { session in
-      Text("Are you sure you want to delete this session? This action cannot be undone.")
     }
     .toolbar {
       ToolbarItem(placement: .primaryAction) {
@@ -294,8 +299,14 @@ struct SessionListView: View {
     }
   }
 
-  private func deleteSession(_ session: ClaudeSession) {
+  private func deleteSession(_ session: ClaudeSession, removeWorktree: Bool = false) {
     do {
+      if removeWorktree {
+        try WorktreeService.removeWorktree(
+          repoPath: session.projectPath,
+          worktreePath: session.workingDirectory
+        )
+      }
       try sessionManager.deleteSession(session)
       if selectedSession?.id == session.id {
         selectedSession = nil

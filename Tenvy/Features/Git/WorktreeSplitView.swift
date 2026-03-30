@@ -50,6 +50,7 @@ struct WorktreeSplitView: View {
       newBranchField
       destinationField
       forkSessionToggle
+      submoduleOptions
       errorBanner
       buttonRow
     }
@@ -147,6 +148,34 @@ struct WorktreeSplitView: View {
       Toggle("Fork current session", isOn: form.forkSession)
         .font(.subheadline)
         .help("Creates a new session preserving conversation history from the current session")
+    }
+  }
+
+  private var submoduleOptions: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Submodule options")
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+
+      HStack {
+        Toggle("Initialize submodules", isOn: form.initSubmodules)
+          .font(.subheadline)
+
+        Image(systemName: "info.circle")
+          .foregroundStyle(.secondary)
+          .font(.subheadline)
+          .help("Runs \"git submodule update --init --recursive\" in the new worktree. Git worktrees don't automatically initialize submodules, so without this the worktree will have empty submodule directories.")
+      }
+
+      HStack {
+        Toggle("Symlink build artifacts", isOn: form.symlinkBuildArtifacts)
+          .font(.subheadline)
+
+        Image(systemName: "info.circle")
+          .foregroundStyle(.secondary)
+          .font(.subheadline)
+          .help("Symlinks gitignored build artifacts (e.g. xcframeworks, compiled binaries) from the main repo's submodules into the worktree. This avoids having to rebuild them from source, which can be slow.")
+      }
     }
   }
 

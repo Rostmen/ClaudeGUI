@@ -54,7 +54,9 @@ enum WorktreeService {
     repoPath: String,
     newBranch: String,
     baseBranch: String,
-    destinationPath: String
+    destinationPath: String,
+    initSubmodules: Bool = true,
+    symlinkBuildArtifacts: Bool = true
   ) throws {
     guard FileManager.default.fileExists(atPath: gitPath) else {
       throw WorktreeError.gitNotFound
@@ -69,6 +71,34 @@ enum WorktreeService {
     )
     if result.exitCode != 0 {
       throw WorktreeError.worktreeCreationFailed(result.stderr)
+    }
+
+    if initSubmodules {
+      // Initialize submodules in the new worktree (worktrees don't auto-init them)
+      _ = try? runGit(["submodule", "update", "--init", "--recursive"], in: destinationPath)
+    }
+
+    if symlinkBuildArtifacts {
+      // Symlink gitignored build artifacts from the main repo's submodules into the worktree.
+      // Submodule init checks out source but not build artifacts (e.g. xcframeworks).
+      symlinkSubmoduleBuildArtifacts(mainRepo: repoPath, worktree: destinationPath)
+    }
+  }
+
+  /// Removes a worktree: runs `git worktree remove --force` and deletes the directory.
+  static func removeWorktree(repoPath: String, worktreePath: String) throws {
+    guard FileManager.default.fileExists(atPath: gitPath) else {
+      throw WorktreeError.gitNotFound
+    }
+
+    let result = try runGit(
+      ["worktree", "remove", "--force", worktreePath],
+      in: repoPath
+    )
+    if result.exitCode != 0 {
+      // Fallback: remove directory manually and prune
+      try? FileManager.default.removeItem(atPath: worktreePath)
+      _ = try? runGit(["worktree", "prune"], in: repoPath)
     }
   }
 
@@ -109,6 +139,46 @@ enum WorktreeService {
   }
 
   // MARK: - Private
+
+  /// Finds gitignored build artifacts in the main repo's submodules and symlinks them
+  /// into the worktree so it can compile without rebuilding (e.g. xcframeworks).
+  private static func symlinkSubmoduleBuildArtifacts(mainRepo: String, worktree: String) {
+    // Get submodule paths from the main repo
+    guard let result = try? runGit(["submodule", "foreach", "--quiet", "echo $sm_path"], in: mainRepo),
+          result.exitCode == 0 else { return }
+
+    let submodulePaths = result.stdout.components(separatedBy: "\n").filter { !$0.isEmpty }
+    let fm = FileManager.default
+
+    for submodulePath in submodulePaths {
+      let mainSubmoduleDir = (mainRepo as NSString).appendingPathComponent(submodulePath)
+      let worktreeSubmoduleDir = (worktree as NSString).appendingPathComponent(submodulePath)
+
+      // Find gitignored items in the main repo's submodule
+      guard let ignored = try? runGit(
+        ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory"],
+        in: mainSubmoduleDir
+      ), ignored.exitCode == 0 else { continue }
+
+      let ignoredPaths = ignored.stdout.components(separatedBy: "\n")
+        .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "/")) }
+        .filter { !$0.isEmpty }
+
+      for ignoredItem in ignoredPaths {
+        let source = (mainSubmoduleDir as NSString).appendingPathComponent(ignoredItem)
+        let destination = (worktreeSubmoduleDir as NSString).appendingPathComponent(ignoredItem)
+
+        // Only symlink if source exists in main repo and doesn't exist in worktree
+        guard fm.fileExists(atPath: source), !fm.fileExists(atPath: destination) else { continue }
+
+        // Ensure parent directory exists
+        let parentDir = (destination as NSString).deletingLastPathComponent
+        try? fm.createDirectory(atPath: parentDir, withIntermediateDirectories: true)
+
+        try? fm.createSymbolicLink(atPath: destination, withDestinationPath: source)
+      }
+    }
+  }
 
   private struct GitResult {
     let exitCode: Int32
