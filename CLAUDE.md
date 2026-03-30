@@ -8,7 +8,7 @@ macOS app for managing and resuming Claude Code CLI sessions with a native trans
 
 - **Session Management**: Browse, resume, rename, and delete Claude Code sessions
 - **Embedded Terminal**: Ghostty terminal with CPU-based state monitoring
-- **Split Panes**: Tree-based split layout (Ghostty-style) — splitting only divides the focused pane, not all panes. Splits intercept to offer git worktree creation for parallel branch work
+- **Split Panes**: Tree-based split layout (Ghostty-style) — splitting only divides the focused pane, not all panes. Both splits and new session creation intercept to offer git worktree creation for parallel branch work
 - **Multi-Window Support**: Each session runs in isolated window/tab with single process
 - **Git Changes**: Modified files tree with syntax-highlighted diffs
 - **Notifications**: macOS notifications for waiting/permission states via Claude Code hooks
@@ -62,7 +62,7 @@ Tenvy/
 │   │   ├── DiffView.swift          # Git diff viewer
 │   │   ├── GitBranchService.swift  # Branch detection & listing (filesystem, no subprocess)
 │   │   ├── WorktreeService.swift   # Git worktree creation & git init
-│   │   ├── WorktreeSplitView.swift # Worktree split dialog (git repos)
+│   │   ├── WorktreeSplitView.swift # Worktree dialog (git repos) — used for both splits and new sessions
 │   │   └── NoGitSplitView.swift    # Split dialog for non-git directories
 │   ├── Settings/                   # Settings
 │   │   ├── AppSettings.swift       # User preferences (UserDefaults) + AppearanceMode
