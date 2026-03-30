@@ -203,7 +203,11 @@ final class GhosttyHostView: NSView {
       }
     }
 
-    let monitor = SessionStateMonitor(processPID: ptyPid, sessionId: monitorSessionId)
+    // Pass a closure that queries Ghostty's PTY foreground PID on each poll.
+    // This is the exact process we launched — no process-tree scanning needed.
+    let monitor = SessionStateMonitor(pidProvider: { [weak self] in
+      self?.surface?.foregroundPid ?? 0
+    })
     monitor.onStateChange = { [weak self] info in
       self?.onAction(.stateChanged(info: info))
     }

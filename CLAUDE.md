@@ -51,8 +51,7 @@ Tenvy/
 │   │   ├── TerminalRegistry.swift  # Weak refs to terminals for sending input
 │   │   ├── HookInstallationService.swift  # Claude Code hook setup
 │   │   ├── HookInstallationPromptView.swift  # Hook install prompt UI
-│   │   ├── HookEventService.swift  # Reads hook events file
-│   │   └── ProcessTreeAnalyzer.swift  # Process tree analysis
+│   │   └── HookEventService.swift  # Reads hook events file
 │   ├── Git/                        # Git integration
 │   │   ├── GitChangedFile.swift    # Git changed file model
 │   │   ├── GitStatusService.swift  # Git status detection
@@ -174,7 +173,7 @@ CPU-based state detection:
 
 **Process enumeration**: `ProcessPoller` uses `sysctl(KERN_PROC_ALL)` + `KERN_PROCARGS2` + `proc_pidinfo(PROC_PIDTASKINFO)` — pure kernel syscalls, no subprocess fork. Forking via `Process()`/`ps` deadlocks when Ghostty is active because Ghostty installs a `SIGCHLD` handler that reaps all child processes (including `ps`) before `waitUntilExit()` can observe the exit.
 
-**Ghostty PID discovery**: Ghostty manages its own PTY so no shell PID is available (`shellPid` is always 0). `ProcessTreeAnalyzer` uses `ProcessInfo.processInfo.processIdentifier` (the app PID) as the ancestor for `isDescendant` checks — Ghostty forks PTY processes directly from the Tenvy process, so all PTY-spawned children are descendants of the app.
+**PID discovery**: `SessionStateMonitor` receives a `pidProvider` closure that queries Ghostty's `surface.foregroundPid`. This returns the `login` process PID (Ghostty's PTY child). The monitor walks down the process tree via `findLeafDescendant` to find the actual process we launched (e.g. `login → claude`). Once the leaf PID is found in the `ProcessPoller` snapshot, it's locked in for the monitor's lifetime. If the locked PID disappears, the provider is re-queried and the leaf walk repeats to discover a replacement. No process arg-matching or name checking — we trust the PTY ancestry chain.
 
 ### Claude Code Hooks
 

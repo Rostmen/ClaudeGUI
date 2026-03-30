@@ -10,7 +10,7 @@ Ghostty installs a SIGCHLD handler that reaps all child processes — including 
 - `ProcessPoller` (hot path, 500 ms): `sysctl(KERN_PROC_ALL)` + `KERN_PROCARGS2` + `proc_pidinfo(PROC_PIDTASKINFO)` for PID/PPID/args/RSS/CPU
 - `ProcessManager.findChildProcesses` (termination path): same `sysctl(KERN_PROC_ALL)` to build parent map for BFS
 
-**Ghostty PID**: Ghostty manages its own PTY so `shellPid` is always 0. `ProcessTreeAnalyzer.findClaudeProcess(in:shellPID:sessionId:)` uses `ProcessInfo.processInfo.processIdentifier` (app PID) as ancestor when `shellPID == 0` — Ghostty forks PTY children directly from the Tenvy process.
+**PID discovery**: `SessionStateMonitor` receives a `pidProvider` closure from `GhosttyHostView` that queries `surface.foregroundPid`. This returns the `login` PID (Ghostty's PTY child). The monitor walks down the process tree via `findLeafDescendant(of:in:)` to reach the actual process (`login → claude`). No arg-matching needed (the old `ProcessTreeAnalyzer` was removed — it used substring matching on "claude" in process args, which false-positived on MCP servers and other unrelated processes). Once the leaf PID appears in the snapshot, it's locked in. If the locked PID dies, the provider is re-queried and the leaf walk repeats.
 
 **Kill target** (`WindowDelegate`): `runtimeInfo.shellPid` if set, otherwise `runtimeInfo.pid` (the sysctl-discovered claude PID). Both the confirmation dialog gate and the kill use this `pidToKill`.
 
