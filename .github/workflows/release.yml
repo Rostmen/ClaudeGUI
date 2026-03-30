@@ -112,12 +112,11 @@ jobs:
       - name: Install Metal Toolchain (download + export for cache)
         if: steps.cache-metal.outputs.cache-hit != 'true'
         run: |
+          mkdir -p /tmp/metalToolchainExport
           for i in 1 2 3 4 5; do
             echo "Attempt $i: downloading Metal toolchain..."
-            if sudo xcodebuild -downloadComponent MetalToolchain; then
-              echo "Download succeeded on attempt $i"
-              mkdir -p /tmp/metalToolchainExport
-              xcodebuild -exportComponent metalToolchain -exportPath /tmp/metalToolchainExport/
+            if sudo xcodebuild -downloadComponent MetalToolchain -exportPath /tmp/metalToolchainExport/; then
+              echo "Download + export succeeded on attempt $i"
               exit 0
             fi
             echo "Attempt $i failed, waiting 30s before retry..."
