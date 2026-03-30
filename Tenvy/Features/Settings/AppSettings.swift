@@ -82,10 +82,14 @@ final class AppSettings {
     }
   }
 
-  /// Whether to source ~/.zshrc before launching claude (default: true)
-  var sourceZshrc: Bool {
-    didSet { UserDefaults.standard.set(sourceZshrc, forKey: "settings.sourceZshrc") }
+  /// Shell init script executed before launching claude or a plain terminal.
+  /// Runs inside `zsh -l -c '...; exec <command>'`.
+  var shellInitScript: String {
+    didSet { UserDefaults.standard.set(shellInitScript, forKey: "settings.shellInitScript") }
   }
+
+  /// The default shell init script that sources ~/.zshrc.
+  static let defaultShellInitScript = "[ -f \"$HOME/.zshrc\" ] && source \"$HOME/.zshrc\" 2>/dev/null;"
 
   /// Appearance mode (System / Light / Dark)
   var appearanceMode: AppearanceMode {
@@ -114,7 +118,14 @@ final class AppSettings {
     } else {
       self.customEnvironmentVariables = [:]
     }
-    self.sourceZshrc = UserDefaults.standard.object(forKey: "settings.sourceZshrc") as? Bool ?? true
+    // Migration: convert old sourceZshrc bool to shellInitScript string
+    if let existingScript = UserDefaults.standard.string(forKey: "settings.shellInitScript") {
+      self.shellInitScript = existingScript
+    } else if let oldSourceZshrc = UserDefaults.standard.object(forKey: "settings.sourceZshrc") as? Bool {
+      self.shellInitScript = oldSourceZshrc ? AppSettings.defaultShellInitScript : ""
+    } else {
+      self.shellInitScript = AppSettings.defaultShellInitScript
+    }
 
     // Load appearance mode, defaulting to System
     if let rawValue = UserDefaults.standard.object(forKey: "settings.appearanceMode") as? String,

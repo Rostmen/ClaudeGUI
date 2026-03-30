@@ -30,6 +30,7 @@ enum WorktreeService {
     case gitNotFound
     case worktreeCreationFailed(String)
     case gitInitFailed(String)
+    case branchCreationFailed(String)
     case destinationAlreadyExists(String)
 
     var errorDescription: String? {
@@ -40,6 +41,8 @@ enum WorktreeService {
         return "Failed to create worktree: \(msg)"
       case .gitInitFailed(let msg):
         return "Failed to initialize git repository: \(msg)"
+      case .branchCreationFailed(let msg):
+        return "Failed to create branch: \(msg)"
       case .destinationAlreadyExists(let path):
         return "Destination already exists: \(path)"
       }
@@ -116,6 +119,22 @@ enum WorktreeService {
 
     // Initial commit so worktree creation has a valid base
     _ = try runGit(["commit", "--allow-empty", "-m", "Initial commit"], in: path)
+  }
+
+  /// Creates a new branch from `baseBranch` and checks it out.
+  /// Runs: `git checkout -b <newBranch> <baseBranch>`
+  static func createBranch(
+    repoPath: String,
+    newBranch: String,
+    baseBranch: String
+  ) throws {
+    guard FileManager.default.fileExists(atPath: gitPath) else {
+      throw WorktreeError.gitNotFound
+    }
+    let result = try runGit(["checkout", "-b", newBranch, baseBranch], in: repoPath)
+    if result.exitCode != 0 {
+      throw WorktreeError.branchCreationFailed(result.stderr)
+    }
   }
 
   /// Finds the git working tree root (the directory containing `.git/`).

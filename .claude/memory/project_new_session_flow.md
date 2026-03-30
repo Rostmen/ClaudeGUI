@@ -1,6 +1,6 @@
 ---
 name: New Session Creation Flow
-description: How the "+" sidebar button creates sessions — folder picker, git detection, worktree dialog, tab/window routing
+description: How the "+" sidebar button creates sessions — folder picker, git detection, unified dialog, tab/window routing
 type: project
 ---
 
@@ -20,16 +20,16 @@ SessionListView "+" toolbar button
           → ContentViewModel.createNewSession(session)
 ```
 
-## Git Detection & Worktree Dialog
+## Git Detection & Unified Dialog
 
-`createNewSession()` checks `WorktreeService.findRepoRoot(from: path)`:
+`createNewSession()` always shows the `NewSessionDialogView` (unified dialog):
 
-- **Git repo found**: Shows the worktree dialog (`WorktreeSplitView`) via `pendingSplit` with `isNewSessionFlow: true`. Uses `GitBranchService.currentBranch(at:)` and `listLocalBranches(at:)` for branch info (filesystem-based, no subprocess). User can:
-  - "Create Worktree" → creates worktree, then `activateNewSession()` at worktree path
-  - "Skip" → `activateNewSession()` at original path (no worktree)
-  - "Cancel" → dismisses dialog, no session created
+- **Git repo found**: Sets `hasGitRepo: true`. Dialog shows Branch/Worktree segment with full options.
+- **No git repo**: Sets `hasGitRepo: false`. Dialog shows "Initialize git" checkbox with progressive disclosure.
 
-- **No git repo**: Calls `activateNewSession()` directly (no dialog).
+Both paths populate `worktreeSplitForm` with defaults (branch name, worktree path, etc.).
+
+See `project_new_session_dialog.md` for the complete dialog UX logic.
 
 ## Session Activation (`activateNewSession`)
 
@@ -47,4 +47,4 @@ Routes based on whether a session already exists in the window:
 
 - `SessionListView.swift` — "+" button, `createNewSession()`, NSOpenPanel
 - `ContentViewModel.swift` — `createNewSession()` (git check + dialog), `activateNewSession()` (tab/window routing)
-- `WorktreeSplitView.swift` — shared dialog (adapts header/buttons based on `isNewSessionFlow`)
+- `NewSessionDialogView.swift` — unified dialog for all session/split creation scenarios

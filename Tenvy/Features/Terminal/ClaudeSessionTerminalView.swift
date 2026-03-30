@@ -29,6 +29,7 @@ struct ClaudeSessionTerminalView: NSViewRepresentable {
   let session: ClaudeSession?
   let isSelected: Bool
   var forkSourceSessionId: String? = nil
+  var initScript: String? = nil
   let onAction: (TerminalAction) -> Void
   let existingHostView: GhosttyHostView?
   let onHostViewCreated: ((GhosttyHostView) -> Void)?
@@ -47,7 +48,7 @@ struct ClaudeSessionTerminalView: NSViewRepresentable {
     } else if let session = session, !session.isNewSession {
       args = ["--resume", session.id]
     }
-    let launch = TerminalEnvironment.shellArgs(executable: claudePath, args: args, currentDirectory: workingDirectory)
+    let launch = TerminalEnvironment.shellArgs(executable: claudePath, args: args, currentDirectory: workingDirectory, initScript: initScript)
 
     hostView.setupSurface(launch: launch, workingDirectory: workingDirectory, onAction: onAction)
     hostView.contextMenuProvider = { [weak hostView] in

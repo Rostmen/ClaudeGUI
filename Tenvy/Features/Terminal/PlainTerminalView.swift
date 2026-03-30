@@ -29,6 +29,7 @@ import GhosttyEmbed
 struct PlainTerminalView: NSViewRepresentable {
   let workingDirectory: String
   let isSelected: Bool
+  var initScript: String? = nil
   let onAction: (TerminalAction) -> Void
   let existingHostView: GhosttyHostView?
   let onHostViewCreated: ((GhosttyHostView) -> Void)?
@@ -38,7 +39,7 @@ struct PlainTerminalView: NSViewRepresentable {
     if let existing = existingHostView { return existing }
 
     let hostView = GhosttyHostView()
-    let launch = TerminalEnvironment.plainShellArgs(currentDirectory: workingDirectory)
+    let launch = TerminalEnvironment.plainShellArgs(currentDirectory: workingDirectory, initScript: initScript)
 
     hostView.setupSurface(launch: launch, workingDirectory: workingDirectory, onAction: onAction)
     hostView.contextMenuProvider = { [weak hostView] in
