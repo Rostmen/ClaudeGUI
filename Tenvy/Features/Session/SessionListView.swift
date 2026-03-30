@@ -131,6 +131,10 @@ struct SessionListView: View {
       showingRenameAlert = true
     }
 
+    Button("Reveal in Finder") {
+      NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: session.projectPath)
+    }
+
     Button("Export...") {
       exportSession(session)
     }
