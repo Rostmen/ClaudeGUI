@@ -26,34 +26,14 @@ struct SidebarView: View {
   var sessionManager: any SessionDiscovery
   @Binding var selectedSession: ClaudeSession?
   @Binding var selectedDiffFile: GitChangedFile?
-  var onCreateNewSession: ((ClaudeSession) -> Void)?
-  var onSelectSession: ((ClaudeSession) -> Void)?
+  var onAction: (SessionListAction) -> Void = { _ in }
   var runtimeState: SessionRuntimeRegistry
-  var activeSessionIds: Set<String>
-  var activatedSessions: [String: ClaudeSession]
+  var activeSessionIds: Set<String> = []
+  var activatedSessions: [String: ClaudeSession] = [:]
+  var splitSessionIds: Set<String> = []
 
   private let settings = AppSettings.shared
   @State private var selectedTab: SidebarTab = .sessions
-
-  init(
-    sessionManager: any SessionDiscovery,
-    selectedSession: Binding<ClaudeSession?>,
-    selectedDiffFile: Binding<GitChangedFile?>,
-    onCreateNewSession: ((ClaudeSession) -> Void)? = nil,
-    onSelectSession: ((ClaudeSession) -> Void)? = nil,
-    runtimeState: SessionRuntimeRegistry,
-    activeSessionIds: Set<String> = [],
-    activatedSessions: [String: ClaudeSession] = [:]
-  ) {
-    self.sessionManager = sessionManager
-    self._selectedSession = selectedSession
-    self._selectedDiffFile = selectedDiffFile
-    self.onCreateNewSession = onCreateNewSession
-    self.onSelectSession = onSelectSession
-    self.runtimeState = runtimeState
-    self.activeSessionIds = activeSessionIds
-    self.activatedSessions = activatedSessions
-  }
 
   /// Tabs to show based on settings
   private var availableTabs: [SidebarTab] {
@@ -77,11 +57,11 @@ struct SidebarView: View {
         SessionListView(
           sessionManager: sessionManager,
           selectedSession: $selectedSession,
-          onCreateNewSession: onCreateNewSession,
-          onSelectSession: onSelectSession,
+          onAction: onAction,
           runtimeState: runtimeState,
           activeSessionIds: activeSessionIds,
-          activatedSessions: activatedSessions
+          activatedSessions: activatedSessions,
+          splitSessionIds: splitSessionIds
         )
         .opacity(selectedTab == .sessions ? 1 : 0)
         .allowsHitTesting(selectedTab == .sessions)

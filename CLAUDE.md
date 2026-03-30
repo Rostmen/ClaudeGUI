@@ -31,8 +31,9 @@ Tenvy/
 │   │   ├── ClaudeSession.swift     # Session data model
 │   │   ├── PaneSplitTree.swift     # Recursive binary tree for split pane layout
 │   │   ├── SessionManager.swift    # Discovery & FSEvents monitoring
-│   │   ├── SessionListView.swift   # Session list with local selection
-│   │   └── SessionRowView.swift    # Session row with status dot
+│   │   ├── SessionListView.swift   # Session list + SessionListAction enum
+│   │   ├── SessionRowView.swift    # Session row with status dot + drag handle
+│   │   └── SessionDragSource.swift # AppKit drag handle (NSDraggingSource) for active sessions
 │   ├── Terminal/                   # Terminal & process management
 │   │   ├── SessionRuntimeState.swift  # Per-session runtime info (@Observable)
 │   │   ├── ProcessManager.swift    # Process tracking & cleanup
@@ -231,6 +232,23 @@ zsh -l -c '[ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc" 2>/dev/null; exec /pat
 - On change: `AppModel.restartWaitingSessions()` restarts sessions with `hookState == .waiting` so Claude CLI picks up the new theme immediately; sessions with `processing`, `thinking`, or `waitingPermission` are left alone
 - Ghostty appearance: `GhosttyEmbedApp.shared.applyAppearance(isDark:)` rewrites the temp config and calls `reloadConfig()`
 - `ContentView` observes `@Environment(\.colorScheme)` and re-syncs `ClaudeThemeSync` on system appearance change
+
+### Session Drag & Drop
+
+Active sessions in the sidebar can be dragged to merge into split panes or moved to new windows.
+
+**Drag handle**: `SessionDragHandle` — a 16×16 `NSViewRepresentable` at the trailing top of each active session row. Uses `NSDraggingSource` to detect drops outside the window via `draggingSession(_:endedAt:operation:)`. The icon (`hand.tap` SF Symbol) is rendered via `PassthroughImageView` (NSImageView with `hitTest → nil` so mouse events reach the parent).
+
+**Why not `.draggable()` or a full-row overlay?** SwiftUI's `.draggable()` has no drag-end callback. Full-row NSView overlays break `List(selection:)` — no re-dispatch mechanism (`hitTest` toggling, `sendEvent`, local event loops) works reliably.
+
+**Cross-window transfer**: Sessions move between windows without restarting the terminal process:
+1. `AppModel.hostViewTransfers` holds `GhosttyHostView`s during transfer
+2. `AppModel.registeredViewModels` (weak refs) lets the destination find and release from the source
+3. `ghosttyHostView(for:)` auto-checks the transfer store so new windows pick up views seamlessly
+
+**Drop targets**: `.dropDestination(for: String.self)` on session rows (merge into split). Dragging outside the window is detected by `draggingSession(_:endedAt:operation:)` and triggers "move to new window". Pasteboard uses `String.pasteboardItem()` from GhosttyEmbed's `Transferable` extension for format compatibility.
+
+**`SessionListAction` enum**: Consolidates all sidebar callbacks (`select`, `createNew`, `openInNewWindow`, `moveToNewWindow`, `dropOntoSession`, `dragToNewWindow`) into a single `onAction` handler, matching the `TerminalAction` pattern.
 
 ### Split Panes (Ghostty-style)
 

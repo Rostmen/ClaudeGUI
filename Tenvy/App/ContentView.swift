@@ -71,11 +71,11 @@ struct ContentView: View {
         sessionManager: viewModel.sessionDiscovery,
         selectedSession: selectedSessionBinding,
         selectedDiffFile: $viewModel.selectedDiffFile,
-        onCreateNewSession: { viewModel.createNewSession($0) },
-        onSelectSession: { viewModel.selectSession($0) },
+        onAction: { viewModel.handleSessionListAction($0) },
         runtimeState: viewModel.runtimeState,
         activeSessionIds: viewModel.activeSessionIds,
-        activatedSessions: viewModel.activatedSessions
+        activatedSessions: viewModel.activatedSessions,
+        splitSessionIds: viewModel.splitSessionIds
       )
       .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 400)
     } detail: {

@@ -64,6 +64,59 @@ final class AppModel {
 
   let runtimeRegistry: SessionRuntimeRegistry
 
+  // MARK: - Host View Transfer (cross-window session moves)
+
+  /// Temporary store for GhosttyHostViews being transferred between windows.
+  /// Source deposits here; destination picks up.
+  @ObservationIgnored
+  private var hostViewTransfers: [String: GhosttyHostView] = [:]
+
+  /// Weak references to all ContentViewModels so we can coordinate cross-window transfers.
+  @ObservationIgnored
+  private var registeredViewModels: [WeakRef<ContentViewModel>] = []
+
+  private struct WeakRef<T: AnyObject> {
+    weak var value: T?
+  }
+
+  func registerViewModel(_ vm: ContentViewModel) {
+    registeredViewModels.removeAll { $0.value == nil }
+    registeredViewModels.append(WeakRef(value: vm))
+  }
+
+  /// Deposit a host view for cross-window transfer (source calls this).
+  func depositForTransfer(terminalId: String, hostView: GhosttyHostView) {
+    hostViewTransfers[terminalId] = hostView
+  }
+
+  /// Pick up a transferred host view (destination calls this). Removes from store.
+  func pickupTransfer(terminalId: String) -> GhosttyHostView? {
+    hostViewTransfers.removeValue(forKey: terminalId)
+  }
+
+  /// Ask whichever ViewModel owns this session to release it for transfer.
+  /// The owning ViewModel deposits its host view on `hostViewTransfers` and
+  /// removes the session from its split tree / window.
+  func releaseSessionForTransfer(sessionId: String) {
+    registeredViewModels.removeAll { $0.value == nil }
+    for ref in registeredViewModels {
+      guard let vm = ref.value, vm.ownsSession(sessionId) else { continue }
+      vm.prepareForTransfer(sessionId: sessionId)
+      break
+    }
+  }
+
+  /// Route a transferred session to whichever ViewModel owns the target session.
+  /// The destination ViewModel picks up the host view and inserts into its split tree.
+  func mergeTransferredSession(_ session: ClaudeSession, alongside targetSessionId: String) {
+    registeredViewModels.removeAll { $0.value == nil }
+    for ref in registeredViewModels {
+      guard let vm = ref.value, vm.ownsSession(targetSessionId) else { continue }
+      vm.receiveTransferredSession(session, alongside: targetSessionId)
+      break
+    }
+  }
+
   // MARK: - Session models (observable list of facades)
 
   /// Stable `ClaudeSessionModel` instances keyed by `terminalId` — allows the

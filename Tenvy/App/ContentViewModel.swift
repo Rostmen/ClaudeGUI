@@ -107,13 +107,21 @@ final class ContentViewModel {
 
   init(appModel: AppModel) {
     self.appModel = appModel
+    appModel.registerViewModel(self)
   }
 
   // MARK: - GhosttyHostView Cache
 
   /// Returns the cached GhosttyHostView for the given terminal identity, if any.
+  /// Also checks AppModel's transfer store for cross-window moves.
   func ghosttyHostView(for terminalId: String) -> GhosttyHostView? {
-    ghosttyHostViews[terminalId]
+    if let view = ghosttyHostViews[terminalId] { return view }
+    // Auto-pickup from cross-window transfer
+    if let view = appModel.pickupTransfer(terminalId: terminalId) {
+      ghosttyHostViews[terminalId] = view
+      return view
+    }
+    return nil
   }
 
   /// Stores a newly created GhosttyHostView so it survives view-tree restructuring.
@@ -122,14 +130,26 @@ final class ContentViewModel {
   }
 
   /// Removes the cached view, allowing it to deallocate and terminate its process.
+  /// Cleanup is two-phase: the surface is removed from the view hierarchy immediately
+  /// (so Ghostty's C layer stops accessing it), but the host view is kept alive until
+  /// the next run-loop tick so `ghostty_surface_free` completes before the `SurfaceView`
+  /// deallocates — otherwise the C-layer userdata pointer dangles (BAD_ACCESS).
   func evictGhosttyHostView(terminalId: String) {
-    ghosttyHostViews.removeValue(forKey: terminalId)
+    guard let hostView = ghosttyHostViews.removeValue(forKey: terminalId) else { return }
+    hostView.close()
+    DispatchQueue.main.async { [hostView] in _ = hostView }
   }
 
   // MARK: - Computed Properties
 
   /// Whether split mode is active
   var isInSplitMode: Bool { splitTree != nil }
+
+  /// Session IDs currently in this window's split tree.
+  var splitSessionIds: Set<String> {
+    guard let tree = splitTree else { return [] }
+    return Set(tree.allSessions.map(\.id))
+  }
 
   /// The session registered to this window (the "primary" or first pane).
   /// When a split pane is focused, selectedSession may differ from this.
@@ -201,15 +221,11 @@ final class ContentViewModel {
       return
     }
 
-    // If this window already has a different session, open in a new tab
-    if selectedSession != nil {
-      // Store the session to open in the new tab
-      // Use activated session if available (preserves terminalId)
+    // If this window already has a different session, open as a split pane
+    if let focused = selectedSession ?? primarySession {
       let sessionToOpen = appModel.activatedSessions[session.id] ?? session
-      windowRegistry.pendingSessionForNewTab = sessionToOpen
-      // Open new tab - this triggers a new ContentView which will pick up the pending session
-      currentWindow?.selectNextTab(nil)
-      NSApp.sendAction(#selector(NSWindow.newWindowForTab(_:)), to: nil, from: nil)
+      appModel.activateSession(sessionToOpen)
+      insertSplitPane(sessionToOpen, at: focused.id, direction: .right)
       return
     }
 
@@ -218,6 +234,148 @@ final class ContentViewModel {
     let sessionToSelect = appModel.activatedSessions[session.id] ?? session
     clearDetailSelection()
     setSelectedSession(sessionToSelect)
+  }
+
+  /// Open a session in a new window/tab (used by sidebar context menu).
+  func openInNewWindow(_ session: ClaudeSession) {
+    let sessionToOpen = appModel.activatedSessions[session.id] ?? session
+    appModel.activateSession(sessionToOpen)
+    windowRegistry.pendingSessionForNewTab = sessionToOpen
+    currentWindow?.selectNextTab(nil)
+    NSApp.sendAction(#selector(NSWindow.newWindowForTab(_:)), to: nil, from: nil)
+  }
+
+  /// Move an active split-pane session to a new window/tab.
+  /// Transfers the host view without restarting the process.
+  func moveToNewWindow(_ session: ClaudeSession) {
+    guard isInSplitMode else { return }
+    handleDragToNewWindow(sessionId: session.id)
+  }
+
+  // MARK: - Drag & Drop Transfer
+
+  /// Whether this ViewModel owns the given session (for cross-window transfer).
+  func ownsSession(_ sessionId: String) -> Bool {
+    if selectedSession?.id == sessionId { return true }
+    if splitTree?.contains(sessionId: sessionId) == true { return true }
+    return false
+  }
+
+  /// Release a session for transfer to another window.
+  /// Extracts the host view (without closing it), deposits on AppModel,
+  /// and removes the session from this window's split tree / selection.
+  func prepareForTransfer(sessionId: String) {
+    let session: ClaudeSession?
+    if let s = splitTree?.allSessions.first(where: { $0.id == sessionId }) {
+      session = s
+    } else if selectedSession?.id == sessionId {
+      session = selectedSession
+    } else {
+      return
+    }
+    guard let session else { return }
+
+    // Extract host view WITHOUT closing — deposit for the destination to pick up
+    if let hostView = ghosttyHostViews.removeValue(forKey: session.terminalId) {
+      appModel.depositForTransfer(terminalId: session.terminalId, hostView: hostView)
+    }
+
+    // Remove from this window's structure (without deactivating — session stays alive)
+    if isInSplitMode && splitTree?.contains(sessionId: sessionId) == true {
+      let wasSelected = selectedSession?.id == sessionId
+      let wasPrimary = currentWindow?.sessionId == sessionId
+
+      if let newTree = splitTree?.removing(sessionId: sessionId) {
+        let remaining = newTree.allSessions
+        if remaining.count <= 1 {
+          splitTree = nil
+          if wasSelected { selectedSession = remaining.first ?? primarySession }
+        } else {
+          splitTree = newTree
+          if wasSelected { selectedSession = primarySession ?? remaining.first }
+        }
+      } else {
+        splitTree = nil
+        if wasSelected { selectedSession = nil }
+      }
+
+      // Update window registration if the primary was removed
+      if wasPrimary, let window = currentWindow {
+        let newPrimary = splitTree?.allSessions.first ?? selectedSession
+        if let p = newPrimary {
+          appModel.windowRegistry.register(sessionId: p.id, for: window)
+          window.sessionId = p.id
+          window.title = p.title
+        } else {
+          appModel.windowRegistry.unregister(sessionId: sessionId)
+          window.sessionId = nil
+          window.title = "Tenvy"
+          windowConfigured = false
+        }
+      }
+    } else {
+      // Single session — clear this window
+      if let window = currentWindow {
+        appModel.windowRegistry.unregister(sessionId: sessionId)
+        window.sessionId = nil
+        window.title = "Tenvy"
+        windowConfigured = false
+      }
+      selectedSession = nil
+    }
+
+    // Close the now-empty window (unless it's the last visible one)
+    if selectedSession == nil && !isInSplitMode, let window = currentWindow {
+      let visibleWindows = NSApp.windows.filter { $0.isVisible && $0 != window }
+      if !visibleWindows.isEmpty {
+        window.close()
+      }
+    }
+  }
+
+  /// Handle a session dropped onto another active session in this window's sidebar.
+  /// Routes the merge to whichever window owns the target session.
+  func handleDropSession(droppedSessionId: String, ontoTargetId: String) {
+    guard droppedSessionId != ontoTargetId else { return }
+    guard let droppedSession = appModel.activatedSessions[droppedSessionId] else { return }
+
+    // Release the dragged session from wherever it currently lives
+    appModel.releaseSessionForTransfer(sessionId: droppedSessionId)
+
+    // Route to the ViewModel that owns the target session
+    if ownsSession(ontoTargetId) {
+      // Target is in this window — handle directly
+      receiveTransferredSession(droppedSession, alongside: ontoTargetId)
+    } else {
+      // Target is in another window — delegate via AppModel
+      appModel.mergeTransferredSession(droppedSession, alongside: ontoTargetId)
+    }
+  }
+
+  /// Receive a transferred session and insert it alongside an existing session.
+  /// Called directly (same window) or via AppModel (cross-window).
+  func receiveTransferredSession(_ session: ClaudeSession, alongside targetSessionId: String) {
+    if let hostView = appModel.pickupTransfer(terminalId: session.terminalId) {
+      ghosttyHostViews[session.terminalId] = hostView
+    }
+    appModel.activateSession(session)
+    insertSplitPane(session, at: targetSessionId, direction: .right)
+  }
+
+  /// Handle a session dragged to the "New Window" drop zone.
+  /// Transfers the host view to a new window without restarting the process.
+  func handleDragToNewWindow(sessionId: String) {
+    guard let session = appModel.activatedSessions[sessionId] else { return }
+
+    // Release from current location (deposits host view on AppModel)
+    appModel.releaseSessionForTransfer(sessionId: sessionId)
+
+    // The host view stays on AppModel's transfer store —
+    // the new window's ViewModel picks it up via ghosttyHostView(for:) auto-pickup.
+    appModel.activateSession(session)
+    windowRegistry.pendingSessionForNewTab = session
+    currentWindow?.selectNextTab(nil)
+    NSApp.sendAction(#selector(NSWindow.newWindowForTab(_:)), to: nil, from: nil)
   }
 
   /// Create and select a new session
@@ -485,6 +643,25 @@ final class ContentViewModel {
     }
     splitTree = nil
     if let primary { selectedSession = primary }
+  }
+
+  // MARK: - Session List Action Handler
+
+  func handleSessionListAction(_ action: SessionListAction) {
+    switch action {
+    case .select(let session):
+      selectSession(session)
+    case .createNew(let session):
+      createNewSession(session)
+    case .openInNewWindow(let session):
+      openInNewWindow(session)
+    case .moveToNewWindow(let session):
+      moveToNewWindow(session)
+    case .dropOntoSession(let droppedId, let targetId):
+      handleDropSession(droppedSessionId: droppedId, ontoTargetId: targetId)
+    case .dragToNewWindow(let sessionId):
+      handleDragToNewWindow(sessionId: sessionId)
+    }
   }
 
   // MARK: - Terminal Action Handler
