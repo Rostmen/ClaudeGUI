@@ -11,6 +11,7 @@ macOS app for managing and resuming Claude Code CLI sessions with a native trans
 - **Split Panes**: Tree-based split layout (Ghostty-style) — splitting only divides the focused pane, not all panes. Both splits and new session creation intercept to offer git worktree creation for parallel branch work
 - **Multi-Window Support**: Each session runs in isolated window/tab with single process
 - **Inspector Panel**: Collapsible right-side panel with branch switcher and path info (⌘⌥I)
+- **Open in IDE**: Detects project type and installed IDEs, toolbar button to open in matched IDE
 - **Git Changes**: Modified files tree with syntax-highlighted diffs
 - **Notifications**: macOS notifications for waiting/permission states via Claude Code hooks
 - **Glass UI**: Transparent window with dark overlay
@@ -45,7 +46,11 @@ Tenvy/
 │   │   ├── ClaudeSessionTerminalView.swift  # Claude session terminal (NSViewRepresentable)
 │   │   ├── PlainTerminalView.swift # Plain shell terminal (NSViewRepresentable)
 │   │   ├── PaneSplitView.swift     # Two-pane split view with draggable divider
-│   │   ├── PaneHeaderView.swift   # Pane header bar with title + drag source for rearrangement
+│   │   ├── PaneHeader/            # Pane header bar components
+│   │   │   ├── PaneHeaderView.swift       # Header bar with title, status dot, close button
+│   │   │   ├── PaneHeaderDragSource.swift # AppKit drag source for pane rearrangement
+│   │   │   ├── PaneHeaderCloseButton.swift # Close button with hover highlight
+│   │   │   └── IDEHeaderButton.swift      # IDE open button with optional dropdown
 │   │   ├── PaneDropZone.swift     # Drop zone calculation + overlay (ported from Ghostty)
 │   │   ├── EmptyTerminalView.swift # Empty state placeholder
 │   │   ├── ClaudePathResolver.swift   # Finds claude CLI binary
@@ -54,6 +59,8 @@ Tenvy/
 │   │   ├── HookInstallationService.swift  # Claude Code hook setup
 │   │   ├── HookInstallationPromptView.swift  # Hook install prompt UI
 │   │   └── HookEventService.swift  # Reads hook events file
+│   ├── IDE/                        # IDE detection & "Open in" integration
+│   │   └── IDEDetectionService.swift  # Detects project type & installed IDEs
 │   ├── Inspector/                  # Right-side inspector panel
 │   │   └── InspectorPanelView.swift  # Session inspector (branch switcher, paths)
 │   ├── Git/                        # Git integration

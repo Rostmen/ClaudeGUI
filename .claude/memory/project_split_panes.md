@@ -53,9 +53,9 @@ This sets `focused = false` on every new surface. Focus is granted only via `mak
 
 ## Pane Headers & Drag-to-Rearrange
 
-Every pane has a `PaneHeaderView` (always visible, single or split mode): 30px height, title left, close button right.
+Every pane has a `PaneHeaderView` (always visible, single or split mode): 30px height, title left, IDE button + close button right. Files are in `Tenvy/Features/Terminal/PaneHeader/` folder (split from the original monolithic file).
 
-**Drag**: `PaneHeaderDragSourceNSView` (AppKit NSDraggingSource) encodes `terminalId` on pasteboard as `com.tenvy.paneId` UTType. 20%-scaled terminal snapshot as drag image. Follows Ghostty's `SurfaceDragSourceView` pattern.
+**Drag**: `PaneHeaderDragSourceNSView` (in `PaneHeaderDragSource.swift`, AppKit NSDraggingSource) encodes `terminalId` on pasteboard as `com.tenvy.paneId` UTType. 20%-scaled terminal snapshot as drag image. Follows Ghostty's `SurfaceDragSourceView` pattern. Trailing inset is dynamic — expands when IDE button is present to pass through clicks to SwiftUI.
 
 **Drop**: `PaneDropDelegate` (SwiftUI DropDelegate) on each `PaneLeafView`. `PaneDropZone` (ported from Ghostty's `TerminalSplitDropZone`) determines split direction via triangular edge detection.
 
