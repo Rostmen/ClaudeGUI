@@ -429,7 +429,7 @@ private struct PaneLeafView: View {
           runtimeInfo: viewModel.runtimeState.info(for: session.id),
           isActive: viewModel.appModel.isSessionActivated(session.id),
           ideResult: isClaudeSession ? viewModel.ideDetectionResult(for: session) : nil,
-          projectPath: isClaudeSession ? (session.projectPath.isEmpty ? session.workingDirectory : session.projectPath) : nil,
+          projectPath: isClaudeSession ? (session.workingDirectory.isEmpty ? session.projectPath : session.workingDirectory) : nil,
           snapshotProvider: { [weak viewModel] in
             viewModel?.ghosttyHostView(for: session.terminalId)?.snapshotImage
           },

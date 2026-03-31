@@ -1275,7 +1275,7 @@ final class ContentViewModel {
 
   /// Returns IDE detection result for a given session, using a cache.
   func ideDetectionResult(for session: ClaudeSession) -> IDEDetectionResult {
-    let path = session.projectPath.isEmpty ? session.workingDirectory : session.projectPath
+    let path = session.workingDirectory.isEmpty ? session.projectPath : session.workingDirectory
     guard !path.isEmpty else { return .empty }
 
     if let cached = ideDetectionCache[path] {
