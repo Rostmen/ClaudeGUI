@@ -27,8 +27,8 @@ struct SessionRowView: View {
   /// Whether this session is in the activated set — the single source of truth for "active".
   /// Passed by the parent list which owns `activeSessionIds`.
   var isActive: Bool = false
-  /// Callback for drag-to-new-window. When set, a drag handle appears for active sessions.
-  var onDragToNewWindow: ((String) -> Void)?
+  /// Override title (e.g. for plain terminals whose Ghostty surface title changes at runtime).
+  var titleOverride: String?
 
   /// Animation state for blinking dot
   @State private var isBlinking = false
@@ -45,24 +45,9 @@ struct SessionRowView: View {
   
   /// Status dot color based on hook state (only if active) or CPU state
   private var statusColor: Color {
-    // Only use hook state if session is active (has running process)
     if isActive, let hookState = runtimeInfo.hookState {
-      switch hookState {
-        case .thinking, .processing:
-          return .yellow  // Working
-        case .waiting:
-          return .green   // Ready for input
-        case .waitingPermission:
-          return .red     // Waiting for permission approval
-        case .started:
-          return .blue    // Just started
-        case .ended:
-          return .gray    // Session ended
-        case .unknown:
-          return .green
-      }
+      return hookState.statusColor
     }
-    // Fallback to CPU-based state or inactive
     return isActive ? .green : .gray
   }
   
@@ -96,15 +81,6 @@ struct SessionRowView: View {
         statusUpdateDot
         sessionNameRow
         Spacer()
-        if isActive, onDragToNewWindow != nil {
-          SessionDragHandle(
-            sessionId: session.id,
-            session: session,
-            runtime: runtimeInfo,
-            onDragToNewWindow: onDragToNewWindow
-          )
-          .frame(width: 16, height: 16)
-        }
       }
       .fixedSize(horizontal: false, vertical: true)
       HStack(spacing: 0) {
@@ -138,7 +114,7 @@ struct SessionRowView: View {
   }
   
   @ViewBuilder var sessionNameRow: some View {
-    Text(session.title)
+    Text(titleOverride ?? session.title)
       .font(.headline)
       .foregroundColor(ClaudeTheme.textPrimary)
       .lineLimit(1)
@@ -275,17 +251,17 @@ private func formatToolName(_ tool: String) -> String {
     Divider()
     SessionRowView(sessionModel: .previewInactiveWithBranch)
     Divider()
-    SessionRowView(sessionModel: .previewThinking, onDragToNewWindow: { _ in })
+    SessionRowView(sessionModel: .previewThinking)
     Divider()
-    SessionRowView(sessionModel: .previewRunningBash, onDragToNewWindow: { _ in })
+    SessionRowView(sessionModel: .previewRunningBash)
     Divider()
-    SessionRowView(sessionModel: .previewWaiting, onDragToNewWindow: { _ in })
+    SessionRowView(sessionModel: .previewWaiting)
     Divider()
-    SessionRowView(sessionModel: .previewWaitingPermission, onDragToNewWindow: { _ in })
+    SessionRowView(sessionModel: .previewWaitingPermission)
     Divider()
-    SessionRowView(sessionModel: .previewProcessing, onDragToNewWindow: { _ in })
+    SessionRowView(sessionModel: .previewProcessing)
     Divider()
-    SessionRowView(sessionModel: .previewStarted, onDragToNewWindow: { _ in })
+    SessionRowView(sessionModel: .previewStarted)
     Divider()
     SessionRowView(sessionModel: .previewNoGit)
   }

@@ -34,10 +34,6 @@ enum SessionListAction {
   case openInNewWindow(ClaudeSession)
   /// Context menu: move active split session to a new window.
   case moveToNewWindow(ClaudeSession)
-  /// Drag: dropped a session onto another to merge into split.
-  case dropOntoSession(droppedSessionId: String, targetSessionId: String)
-  /// Drag: session dragged to "New Window" zone or outside the window.
-  case dragToNewWindow(sessionId: String)
 }
 
 struct SessionListView: View {
@@ -49,6 +45,8 @@ struct SessionListView: View {
   var activatedSessions: [String: ClaudeSession]
   /// Session IDs that are part of this window's split tree.
   var splitSessionIds: Set<String> = []
+  /// Runtime titles for plain terminals (keyed by terminalId).
+  var plainTerminalTitles: [String: String] = [:]
 
   /// Local selection state for responsive UI - synced with selectedSession
   @State private var localSelection: ClaudeSession?
@@ -65,7 +63,6 @@ struct SessionListView: View {
   @State private var isImporting = false
   @State private var importError: String?
   @State private var showImportError = false
-  @State private var dropTargetedSessionId: String?
 
   /// Active sessions shown at the top (includes optimistic new sessions)
   private var activeSessions: [ClaudeSession] {
@@ -160,24 +157,9 @@ struct SessionListView: View {
             SessionRowView(
               sessionModel: ClaudeSessionModel(session: session, runtime: runtimeState.info(for: session.id)),
               isActive: true,
-              onDragToNewWindow: { sessionId in onAction(.dragToNewWindow(sessionId: sessionId)) }
+              titleOverride: plainTerminalTitles[session.terminalId]
             )
               .tag(session)
-              .dropDestination(for: String.self) { items, _ in
-                dropTargetedSessionId = nil
-                guard let droppedId = items.first, droppedId != session.id else { return false }
-                onAction(.dropOntoSession(droppedSessionId: droppedId, targetSessionId: session.id))
-                return true
-              } isTargeted: { targeted in
-                dropTargetedSessionId = targeted ? session.id : nil
-              }
-              .overlay {
-                if dropTargetedSessionId == session.id {
-                  RoundedRectangle(cornerRadius: 6)
-                    .stroke(Color.accentColor, lineWidth: 2)
-                    .allowsHitTesting(false)
-                }
-              }
               .contextMenu { sessionContextMenu(for: session) }
           }
 

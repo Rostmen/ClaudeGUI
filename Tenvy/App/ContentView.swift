@@ -75,7 +75,8 @@ struct ContentView: View {
         runtimeState: viewModel.runtimeState,
         activeSessionIds: viewModel.activeSessionIds,
         activatedSessions: viewModel.activatedSessions,
-        splitSessionIds: viewModel.splitSessionIds
+        splitSessionIds: viewModel.splitSessionIds,
+        plainTerminalTitles: viewModel.plainTerminalTitles
       )
       .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 400)
     } detail: {
@@ -270,36 +271,12 @@ private struct DetailView<Key: PreferenceKey>: View where Key.Value == CGRect {
       } else if let session = viewModel.selectedSession,
                 viewModel.shouldRenderTerminal(for: session) {
         // Normal single-terminal mode
-        if viewModel.isPlainTerminal(session.terminalId) {
-          PlainTerminalView(
-            workingDirectory: session.workingDirectory,
-            isSelected: viewModel.isTerminalVisible,
-            initScript: viewModel.initScript(for: session.terminalId),
-            onAction: { viewModel.handleTerminalAction($0, for: session) },
-            existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
-            onHostViewCreated: { viewModel.cacheGhosttyHostView($0, terminalId: session.terminalId) }
-          )
+        PaneLeafView(session: session, viewModel: viewModel, isSplitPane: false)
           .id(session.terminalId)
           .opacity(viewModel.isTerminalVisible ? 1 : 0)
           .allowsHitTesting(viewModel.isTerminalVisible)
           .background(terminalFrameReader(visible: viewModel.isTerminalVisible))
           .padding(16)
-        } else {
-          ClaudeSessionTerminalView(
-            session: session,
-            isSelected: viewModel.isTerminalVisible,
-            forkSourceSessionId: viewModel.forkSourceSessionId(for: session.terminalId),
-            initScript: viewModel.initScript(for: session.terminalId),
-            onAction: { viewModel.handleTerminalAction($0, for: session) },
-            existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
-            onHostViewCreated: { viewModel.cacheGhosttyHostView($0, terminalId: session.terminalId) }
-          )
-          .id(session.terminalId)
-          .opacity(viewModel.isTerminalVisible ? 1 : 0)
-          .allowsHitTesting(viewModel.isTerminalVisible)
-          .background(terminalFrameReader(visible: viewModel.isTerminalVisible))
-          .padding(16)
-        }
       }
 
       // Diff View (shown when diff file is selected)
@@ -366,29 +343,169 @@ private struct PaneSplitTreeRenderer: View {
   @ViewBuilder
   private func leafView(session: ClaudeSession) -> some View {
     if viewModel.shouldRenderTerminal(for: session) {
-      if viewModel.isPlainTerminal(session.terminalId) {
-        PlainTerminalView(
-          workingDirectory: session.workingDirectory,
+      PaneLeafView(session: session, viewModel: viewModel, isSplitPane: true)
+    }
+  }
+}
+
+// MARK: - PaneLeafView
+
+/// Wraps a terminal view with a header bar and drop zone overlay.
+/// Used in both single-pane mode (DetailView) and split mode (PaneSplitTreeRenderer).
+private struct PaneLeafView: View {
+  let session: ClaudeSession
+  let viewModel: ContentViewModel
+  var isSplitPane: Bool = false
+
+  @State private var dropZone: PaneDropZone?
+
+  /// Reactive title: reads from session manager (Claude) or observed surface title (plain terminal).
+  private var paneTitle: String {
+    if viewModel.isPlainTerminal(session.terminalId) {
+      return viewModel.plainTerminalTitles[session.terminalId] ?? "Terminal"
+    }
+    // Read from session manager for latest title (triggers @Observable re-render on rename)
+    if let updated = viewModel.sessionDiscovery.sessions.first(where: { $0.id == session.id }) {
+      return updated.title
+    }
+    return session.title
+  }
+
+  var body: some View {
+    GeometryReader { geometry in
+      VStack(spacing: 0) {
+        PaneHeaderView(
+          title: paneTitle,
+          terminalId: session.terminalId,
           isSelected: viewModel.selectedSession?.id == session.id,
-          initScript: viewModel.initScript(for: session.terminalId),
-          onAction: { viewModel.handleTerminalAction($0, for: session) },
-          existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
-          onHostViewCreated: { viewModel.cacheGhosttyHostView($0, terminalId: session.terminalId) }
+          runtimeInfo: viewModel.runtimeState.info(for: session.id),
+          isActive: viewModel.appModel.isSessionActivated(session.id),
+          snapshotProvider: { [weak viewModel] in
+            viewModel?.ghosttyHostView(for: session.terminalId)?.snapshotImage
+          },
+          onAction: { action in
+            switch action {
+            case .closeRequested:
+              viewModel.closePaneByTerminalId(session.terminalId)
+            }
+          }
         )
-        .id(session.terminalId)
-      } else {
-        ClaudeSessionTerminalView(
-          session: session,
-          isSelected: viewModel.selectedSession?.id == session.id,
-          forkSourceSessionId: viewModel.forkSourceSessionId(for: session.terminalId),
-          initScript: viewModel.initScript(for: session.terminalId),
-          onAction: { viewModel.handleSplitTerminalAction($0, for: session) },
-          existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
-          onHostViewCreated: { viewModel.cacheGhosttyHostView($0, terminalId: session.terminalId) }
+
+        ZStack {
+          terminalView
+
+          if let zone = dropZone {
+            zone.overlay(in: geometry.size)
+              .allowsHitTesting(false)
+          }
+        }
+      }
+      .onDrop(of: [.tenvyPaneId], delegate: PaneDropDelegate(
+        destinationTerminalId: session.terminalId,
+        dropZone: $dropZone,
+        viewSize: geometry.size,
+        headerHeight: 30,
+        viewModel: viewModel
+      ))
+    }
+  }
+
+  @ViewBuilder
+  private var terminalView: some View {
+    if viewModel.isPlainTerminal(session.terminalId) {
+      PlainTerminalView(
+        workingDirectory: session.workingDirectory,
+        isSelected: viewModel.selectedSession?.id == session.id,
+        initScript: viewModel.initScript(for: session.terminalId),
+        onAction: { action in
+          if isSplitPane {
+            viewModel.handleSplitTerminalAction(action, for: session)
+          } else {
+            viewModel.handleTerminalAction(action, for: session)
+          }
+        },
+        existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
+        onHostViewCreated: { viewModel.cacheGhosttyHostView($0, terminalId: session.terminalId) }
+      )
+      .id(session.terminalId)
+    } else {
+      ClaudeSessionTerminalView(
+        session: session,
+        isSelected: viewModel.selectedSession?.id == session.id,
+        forkSourceSessionId: viewModel.forkSourceSessionId(for: session.terminalId),
+        initScript: viewModel.initScript(for: session.terminalId),
+        onAction: { action in
+          if isSplitPane {
+            viewModel.handleSplitTerminalAction(action, for: session)
+          } else {
+            viewModel.handleTerminalAction(action, for: session)
+          }
+        },
+        existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
+        onHostViewCreated: { viewModel.cacheGhosttyHostView($0, terminalId: session.terminalId) }
+      )
+      .id(session.terminalId)
+    }
+  }
+}
+
+// MARK: - PaneDropDelegate
+
+/// SwiftUI DropDelegate that calculates drop zones and triggers pane moves.
+private struct PaneDropDelegate: DropDelegate {
+  let destinationTerminalId: String
+  @Binding var dropZone: PaneDropZone?
+  let viewSize: CGSize
+  let headerHeight: CGFloat
+  let viewModel: ContentViewModel
+
+  func validateDrop(info: DropInfo) -> Bool {
+    info.hasItemsConforming(to: [.tenvyPaneId])
+  }
+
+  func dropEntered(info: DropInfo) {
+    updateZone(at: info.location)
+  }
+
+  func dropUpdated(info: DropInfo) -> DropProposal? {
+    guard dropZone != nil else { return DropProposal(operation: .forbidden) }
+    updateZone(at: info.location)
+    return DropProposal(operation: .move)
+  }
+
+  func dropExited(info: DropInfo) {
+    dropZone = nil
+  }
+
+  func performDrop(info: DropInfo) -> Bool {
+    let zone = PaneDropZone.calculate(at: adjustedPoint(info.location), in: viewSize)
+    dropZone = nil
+
+    guard let item = info.itemProviders(for: [.tenvyPaneId]).first else { return false }
+
+    item.loadItem(forTypeIdentifier: "com.tenvy.paneId", options: nil) { data, _ in
+      guard let data = data as? Data,
+            let sourceTerminalId = String(data: data, encoding: .utf8) else { return }
+      guard sourceTerminalId != destinationTerminalId else { return }
+
+      DispatchQueue.main.async {
+        viewModel.movePaneToSplit(
+          sourceTerminalId: sourceTerminalId,
+          destinationTerminalId: destinationTerminalId,
+          zone: zone
         )
-        .id(session.terminalId)
       }
     }
+    return true
+  }
+
+  private func updateZone(at point: CGPoint) {
+    dropZone = PaneDropZone.calculate(at: adjustedPoint(point), in: viewSize)
+  }
+
+  /// Adjust drop point to account for header height offset.
+  private func adjustedPoint(_ point: CGPoint) -> CGPoint {
+    CGPoint(x: point.x, y: max(0, point.y - headerHeight))
   }
 }
 

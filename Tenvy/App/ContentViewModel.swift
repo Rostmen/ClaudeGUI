@@ -21,7 +21,9 @@
 // SOFTWARE.
 
 import AppKit
+import Combine
 import Foundation
+import GhosttyEmbed
 
 // MARK: - Worktree Split Types
 
@@ -127,9 +129,21 @@ final class ContentViewModel {
   @ObservationIgnored
   private var plainTerminalIds: Set<String> = []
 
+  /// Observable titles for plain terminals (updated by Ghostty surface title publisher).
+  /// Claude sessions read titles from `sessionDiscovery.sessions` instead.
+  var plainTerminalTitles: [String: String] = [:]
+
+  /// Combine subscriptions for Ghostty surface title updates.
+  @ObservationIgnored
+  private var titleCancellables: [String: AnyCancellable] = [:]
+
   /// Per-terminal init script overrides (keyed by terminalId). Consumed on first access.
   @ObservationIgnored
   private var splitInitScripts: [String: String] = [:]
+
+  /// Observer for pane drag-ended-outside-window notifications.
+  @ObservationIgnored
+  private var paneDragObserver: NSObjectProtocol?
 
   // MARK: - Dependencies
 
@@ -141,6 +155,23 @@ final class ContentViewModel {
   init(appModel: AppModel) {
     self.appModel = appModel
     appModel.registerViewModel(self)
+
+    paneDragObserver = NotificationCenter.default.addObserver(
+      forName: .paneDragEndedNoTarget,
+      object: nil,
+      queue: .main
+    ) { [weak self] notification in
+      guard let self,
+            let terminalId = notification.userInfo?[Notification.paneDragTerminalIdKey] as? String,
+            self.ownsTerminal(terminalId) else { return }
+      self.handlePaneDragToNewWindow(terminalId: terminalId)
+    }
+  }
+
+  deinit {
+    if let paneDragObserver {
+      NotificationCenter.default.removeObserver(paneDragObserver)
+    }
   }
 
   // MARK: - GhosttyHostView Cache
@@ -160,6 +191,14 @@ final class ContentViewModel {
   /// Stores a newly created GhosttyHostView so it survives view-tree restructuring.
   func cacheGhosttyHostView(_ view: GhosttyHostView, terminalId: String) {
     ghosttyHostViews[terminalId] = view
+    // Subscribe to surface title changes for plain terminals
+    if isPlainTerminal(terminalId), let surface = view.surface {
+      titleCancellables[terminalId] = surface.titlePublisher
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] newTitle in
+          self?.plainTerminalTitles[terminalId] = newTitle.isEmpty ? "Terminal" : newTitle
+        }
+    }
   }
 
   /// Removes the cached view, allowing it to deallocate and terminate its process.
@@ -169,6 +208,8 @@ final class ContentViewModel {
   /// deallocates — otherwise the C-layer userdata pointer dangles (BAD_ACCESS).
   func evictGhosttyHostView(terminalId: String) {
     guard let hostView = ghosttyHostViews.removeValue(forKey: terminalId) else { return }
+    titleCancellables.removeValue(forKey: terminalId)
+    plainTerminalTitles.removeValue(forKey: terminalId)
     hostView.close()
     DispatchQueue.main.async { [hostView] in _ = hostView }
   }
@@ -287,6 +328,11 @@ final class ContentViewModel {
 
   // MARK: - Drag & Drop Transfer
 
+  /// Whether this ViewModel owns a terminal with the given terminalId.
+  func ownsTerminal(_ terminalId: String) -> Bool {
+    ghosttyHostViews[terminalId] != nil
+  }
+
   /// Whether this ViewModel owns the given session (for cross-window transfer).
   func ownsSession(_ sessionId: String) -> Bool {
     if selectedSession?.id == sessionId { return true }
@@ -351,33 +397,38 @@ final class ContentViewModel {
     }
   }
 
-  /// Handle a session dropped onto another active session in this window's sidebar.
-  /// Routes the merge to whichever window owns the target session.
-  func handleDropSession(droppedSessionId: String, ontoTargetId: String) {
-    guard droppedSessionId != ontoTargetId else { return }
-    guard let droppedSession = appModel.activatedSessions[droppedSessionId] else { return }
-
-    // Release the dragged session from wherever it currently lives
-    appModel.releaseSessionForTransfer(sessionId: droppedSessionId)
-
-    // Route to the ViewModel that owns the target session
-    if ownsSession(ontoTargetId) {
-      // Target is in this window — handle directly
-      receiveTransferredSession(droppedSession, alongside: ontoTargetId)
-    } else {
-      // Target is in another window — delegate via AppModel
-      appModel.mergeTransferredSession(droppedSession, alongside: ontoTargetId)
-    }
-  }
-
   /// Receive a transferred session and insert it alongside an existing session.
   /// Called directly (same window) or via AppModel (cross-window).
-  func receiveTransferredSession(_ session: ClaudeSession, alongside targetSessionId: String) {
+  func receiveTransferredSession(_ session: ClaudeSession, alongside targetSessionId: String, direction: SplitDirection = .right) {
     if let hostView = appModel.pickupTransfer(terminalId: session.terminalId) {
       ghosttyHostViews[session.terminalId] = hostView
+      // Re-subscribe to title updates for plain terminals
+      if plainTerminalIds.contains(session.terminalId), let surface = hostView.surface {
+        titleCancellables[session.terminalId] = surface.titlePublisher
+          .receive(on: DispatchQueue.main)
+          .sink { [weak self] newTitle in
+            self?.plainTerminalTitles[session.terminalId] = newTitle.isEmpty ? "Terminal" : newTitle
+          }
+      }
     }
     appModel.activateSession(session)
-    insertSplitPane(session, at: targetSessionId, direction: .right)
+    insertSplitPane(session, at: targetSessionId, direction: direction)
+  }
+
+  /// Handle a pane header dragged outside any window — open in a new window.
+  private func handlePaneDragToNewWindow(terminalId: String) {
+    // Find the session by terminalId
+    guard let session = findSessionByTerminalId(terminalId) else { return }
+    handleDragToNewWindow(sessionId: session.id)
+  }
+
+  /// Find a session by terminalId, searching local state and activated sessions.
+  private func findSessionByTerminalId(_ terminalId: String) -> ClaudeSession? {
+    if let tree = splitTree, let s = tree.allSessions.first(where: { $0.terminalId == terminalId }) {
+      return s
+    }
+    if selectedSession?.terminalId == terminalId { return selectedSession }
+    return appModel.activatedSessions.values.first(where: { $0.terminalId == terminalId })
   }
 
   /// Handle a session dragged to the "New Window" drop zone.
@@ -768,6 +819,7 @@ final class ContentViewModel {
     plainTerminalIds.contains(terminalId)
   }
 
+
   /// Returns and consumes the source session ID for fork, if applicable.
   func forkSourceSessionId(for terminalId: String) -> String? {
     pendingForkSessions.removeValue(forKey: terminalId)
@@ -874,6 +926,65 @@ final class ContentViewModel {
     }
   }
 
+  /// Move a pane from one position to another (same-window rearrange or cross-window transfer).
+  func movePaneToSplit(sourceTerminalId: String, destinationTerminalId: String, zone: PaneDropZone) {
+    guard sourceTerminalId != destinationTerminalId else { return }
+
+    let direction = zone.splitDirection
+
+    // Find destination session (must be in this window)
+    let localSessions: [ClaudeSession]
+    if let tree = splitTree {
+      localSessions = tree.allSessions
+    } else if let session = selectedSession {
+      localSessions = [session]
+    } else {
+      return
+    }
+    guard let destSession = localSessions.first(where: { $0.terminalId == destinationTerminalId }) else { return }
+
+    // Check if source is in this window
+    if let sourceSession = localSessions.first(where: { $0.terminalId == sourceTerminalId }) {
+      // Same-window move within split tree
+      guard let tree = splitTree else { return }
+      guard let newTree = tree.moving(sessionId: sourceSession.id, toDestination: destSession.id, direction: direction) else {
+        return
+      }
+      let remaining = newTree.allSessions
+      if remaining.count <= 1 {
+        splitTree = nil
+        selectedSession = remaining.first
+        bindWindowToSession(remaining.first)
+      } else {
+        splitTree = newTree
+        selectedSession = sourceSession
+      }
+    } else {
+      // Cross-window: source is in another window
+      guard let sourceSession = appModel.activatedSessions.values.first(where: { $0.terminalId == sourceTerminalId }) else { return }
+
+      // Release from source window (deposits host view on AppModel)
+      appModel.releaseSessionForTransfer(sessionId: sourceSession.id)
+
+      // Receive into this window alongside the destination
+      receiveTransferredSession(sourceSession, alongside: destSession.id, direction: direction)
+    }
+  }
+
+  /// Close a pane identified by terminalId (called from the pane header close button).
+  func closePaneByTerminalId(_ terminalId: String) {
+    let session: ClaudeSession?
+    if let tree = splitTree {
+      session = tree.allSessions.first(where: { $0.terminalId == terminalId })
+    } else if selectedSession?.terminalId == terminalId {
+      session = selectedSession
+    } else {
+      session = nil
+    }
+    guard let session else { return }
+    handleCloseRequested(for: session)
+  }
+
   /// Close all split panes and return to single-terminal mode.
   func closeSplit() {
     let primary = primarySession
@@ -901,10 +1012,6 @@ final class ContentViewModel {
       openInNewWindow(session)
     case .moveToNewWindow(let session):
       moveToNewWindow(session)
-    case .dropOntoSession(let droppedId, let targetId):
-      handleDropSession(droppedSessionId: droppedId, ontoTargetId: targetId)
-    case .dragToNewWindow(let sessionId):
-      handleDragToNewWindow(sessionId: sessionId)
     }
   }
 
@@ -942,10 +1049,16 @@ final class ContentViewModel {
       sessionToRename = nil
       return
     }
-    do {
-      try sessionDiscovery.renameSession(session, to: renameText)
-    } catch {
-      // Rename failed silently — session title stays unchanged
+    if isPlainTerminal(session.terminalId) {
+      // Plain terminal: set the Ghostty surface title directly
+      ghosttyHostViews[session.terminalId]?.surface?.rename(to: renameText)
+    } else {
+      // Claude session: update the JSONL file on disk
+      do {
+        try sessionDiscovery.renameSession(session, to: renameText)
+      } catch {
+        // Rename failed silently — session title stays unchanged
+      }
     }
     currentWindow?.title = renameText
     sessionToRename = nil

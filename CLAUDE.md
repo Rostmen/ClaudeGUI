@@ -33,7 +33,6 @@ Tenvy/
 │   │   ├── SessionManager.swift    # Discovery & FSEvents monitoring
 │   │   ├── SessionListView.swift   # Session list + SessionListAction enum
 │   │   ├── SessionRowView.swift    # Session row with status dot + drag handle
-│   │   ├── SessionDragSource.swift # AppKit drag handle (NSDraggingSource) for active sessions
 │   │   └── DeleteSessionConfirmationView.swift  # Delete confirmation with worktree removal option
 │   ├── Terminal/                   # Terminal & process management
 │   │   ├── SessionRuntimeState.swift  # Per-session runtime info (@Observable)
@@ -45,6 +44,8 @@ Tenvy/
 │   │   ├── ClaudeSessionTerminalView.swift  # Claude session terminal (NSViewRepresentable)
 │   │   ├── PlainTerminalView.swift # Plain shell terminal (NSViewRepresentable)
 │   │   ├── PaneSplitView.swift     # Two-pane split view with draggable divider
+│   │   ├── PaneHeaderView.swift   # Pane header bar with title + drag source for rearrangement
+│   │   ├── PaneDropZone.swift     # Drop zone calculation + overlay (ported from Ghostty)
 │   │   ├── EmptyTerminalView.swift # Empty state placeholder
 │   │   ├── ClaudePathResolver.swift   # Finds claude CLI binary
 │   │   ├── TerminalEnvironment.swift  # Terminal env var configuration
@@ -236,28 +237,12 @@ zsh -l -c '<init-script>; exec /path/to/claude [args]'
 - Ghostty appearance: `GhosttyEmbedApp.shared.applyAppearance(isDark:)` rewrites the temp config and calls `reloadConfig()`
 - `ContentView` observes `@Environment(\.colorScheme)` and re-syncs `ClaudeThemeSync` on system appearance change
 
-### Session Drag & Drop
-
-Active sessions in the sidebar can be dragged to merge into split panes or moved to new windows.
-
-**Drag handle**: `SessionDragHandle` — a 16×16 `NSViewRepresentable` at the trailing top of each active session row. Uses `NSDraggingSource` to detect drops outside the window via `draggingSession(_:endedAt:operation:)`. The icon (`hand.tap` SF Symbol) is rendered via `PassthroughImageView` (NSImageView with `hitTest → nil` so mouse events reach the parent).
-
-**Why not `.draggable()` or a full-row overlay?** SwiftUI's `.draggable()` has no drag-end callback. Full-row NSView overlays break `List(selection:)` — no re-dispatch mechanism (`hitTest` toggling, `sendEvent`, local event loops) works reliably.
-
-**Cross-window transfer**: Sessions move between windows without restarting the terminal process:
-1. `AppModel.hostViewTransfers` holds `GhosttyHostView`s during transfer
-2. `AppModel.registeredViewModels` (weak refs) lets the destination find and release from the source
-3. `ghosttyHostView(for:)` auto-checks the transfer store so new windows pick up views seamlessly
-
-**Drop targets**: `.dropDestination(for: String.self)` on session rows (merge into split). Dragging outside the window is detected by `draggingSession(_:endedAt:operation:)` and triggers "move to new window". Pasteboard uses `String.pasteboardItem()` from GhosttyEmbed's `Transferable` extension for format compatibility.
-
-**`SessionListAction` enum**: Consolidates all sidebar callbacks (`select`, `createNew`, `openInNewWindow`, `moveToNewWindow`, `dropOntoSession`, `dragToNewWindow`) into a single `onAction` handler, matching the `TerminalAction` pattern.
-
 ### Split Panes (Ghostty-style)
 
 - **Tree model**: `PaneSplitTree` — recursive binary tree (`leaf(ClaudeSession)` | `split(Split)`). Splitting a leaf replaces only that leaf with a split node; the rest of the tree is untouched.
 - **`PaneSplitView`**: two-pane SwiftUI view using `GeometryReader + ZStack + offset` (NOT `NSSplitView`). Draggable divider updates `Split.ratio` via `ContentViewModel.updateSplitRatio(splitId:ratio:)`.
-- **`PaneSplitTreeRenderer`** (private struct in `ContentView`): recursively renders the tree — `leaf` → `TerminalView`, `split` → `PaneSplitView` with two recursive renderers.
+- **`PaneSplitTreeRenderer`** (private struct in `ContentView`): recursively renders the tree — `leaf` → `PaneLeafView`, `split` → `PaneSplitView` with two recursive renderers.
+- **`PaneLeafView`** (private struct in `ContentView`): wraps each terminal in a `VStack` with `PaneHeaderView` on top and a drop zone overlay. Used in both single-pane and split modes.
 - **`selectedSession`** tracks the focused pane; `primarySession` tracks the window-registered session (the first pane).
 - **Auto-close**: non-primary panes automatically close when their `claude` process exits (`.inactive` state).
 - **`syncSplitSession()`**: like `syncNewSessionWithDiscoveredSession()` but for split panes — updates `isNewSession` leaves when Claude creates the real session file.
@@ -281,6 +266,20 @@ SwiftUI destroys and recreates `NSViewRepresentable`-backed views when they move
 - `GhosttyTerminalView.makeNSView`: returns cached view if `existingHostView != nil`, skipping `setup()` (no new process).
 - `onHostViewCreated` callback: fires in `makeNSView` for fresh views, allowing callers to populate the cache.
 - Cache is evicted in `closeSplitPane(id:)` and `closeSplit()` before deactivating, so the Ghostty process terminates when the pane is explicitly closed.
+
+#### Pane Headers & Drag-to-Rearrange
+
+Every pane (single or split) has a `PaneHeaderView` at the top: 30px height, session title left-aligned, close button right-aligned. The header is the drag source for rearranging panes.
+
+**Drag source**: `PaneHeaderDragSourceNSView` (AppKit `NSDraggingSource`) — follows Ghostty's `SurfaceDragSourceView` pattern. Encodes the pane's `terminalId` (String) on the pasteboard using custom type `com.tenvy.paneId` (registered as `UTType` in `Info.plist`). Creates a 20%-scaled terminal snapshot as the drag preview image. Escape key cancels the drag.
+
+**Drop target**: `PaneDropDelegate` (SwiftUI `DropDelegate`) on each `PaneLeafView`. Uses `PaneDropZone` (ported from Ghostty's `TerminalSplitDropZone`) for triangular edge detection — the cursor's nearest edge determines the split direction (top/bottom/left/right). A colored overlay shows where the split will appear.
+
+**Move operation**: `PaneSplitTree.moving(sessionId:toDestination:direction:)` removes the source pane from the tree and inserts it adjacent to the destination in the drop zone direction. This matches Ghostty's `splitDidDrop` behavior (remove-then-insert). `ContentViewModel.movePaneToSplit()` maps terminal IDs to session IDs and updates the tree.
+
+**Title source**: Claude sessions use `session.title`; plain terminals use `GhosttyEmbedSurface.title` (auto-updates from terminal escape sequences via `@Published`).
+
+**Cross-window ready**: Pasteboard uses string-based `terminalId` (not object references). `Notification.paneDragEndedNoTarget` is posted when a drag ends outside any window, enabling future cross-window pane transfer.
 
 ### Ghostty Terminal Backend
 

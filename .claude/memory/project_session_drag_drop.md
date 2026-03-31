@@ -1,53 +1,49 @@
 ---
 name: Session Drag & Drop
-description: Sidebar drag-and-drop for active sessions — drag handle, cross-window transfer, outside-window detection, action enum refactor
+description: Pane header drag-and-drop for rearranging splits, cross-window transfer, outside-window detection
 type: project
 ---
 
 ## Overview
 
-Active sessions in the sidebar can be dragged to merge into split panes or moved to new windows. The implementation uses a dedicated AppKit drag handle (not a SwiftUI overlay) to avoid conflicts with SwiftUI List selection.
+Pane headers (not sidebar) provide drag-and-drop for rearranging split panes and moving sessions between windows. The sidebar no longer has drag handles — all drag originates from the pane header bar.
 
 ## Architecture
 
-### Drag Handle: `SessionDragHandle` / `SessionDragHandleView`
+### Drag Source: `PaneHeaderDragSourceNSView`
 
-A 16×16 `NSViewRepresentable` placed at the trailing top of each active session row (inline with the title). Uses `hand.tap` SF Symbol via a `PassthroughImageView` (NSImageView subclass with `hitTest` returning nil so mouse events reach the parent).
+AppKit `NSDraggingSource` covering the entire header bar. Encodes `terminalId` (String) on the pasteboard using `com.tenvy.paneId` UTType. Creates a 20%-scaled terminal snapshot as drag preview.
 
-**Why AppKit, not SwiftUI?** SwiftUI's `.draggable()` provides no callback when a drag ends. `NSDraggingSource.draggingSession(_:endedAt:operation:)` is the only way to detect drops outside the window.
+- Escape key cancels the drag
+- Open/closed hand cursor during hover/drag
+- `draggingSession(_:endedAt:operation:)` detects drops outside windows and posts `Notification.paneDragEndedNoTarget`
 
-**Why a small icon, not a full-row overlay?** The sidebar is a SwiftUI `List(selection:)`. An NSView overlay over the entire row intercepts `mouseDown` before the List, breaking click-to-select. A dedicated drag handle avoids the conflict entirely: click the handle → drag, click elsewhere → select.
+### Drop Target: `PaneDropDelegate`
 
-**Failed approaches (do NOT retry):**
-1. Full-row NSView overlay with `hitTest` toggling + `window?.sendEvent()` re-dispatch → caused sidebar to become unresponsive, recursive crashes
-2. `NSEvent.addLocalMonitorForEvents` with `hitTest` returning nil → `beginDraggingSession` failed on invisible views
-3. Local event loop in `mouseDown` (`window?.nextEvent(matching:)`) → blocked the run loop
+SwiftUI `DropDelegate` on each `PaneLeafView`. Uses `PaneDropZone` (ported from Ghostty's `TerminalSplitDropZone`) for triangular edge detection — cursor's nearest edge determines split direction.
 
-### Cross-Window Transfer
+### Move Operation
 
-Sessions can be moved between windows without restarting the terminal process:
+**Same-window:** `PaneSplitTree.moving(sessionId:toDestination:direction:)` — remove source, insert at destination.
 
-1. **AppModel** holds a `hostViewTransfers: [String: GhosttyHostView]` temporary store and a weak `registeredViewModels` registry
-2. Source ViewModel calls `prepareForTransfer(sessionId:)` → extracts host view from cache (without closing!), deposits on AppModel, removes from split tree
-3. Destination ViewModel calls `receiveTransferredSession(_:alongside:)` → picks up host view, inserts into split tree
-4. `ghosttyHostView(for:)` auto-checks AppModel's transfer store — new windows seamlessly pick up transferred host views
+**Cross-window:** `movePaneToSplit` detects the source isn't local, calls `appModel.releaseSessionForTransfer` on the source window, then `receiveTransferredSession` with the correct drop zone direction.
 
-**Cross-window routing:** `handleDropSession` checks if the target session is in this window. If not, delegates via `appModel.mergeTransferredSession()` which finds the correct ViewModel through the registry.
+### Cross-Window Transfer Infrastructure
 
-**Empty window cleanup:** `prepareForTransfer` closes the window after releasing its last session (unless it's the only visible window).
+Sessions move between windows without restarting the terminal process:
 
-### Pasteboard Format
+1. **AppModel** holds `hostViewTransfers: [String: GhosttyHostView]` temporary store and weak `registeredViewModels` registry
+2. Source ViewModel calls `prepareForTransfer(sessionId:)` → extracts host view (without closing), deposits on AppModel, removes from split tree
+3. Destination ViewModel calls `receiveTransferredSession(_:alongside:direction:)` → picks up host view, inserts into split tree
+4. `ghosttyHostView(for:)` auto-checks AppModel's transfer store — new windows seamlessly pick up transferred views
 
-Uses `String.pasteboardItem()` from GhosttyEmbed's `Transferable+Extension.swift` (made `public`). This goes through the same `Transferable` pipeline as SwiftUI's `.dropDestination(for: String.self)`, guaranteeing byte-level format compatibility.
+### Drag Outside Window
 
-### Drop Targets
-
-- **Session rows:** `.dropDestination(for: String.self)` — dropping a session merges into split (with accent border highlight on hover)
-- **Outside window:** Detected by `draggingSession(_:endedAt:operation:)` when `operation == []` and point is outside all visible windows. Escape key cancels without triggering.
+`ContentViewModel` observes `paneDragEndedNoTarget` notification. When a pane header is dragged outside all windows, `handlePaneDragToNewWindow` finds the session by terminalId and calls `handleDragToNewWindow` to open it in a new tab.
 
 ### SessionListAction Enum
 
-All sidebar callbacks consolidated into one enum (replaced 6 separate closures):
+Sidebar actions (no drag cases — drag is handled by pane headers):
 
 ```swift
 enum SessionListAction {
@@ -55,25 +51,15 @@ enum SessionListAction {
   case createNew(ClaudeSession)
   case openInNewWindow(ClaudeSession)
   case moveToNewWindow(ClaudeSession)
-  case dropOntoSession(droppedSessionId: String, targetSessionId: String)
-  case dragToNewWindow(sessionId: String)
 }
 ```
-
-Flows: `SessionListView` → `SidebarView` → `ContentView` → `ContentViewModel.handleSessionListAction(_:)`
-
-### GhosttyHostView Close (BAD_ACCESS fix)
-
-`evictGhosttyHostView` calls `hostView.close()` before dealloc. `close()` removes the surface NSView from the hierarchy, stops monitoring, removes event monitors. The host view is kept alive for one extra run-loop tick via `DispatchQueue.main.async` so `ghostty_surface_free` (scheduled in `Surface.deinit` via `Task.detached`) completes before the `SurfaceView` deallocates.
 
 ## Key Files
 
 | File | Role |
 |------|------|
-| `SessionDragSource.swift` | `SessionDragHandle` + `SessionDragHandleView` (NSDraggingSource) + `PassthroughImageView` |
-| `SessionListView.swift` | `SessionListAction` enum, drop targets |
-| `SessionRowView.swift` | Drag handle placement (trailing top, inline with title) |
-| `ContentViewModel.swift` | `handleSessionListAction`, transfer methods, `prepareForTransfer`, `receiveTransferredSession` |
-| `AppModel.swift` | Transfer store, ViewModel registry, `releaseSessionForTransfer`, `mergeTransferredSession` |
-| `GhosttyHostView.swift` | `close()` method for safe surface teardown |
-| `Transferable+Extension.swift` | `pasteboardItem()` made public for cross-module use |
+| `PaneHeaderView.swift` | Header bar with `PaneHeaderDragSourceNSView` (NSDraggingSource) |
+| `PaneDropZone.swift` | Triangular edge detection + overlay (ported from Ghostty) |
+| `ContentView.swift` | `PaneLeafView` (header + terminal + drop zone), `PaneDropDelegate` |
+| `ContentViewModel.swift` | `movePaneToSplit`, transfer methods, notification observer |
+| `AppModel.swift` | Transfer store, ViewModel registry, `releaseSessionForTransfer` |

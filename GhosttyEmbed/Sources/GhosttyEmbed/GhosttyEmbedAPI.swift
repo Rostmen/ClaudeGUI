@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import GhosttyKit
 
@@ -117,6 +118,26 @@ public class GhosttyEmbedSurface {
         let pid64 = ghostty_surface_foreground_pid(surface)
         return pid_t(pid64)
     }
+
+    /// The terminal's title (set by escape codes or user rename).
+    @MainActor
+    public var title: String { surfaceView.title }
+
+    /// Publisher that emits when the terminal title changes.
+    public var titlePublisher: AnyPublisher<String, Never> {
+      surfaceView.$title.eraseToAnyPublisher()
+    }
+
+    /// Rename the terminal with a user-set title.
+    /// This overrides automatic escape-sequence title updates.
+    @MainActor
+    public func rename(to title: String) {
+      surfaceView.setUserTitle(title)
+    }
+
+    /// Snapshot image of the terminal content for drag previews.
+    @MainActor
+    public var asImage: NSImage? { surfaceView.asImage }
 
     /// Reset the terminal (clears screen, resets escape state).
     /// Equivalent to `tput reset`.

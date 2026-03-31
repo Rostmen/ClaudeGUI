@@ -636,6 +636,13 @@ extension Ghostty {
             }
         }
 
+        /// Set a user-chosen title that overrides automatic escape-sequence updates.
+        func setUserTitle(_ newTitle: String) {
+            titleChangeTimer?.invalidate()
+            titleFromTerminal = title  // Lock out future auto-updates
+            title = newTitle
+        }
+
         // MARK: Local Events
 
         private func localEventHandler(_ event: NSEvent) -> NSEvent? {
