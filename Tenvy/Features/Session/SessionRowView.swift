@@ -29,8 +29,6 @@ struct SessionRowView: View {
   var isActive: Bool = false
   /// Override title (e.g. for plain terminals whose Ghostty surface title changes at runtime).
   var titleOverride: String?
-  /// Callback for drag-to-new-window. When set, a drag handle appears for active sessions.
-  var onDragToNewWindow: ((String) -> Void)?
 
   /// Animation state for blinking dot
   @State private var isBlinking = false
@@ -83,15 +81,6 @@ struct SessionRowView: View {
         statusUpdateDot
         sessionNameRow
         Spacer()
-        if isActive, onDragToNewWindow != nil {
-          SessionDragHandle(
-            sessionId: session.id,
-            session: session,
-            runtime: runtimeInfo,
-            onDragToNewWindow: onDragToNewWindow
-          )
-          .frame(width: 16, height: 16)
-        }
       }
       .fixedSize(horizontal: false, vertical: true)
       HStack(spacing: 0) {
@@ -262,17 +251,17 @@ private func formatToolName(_ tool: String) -> String {
     Divider()
     SessionRowView(sessionModel: .previewInactiveWithBranch)
     Divider()
-    SessionRowView(sessionModel: .previewThinking, onDragToNewWindow: { _ in })
+    SessionRowView(sessionModel: .previewThinking)
     Divider()
-    SessionRowView(sessionModel: .previewRunningBash, onDragToNewWindow: { _ in })
+    SessionRowView(sessionModel: .previewRunningBash)
     Divider()
-    SessionRowView(sessionModel: .previewWaiting, onDragToNewWindow: { _ in })
+    SessionRowView(sessionModel: .previewWaiting)
     Divider()
-    SessionRowView(sessionModel: .previewWaitingPermission, onDragToNewWindow: { _ in })
+    SessionRowView(sessionModel: .previewWaitingPermission)
     Divider()
-    SessionRowView(sessionModel: .previewProcessing, onDragToNewWindow: { _ in })
+    SessionRowView(sessionModel: .previewProcessing)
     Divider()
-    SessionRowView(sessionModel: .previewStarted, onDragToNewWindow: { _ in })
+    SessionRowView(sessionModel: .previewStarted)
     Divider()
     SessionRowView(sessionModel: .previewNoGit)
   }

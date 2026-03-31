@@ -397,25 +397,6 @@ final class ContentViewModel {
     }
   }
 
-  /// Handle a session dropped onto another active session in this window's sidebar.
-  /// Routes the merge to whichever window owns the target session.
-  func handleDropSession(droppedSessionId: String, ontoTargetId: String) {
-    guard droppedSessionId != ontoTargetId else { return }
-    guard let droppedSession = appModel.activatedSessions[droppedSessionId] else { return }
-
-    // Release the dragged session from wherever it currently lives
-    appModel.releaseSessionForTransfer(sessionId: droppedSessionId)
-
-    // Route to the ViewModel that owns the target session
-    if ownsSession(ontoTargetId) {
-      // Target is in this window — handle directly
-      receiveTransferredSession(droppedSession, alongside: ontoTargetId)
-    } else {
-      // Target is in another window — delegate via AppModel
-      appModel.mergeTransferredSession(droppedSession, alongside: ontoTargetId)
-    }
-  }
-
   /// Receive a transferred session and insert it alongside an existing session.
   /// Called directly (same window) or via AppModel (cross-window).
   func receiveTransferredSession(_ session: ClaudeSession, alongside targetSessionId: String, direction: SplitDirection = .right) {
@@ -1031,10 +1012,6 @@ final class ContentViewModel {
       openInNewWindow(session)
     case .moveToNewWindow(let session):
       moveToNewWindow(session)
-    case .dropOntoSession(let droppedId, let targetId):
-      handleDropSession(droppedSessionId: droppedId, ontoTargetId: targetId)
-    case .dragToNewWindow(let sessionId):
-      handleDragToNewWindow(sessionId: sessionId)
     }
   }
 
