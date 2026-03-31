@@ -11,11 +11,12 @@ A native macOS application for managing and resuming Claude Code CLI sessions wi
 3. [Multi-Window & Tab System](#multi-window--tab-system)
 4. [Terminal Integration](#terminal-integration)
 5. [File Browser](#file-browser)
-6. [Git Integration](#git-integration)
-7. [Process Management](#process-management)
-8. [UI Components](#ui-components)
-9. [Settings & Preferences](#settings--preferences)
-10. [Architecture Patterns](#architecture-patterns)
+6. [IDE Integration](#ide-integration)
+7. [Git Integration](#git-integration)
+8. [Process Management](#process-management)
+9. [UI Components](#ui-components)
+10. [Settings & Preferences](#settings--preferences)
+11. [Architecture Patterns](#architecture-patterns)
 
 ---
 
@@ -310,6 +311,49 @@ Icons determined by extension using SF Symbols:
 | `.py` | `doc.text` |
 | Folders | `folder.fill` |
 | Default | `doc` |
+
+---
+
+## IDE Integration
+
+### Open in IDE
+
+A toolbar button detects the project type and installed IDEs, allowing one-click opening in the appropriate editor.
+
+### Project Detection
+
+The system scans the project directory for indicator files:
+
+| Indicator Files | Primary IDE |
+|---|---|
+| `.xcodeproj`, `.xcworkspace`, `Package.swift` | Xcode |
+| `build.gradle`, `build.gradle.kts`, `pubspec.yaml` | Android Studio |
+| `.idea/`, `pom.xml` | IntelliJ IDEA |
+| `Cargo.toml` | RustRover |
+| `*.sln`, `*.csproj` | Rider |
+| `go.mod` | GoLand |
+| `package.json`, `tsconfig.json` | WebStorm |
+| `Gemfile` | RubyMine |
+| `requirements.txt`, `pyproject.toml`, `setup.py` | PyCharm |
+
+### General-Purpose Editors
+
+These are always offered when installed, regardless of project type: VS Code, Cursor, Windsurf, Zed, Sublime Text, Nova, Fleet.
+
+### Pane Header Button
+
+- Appears in the pane header bar (right side, before close button) for Claude sessions only — not for plain terminals
+- **Single IDE**: Icon-only button, click to open
+- **Multiple IDEs**: Icon with dropdown chevron — main click opens primary IDE, chevron shows alternatives
+- Uses SwiftUI `Menu(primaryAction:)` for native macOS split button behavior
+- IDE icons loaded from installed app bundles via `NSWorkspace`
+
+### Detection Flow
+
+1. List files in `session.projectPath` (falls back to `workingDirectory`)
+2. Match against IDE indicator catalog
+3. Check which IDEs are installed via `NSWorkspace.urlForApplication(withBundleIdentifier:)`
+4. Results cached per project path to avoid re-scanning on focus changes
 
 ---
 

@@ -398,6 +398,10 @@ private struct PaneLeafView: View {
 
   @State private var dropZone: PaneDropZone?
 
+  private var isClaudeSession: Bool {
+    !viewModel.isPlainTerminal(session.terminalId)
+  }
+
   private var isFileDropTargeted: Bool {
     viewModel.fileDropTargetTerminalId == session.terminalId
   }
@@ -424,6 +428,8 @@ private struct PaneLeafView: View {
           isFileDropTarget: isFileDropTargeted,
           runtimeInfo: viewModel.runtimeState.info(for: session.id),
           isActive: viewModel.appModel.isSessionActivated(session.id),
+          ideResult: isClaudeSession ? viewModel.ideDetectionResult(for: session) : nil,
+          projectPath: isClaudeSession ? (session.projectPath.isEmpty ? session.workingDirectory : session.projectPath) : nil,
           snapshotProvider: { [weak viewModel] in
             viewModel?.ghosttyHostView(for: session.terminalId)?.snapshotImage
           },

@@ -120,6 +120,10 @@ final class ContentViewModel {
   /// Whether the right-side inspector panel is visible.
   var showInspectorPanel = false
 
+  /// Cache: projectPath → IDEDetectionResult to avoid re-scanning on focus changes.
+  @ObservationIgnored
+  private var ideDetectionCache: [String: IDEDetectionResult] = [:]
+
   /// Session pending rename from context menu.
   var sessionToRename: ClaudeSession?
   var renameText: String = ""
@@ -1265,6 +1269,22 @@ final class ContentViewModel {
     if window != nil, let session = selectedSession {
       bindWindowToSession(session)
     }
+  }
+
+  // MARK: - IDE Detection
+
+  /// Returns IDE detection result for a given session, using a cache.
+  func ideDetectionResult(for session: ClaudeSession) -> IDEDetectionResult {
+    let path = session.projectPath.isEmpty ? session.workingDirectory : session.projectPath
+    guard !path.isEmpty else { return .empty }
+
+    if let cached = ideDetectionCache[path] {
+      return cached
+    }
+
+    let result = IDEDetectionService.detect(projectPath: path)
+    ideDetectionCache[path] = result
+    return result
   }
 
   // MARK: - Private

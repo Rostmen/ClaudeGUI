@@ -18,6 +18,7 @@
 - [project_new_session_dialog.md](project_new_session_dialog.md) — Unified NewSessionDialogView: all git/no-git scenarios, progressive disclosure, branch/worktree modes
 - [project_inspector_panel.md](project_inspector_panel.md) — Right-side inspector panel: branch switcher, paths, .inspector() modifier, GitBranchService extensions
 - [project_file_drop.md](project_file_drop.md) — File drag & drop: dual-path (AppKit split / SwiftUI single-pane), header highlight, focus-on-drop
+- [project_ide_detection.md](project_ide_detection.md) — IDE detection via NSWorkspace bundle IDs, IDEHeaderButton in pane header, supported IDEs
 
 ## Feedback
 - [feedback_commits.md](feedback_commits.md) — Never commit/push without explicit user approval
