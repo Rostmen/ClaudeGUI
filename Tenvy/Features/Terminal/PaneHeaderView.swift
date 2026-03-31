@@ -115,15 +115,9 @@ struct PaneHeaderView: View {
 
         Spacer()
 
-        Button {
+        CloseButton {
           onAction(.closeRequested)
-        } label: {
-          Image(systemName: "xmark")
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(.tertiary)
         }
-        .buttonStyle(.plain)
-        .contentShape(Rectangle())
       }
       .padding(.horizontal, 12)
     }
@@ -140,6 +134,26 @@ struct PaneHeaderView: View {
     .onAppear {
       if shouldBlink { isBlinking = true }
     }
+  }
+}
+
+// MARK: - CloseButton
+
+/// Close button with hover highlight for the pane header.
+private struct CloseButton: View {
+  let action: () -> Void
+  @State private var isHovering = false
+
+  var body: some View {
+    Button(action: action) {
+      Image(systemName: "xmark")
+        .font(.system(size: 10, weight: .medium))
+        .foregroundStyle(isHovering ? .secondary : .tertiary)
+        .frame(width: 20, height: 20)
+        .background(isHovering ? Color.primary.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 4))
+    }
+    .buttonStyle(.plain)
+    .onHover { isHovering = $0 }
   }
 }
 
@@ -187,7 +201,19 @@ final class PaneHeaderDragSourceNSView: NSView, NSDraggingSource {
     }
   }
 
+  /// Width of the trailing close button region where drag source passes through.
+  private static let closeButtonInset: CGFloat = 34
+
   override var isFlipped: Bool { true }
+
+  override func hitTest(_ point: NSPoint) -> NSView? {
+    // Pass through clicks in the close button region so SwiftUI handles them
+    let localPoint = convert(point, from: superview)
+    if localPoint.x > bounds.width - Self.closeButtonInset {
+      return nil
+    }
+    return super.hitTest(point)
+  }
 
   override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -198,8 +224,10 @@ final class PaneHeaderDragSourceNSView: NSView, NSDraggingSource {
   override func updateTrackingAreas() {
     super.updateTrackingAreas()
     trackingAreas.forEach { removeTrackingArea($0) }
+    // Only track the draggable area (exclude close button)
+    let dragRect = NSRect(x: 0, y: 0, width: max(0, bounds.width - Self.closeButtonInset), height: bounds.height)
     addTrackingArea(NSTrackingArea(
-      rect: bounds,
+      rect: dragRect,
       options: [.mouseEnteredAndExited, .activeInActiveApp],
       owner: self,
       userInfo: nil
@@ -207,7 +235,9 @@ final class PaneHeaderDragSourceNSView: NSView, NSDraggingSource {
   }
 
   override func resetCursorRects() {
-    addCursorRect(bounds, cursor: isTracking ? .closedHand : .openHand)
+    // Only set hand cursor in the draggable area
+    let dragRect = NSRect(x: 0, y: 0, width: max(0, bounds.width - Self.closeButtonInset), height: bounds.height)
+    addCursorRect(dragRect, cursor: isTracking ? .closedHand : .openHand)
   }
 
   override func mouseDragged(with event: NSEvent) {
