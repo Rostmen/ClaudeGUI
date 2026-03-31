@@ -248,10 +248,13 @@ Uses `ps -eo pid,ppid,args` and BFS traversal.
 
 ### Drag & Drop
 
-Files can be dragged into the terminal:
-- Paths are shell-escaped (spaces, parentheses, quotes)
+Files can be dragged from Finder into any terminal pane:
+- Paths are shell-escaped (spaces, parentheses, quotes, etc.)
 - Multiple files joined with spaces
 - Text inserted at cursor position
+- **Header highlight**: Pane header pulses with accent color while a file drag hovers over the pane
+- **Focus on drop**: Dropping on a non-focused split pane automatically selects and focuses it
+- **Dual implementation**: Split mode uses AppKit-level drag handling on `GhosttyHostView`; single-pane mode uses a SwiftUI `.onDrop` fallback (SwiftUI's hosting layer blocks AppKit drag events from reaching child NSViews in single-pane mode)
 
 ### Pane Headers & Drag-to-Rearrange
 

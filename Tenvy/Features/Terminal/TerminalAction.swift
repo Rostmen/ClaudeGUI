@@ -51,4 +51,13 @@ enum TerminalAction {
 
   /// User chose "Rename" from the context menu.
   case renameRequested
+
+  /// A file drag entered the terminal area.
+  case fileDragEntered
+
+  /// A file drag exited the terminal area.
+  case fileDragExited
+
+  /// Files were dropped onto the terminal.
+  case fileDropped(urls: [URL])
 }

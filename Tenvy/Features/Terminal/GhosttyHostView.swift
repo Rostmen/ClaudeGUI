@@ -127,6 +127,13 @@ final class GhosttyHostView: NSView {
     surfaceView.translatesAutoresizingMaskIntoConstraints = false
     addSubview(surfaceView)
 
+    // Take over file drag handling from SurfaceView so we can notify SwiftUI
+    // about drag enter/exit (for header highlighting) and focus on drop.
+    // SurfaceView registers for [.string, .fileURL, .URL] in its init —
+    // unregister those types so GhosttyHostView receives drags instead.
+    surfaceView.unregisterDraggedTypes()
+    registerForDraggedTypes([.string, .fileURL, .URL])
+
     _ = surfaceView.resignFirstResponder()
     NSLayoutConstraint.activate([
       surfaceView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -216,6 +223,62 @@ final class GhosttyHostView: NSView {
     }
     stateMonitor = monitor
     monitor.start()
+  }
+
+  // MARK: - Drag Destination (file drops)
+
+  private static let fileDragTypes: Set<NSPasteboard.PasteboardType> = [.fileURL, .URL]
+
+  override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+    guard let types = sender.draggingPasteboard.types,
+          !Set(types).isDisjoint(with: Self.fileDragTypes) else { return .copy }
+    onAction(.fileDragEntered)
+    return .copy
+  }
+
+  override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+    onAction(.fileDragExited)
+  }
+
+  override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+    onAction(.fileDragExited)
+
+    let pb = sender.draggingPasteboard
+
+    // Match Ghostty's SurfaceView.performDragOperation logic:
+    // URLs first, then file URLs, then plain strings.
+    let content: String?
+    if let url = pb.string(forType: .URL) {
+      content = Self.shellEscape(url)
+    } else if let urls = pb.readObjects(forClasses: [NSURL.self]) as? [URL], !urls.isEmpty {
+      let fileURLs = urls.filter(\.isFileURL)
+      if !fileURLs.isEmpty {
+        onAction(.fileDropped(urls: fileURLs))
+      }
+      content = urls
+        .map { $0.isFileURL ? Self.shellEscape($0.path) : Self.shellEscape($0.absoluteString) }
+        .joined(separator: " ")
+    } else if let str = pb.string(forType: .string) {
+      content = str
+    } else {
+      content = nil
+    }
+
+    if let content {
+      surface?.sendText(content)
+      return true
+    }
+    return false
+  }
+
+  /// Escapes shell-sensitive characters for safe insertion into a terminal.
+  private static let escapeCharacters = "\\ ()[]{}<>\"'`!#$&;|*?\t"
+  static func shellEscape(_ str: String) -> String {
+    var result = str
+    for char in escapeCharacters {
+      result = result.replacingOccurrences(of: String(char), with: "\\\(char)")
+    }
+    return result
   }
 
   deinit {

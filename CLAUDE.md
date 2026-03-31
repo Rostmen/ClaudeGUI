@@ -284,6 +284,15 @@ Every pane (single or split) has a `PaneHeaderView` at the top: 30px height, ses
 
 **Cross-window ready**: Pasteboard uses string-based `terminalId` (not object references). `Notification.paneDragEndedNoTarget` is posted when a drag ends outside any window, enabling future cross-window pane transfer.
 
+#### File Drag & Drop
+
+File drops into the terminal use a dual-path implementation because SwiftUI's hosting layer blocks AppKit drag events from reaching child NSViews in single-pane mode:
+
+- **Split mode (AppKit)**: `GhosttyHostView.setupSurface()` calls `surfaceView.unregisterDraggedTypes()` then registers itself for `[.string, .fileURL, .URL]`. Its `draggingEntered`/`draggingExited`/`performDragOperation` overrides handle the drop and fire `TerminalAction.fileDragEntered`/`.fileDragExited`/`.fileDropped` → `PaneLeafView.handleAction()` updates `viewModel.fileDropTargetTerminalId` (header highlight) and calls `viewModel.focusPane()` (focus on drop).
+- **Single-pane mode (SwiftUI fallback)**: `.onDrop(of: [.fileURL], isTargeted:)` applied **after** `.allowsHitTesting()` in `DetailView`. The `isTargeted` binding syncs to `viewModel.fileDropTargetTerminalId` via `onChange`. Drop handler calls `viewModel.handleSinglePaneFileDrop()` which shell-escapes paths and sends via `surface.sendText()`.
+- **Header highlight**: `PaneHeaderView.isFileDropTarget` drives a pulsing accent-color background animation. State is unified through `viewModel.fileDropTargetTerminalId` — set by AppKit callbacks (split) or SwiftUI `isTargeted` (single-pane).
+- **Shell escaping**: `GhosttyHostView.shellEscape()` mirrors Ghostty's `Shell.escape()` (which is internal to GhosttyEmbed). Escapes `\ ()[]{}<>"'\`!#$&;|*?\t`.
+
 ### Ghostty Terminal Backend
 
 Three-layer architecture with clear separation of concerns:
