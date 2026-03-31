@@ -108,11 +108,11 @@ final class AppModel {
 
   /// Route a transferred session to whichever ViewModel owns the target session.
   /// The destination ViewModel picks up the host view and inserts into its split tree.
-  func mergeTransferredSession(_ session: ClaudeSession, alongside targetSessionId: String) {
+  func mergeTransferredSession(_ session: ClaudeSession, alongside targetSessionId: String, direction: SplitDirection = .right) {
     registeredViewModels.removeAll { $0.value == nil }
     for ref in registeredViewModels {
       guard let vm = ref.value, vm.ownsSession(targetSessionId) else { continue }
-      vm.receiveTransferredSession(session, alongside: targetSessionId)
+      vm.receiveTransferredSession(session, alongside: targetSessionId, direction: direction)
       break
     }
   }

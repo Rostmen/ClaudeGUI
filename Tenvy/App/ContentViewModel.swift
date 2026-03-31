@@ -141,6 +141,10 @@ final class ContentViewModel {
   @ObservationIgnored
   private var splitInitScripts: [String: String] = [:]
 
+  /// Observer for pane drag-ended-outside-window notifications.
+  @ObservationIgnored
+  private var paneDragObserver: NSObjectProtocol?
+
   // MARK: - Dependencies
 
   let appModel: AppModel
@@ -151,6 +155,23 @@ final class ContentViewModel {
   init(appModel: AppModel) {
     self.appModel = appModel
     appModel.registerViewModel(self)
+
+    paneDragObserver = NotificationCenter.default.addObserver(
+      forName: .paneDragEndedNoTarget,
+      object: nil,
+      queue: .main
+    ) { [weak self] notification in
+      guard let self,
+            let terminalId = notification.userInfo?[Notification.paneDragTerminalIdKey] as? String,
+            self.ownsTerminal(terminalId) else { return }
+      self.handlePaneDragToNewWindow(terminalId: terminalId)
+    }
+  }
+
+  deinit {
+    if let paneDragObserver {
+      NotificationCenter.default.removeObserver(paneDragObserver)
+    }
   }
 
   // MARK: - GhosttyHostView Cache
@@ -307,6 +328,11 @@ final class ContentViewModel {
 
   // MARK: - Drag & Drop Transfer
 
+  /// Whether this ViewModel owns a terminal with the given terminalId.
+  func ownsTerminal(_ terminalId: String) -> Bool {
+    ghosttyHostViews[terminalId] != nil
+  }
+
   /// Whether this ViewModel owns the given session (for cross-window transfer).
   func ownsSession(_ sessionId: String) -> Bool {
     if selectedSession?.id == sessionId { return true }
@@ -392,12 +418,36 @@ final class ContentViewModel {
 
   /// Receive a transferred session and insert it alongside an existing session.
   /// Called directly (same window) or via AppModel (cross-window).
-  func receiveTransferredSession(_ session: ClaudeSession, alongside targetSessionId: String) {
+  func receiveTransferredSession(_ session: ClaudeSession, alongside targetSessionId: String, direction: SplitDirection = .right) {
     if let hostView = appModel.pickupTransfer(terminalId: session.terminalId) {
       ghosttyHostViews[session.terminalId] = hostView
+      // Re-subscribe to title updates for plain terminals
+      if plainTerminalIds.contains(session.terminalId), let surface = hostView.surface {
+        titleCancellables[session.terminalId] = surface.titlePublisher
+          .receive(on: DispatchQueue.main)
+          .sink { [weak self] newTitle in
+            self?.plainTerminalTitles[session.terminalId] = newTitle.isEmpty ? "Terminal" : newTitle
+          }
+      }
     }
     appModel.activateSession(session)
-    insertSplitPane(session, at: targetSessionId, direction: .right)
+    insertSplitPane(session, at: targetSessionId, direction: direction)
+  }
+
+  /// Handle a pane header dragged outside any window — open in a new window.
+  private func handlePaneDragToNewWindow(terminalId: String) {
+    // Find the session by terminalId
+    guard let session = findSessionByTerminalId(terminalId) else { return }
+    handleDragToNewWindow(sessionId: session.id)
+  }
+
+  /// Find a session by terminalId, searching local state and activated sessions.
+  private func findSessionByTerminalId(_ terminalId: String) -> ClaudeSession? {
+    if let tree = splitTree, let s = tree.allSessions.first(where: { $0.terminalId == terminalId }) {
+      return s
+    }
+    if selectedSession?.terminalId == terminalId { return selectedSession }
+    return appModel.activatedSessions.values.first(where: { $0.terminalId == terminalId })
   }
 
   /// Handle a session dragged to the "New Window" drop zone.
@@ -895,30 +945,27 @@ final class ContentViewModel {
     }
   }
 
-  /// Move a pane from one position to another within the split tree (drag-to-rearrange).
-  /// If not already in split mode, this is a no-op (single pane can't move within itself).
+  /// Move a pane from one position to another (same-window rearrange or cross-window transfer).
   func movePaneToSplit(sourceTerminalId: String, destinationTerminalId: String, zone: PaneDropZone) {
     guard sourceTerminalId != destinationTerminalId else { return }
 
-    // Find session IDs from terminal IDs
-    let allSessions: [ClaudeSession]
+    let direction = zone.splitDirection
+
+    // Find destination session (must be in this window)
+    let localSessions: [ClaudeSession]
     if let tree = splitTree {
-      allSessions = tree.allSessions
+      localSessions = tree.allSessions
     } else if let session = selectedSession {
-      allSessions = [session]
+      localSessions = [session]
     } else {
       return
     }
+    guard let destSession = localSessions.first(where: { $0.terminalId == destinationTerminalId }) else { return }
 
-    guard let sourceSession = allSessions.first(where: { $0.terminalId == sourceTerminalId }),
-          let destSession = allSessions.first(where: { $0.terminalId == destinationTerminalId }) else {
-      return
-    }
-
-    let direction = zone.splitDirection
-
-    if let tree = splitTree {
-      // Already in split mode — move within tree
+    // Check if source is in this window
+    if let sourceSession = localSessions.first(where: { $0.terminalId == sourceTerminalId }) {
+      // Same-window move within split tree
+      guard let tree = splitTree else { return }
       guard let newTree = tree.moving(sessionId: sourceSession.id, toDestination: destSession.id, direction: direction) else {
         return
       }
@@ -931,8 +978,16 @@ final class ContentViewModel {
         splitTree = newTree
         selectedSession = sourceSession
       }
+    } else {
+      // Cross-window: source is in another window
+      guard let sourceSession = appModel.activatedSessions.values.first(where: { $0.terminalId == sourceTerminalId }) else { return }
+
+      // Release from source window (deposits host view on AppModel)
+      appModel.releaseSessionForTransfer(sessionId: sourceSession.id)
+
+      // Receive into this window alongside the destination
+      receiveTransferredSession(sourceSession, alongside: destSession.id, direction: direction)
     }
-    // Single pane mode: no-op for same-window (future: cross-window creates split)
   }
 
   /// Close a pane identified by terminalId (called from the pane header close button).
