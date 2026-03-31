@@ -104,6 +104,70 @@ enum GitBranchService {
     return branches.sorted()
   }
 
+  /// Returns the set of branch names currently checked out in worktrees.
+  /// Reads `.git/worktrees/*/HEAD` — no subprocess.
+  static func worktreeBranches(at path: String) -> Set<String> {
+    guard let gitDir = findGitDir(from: path) else { return [] }
+
+    // Resolve to main repo git dir (worktree git dirs point to .git/worktrees/<name>)
+    let mainGitDir: String
+    let commondirPath = (gitDir as NSString).appendingPathComponent("commondir")
+    if let commondir = try? String(contentsOfFile: commondirPath, encoding: .utf8)
+      .trimmingCharacters(in: .whitespacesAndNewlines) {
+      mainGitDir = commondir.hasPrefix("/")
+        ? commondir
+        : (gitDir as NSString).appendingPathComponent(commondir)
+    } else {
+      mainGitDir = gitDir
+    }
+
+    let worktreesDir = (mainGitDir as NSString).appendingPathComponent("worktrees")
+    guard let entries = try? FileManager.default.contentsOfDirectory(atPath: worktreesDir) else {
+      return []
+    }
+
+    var branches: Set<String> = []
+    let refPrefix = "ref: refs/heads/"
+    for entry in entries {
+      let headPath = (worktreesDir as NSString)
+        .appendingPathComponent(entry)
+        .appending("/HEAD")
+      if let contents = try? String(contentsOfFile: headPath, encoding: .utf8)
+        .trimmingCharacters(in: .whitespacesAndNewlines),
+        contents.hasPrefix(refPrefix) {
+        branches.insert(String(contents.dropFirst(refPrefix.count)))
+      }
+    }
+    return branches
+  }
+
+  /// Checks out an existing local branch. Returns an error message on failure, nil on success.
+  /// Uses `git checkout` — spawns a subprocess.
+  static func checkoutBranch(_ branch: String, at path: String) -> String? {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+    process.arguments = ["checkout", branch]
+    process.currentDirectoryURL = URL(fileURLWithPath: path)
+
+    let stderrPipe = Pipe()
+    process.standardOutput = Pipe()
+    process.standardError = stderrPipe
+
+    do {
+      try process.run()
+      process.waitUntilExit()
+    } catch {
+      return error.localizedDescription
+    }
+
+    if process.terminationStatus != 0 {
+      let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? "Unknown error"
+      return stderr
+    }
+    return nil
+  }
+
   /// Walks up from `path` to find the `.git` directory (or file for worktrees).
   static func findGitDir(from path: String) -> String? {
     var current = path

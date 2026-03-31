@@ -16,6 +16,7 @@
 - [project_session_drag_drop.md](project_session_drag_drop.md) — Sidebar drag-and-drop: drag handle, cross-window transfer, outside-window detection, SessionListAction enum
 - [project_new_session_flow.md](project_new_session_flow.md) — "+" button flow: folder picker, git detection, dialog, tab/window routing
 - [project_new_session_dialog.md](project_new_session_dialog.md) — Unified NewSessionDialogView: all git/no-git scenarios, progressive disclosure, branch/worktree modes
+- [project_inspector_panel.md](project_inspector_panel.md) — Right-side inspector panel: branch switcher, paths, .inspector() modifier, GitBranchService extensions
 
 ## Feedback
 - [feedback_commits.md](feedback_commits.md) — Never commit/push without explicit user approval

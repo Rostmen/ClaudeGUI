@@ -86,6 +86,25 @@ struct ContentView: View {
       )
     }
     .navigationTitle(viewModel.selectedSession?.title ?? "Select or start a new session")
+    .inspector(isPresented: $viewModel.showInspectorPanel) {
+      if let session = viewModel.selectedSession {
+        InspectorPanelView(
+          session: session,
+          runtimeInfo: viewModel.runtimeState.info(for: session.id)
+        )
+        .inspectorColumnWidth(min: 200, ideal: 260, max: 360)
+      }
+    }
+    .toolbar {
+      ToolbarItem(placement: .automatic) {
+        Button {
+          viewModel.showInspectorPanel.toggle()
+        } label: {
+          Image(systemName: "sidebar.trailing")
+        }
+        .help("Toggle Inspector (⌘⌥I)")
+      }
+    }
   }
 
   var body: some View {
@@ -217,6 +236,11 @@ struct ContentView: View {
       TextField("Name", text: $viewModel.renameText)
       Button("Cancel", role: .cancel) { viewModel.sessionToRename = nil }
       Button("Rename") { viewModel.commitRename() }
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .toggleInspectorPanel)) { _ in
+      withAnimation(.easeInOut(duration: 0.2)) {
+        viewModel.showInspectorPanel.toggle()
+      }
     }
     .onReceive(NotificationCenter.default.publisher(for: .openSessionFromNotification)) { notification in
       if let session = notification.object as? ClaudeSession {

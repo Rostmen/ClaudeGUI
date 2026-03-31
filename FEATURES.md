@@ -502,6 +502,18 @@ Canvas { context, size in
 }
 ```
 
+### Inspector Panel
+
+Collapsible right-side panel using SwiftUI's `.inspector()` modifier (Xcode-style full-height divider). Toggle via toolbar button or **⌘⌥I** (View > Toggle Inspector).
+
+**Sections:**
+- **Branch** — Picker dropdown showing current git branch. Lists all local branches except those checked out in worktrees. Selecting a branch runs `git checkout`; on failure (e.g. uncommitted conflicts), an alert shows the git error.
+- **Paths** — Working directory and project path with `~` abbreviation. Each path has a folder icon (fills on hover) that reveals in Finder.
+
+**State:** `ContentViewModel.showInspectorPanel` — toggled via toolbar button or `Notification.toggleInspectorPanel` (⌘⌥I menu shortcut). Panel only renders content when `selectedSession` is non-nil.
+
+**Branch data:** `GitBranchService.worktreeBranches(at:)` reads `.git/worktrees/*/HEAD` to identify branches checked out in worktrees (excluded from dropdown). `GitBranchService.checkoutBranch(_:at:)` runs `git checkout` and returns error string on failure.
+
 ### Sidebar Tabs
 
 | Tab | Icon | Content |

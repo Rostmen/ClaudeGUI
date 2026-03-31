@@ -117,6 +117,9 @@ final class ContentViewModel {
   /// Whether a git operation is in progress.
   var isCreatingWorktree = false
 
+  /// Whether the right-side inspector panel is visible.
+  var showInspectorPanel = false
+
   /// Session pending rename from context menu.
   var sessionToRename: ClaudeSession?
   var renameText: String = ""
