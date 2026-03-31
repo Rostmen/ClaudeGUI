@@ -10,6 +10,7 @@ macOS app for managing and resuming Claude Code CLI sessions with a native trans
 - **Embedded Terminal**: Ghostty terminal with CPU-based state monitoring
 - **Split Panes**: Tree-based split layout (Ghostty-style) — splitting only divides the focused pane, not all panes. Both splits and new session creation intercept to offer git worktree creation for parallel branch work
 - **Multi-Window Support**: Each session runs in isolated window/tab with single process
+- **Inspector Panel**: Collapsible right-side panel with branch switcher and path info (⌘⌥I)
 - **Git Changes**: Modified files tree with syntax-highlighted diffs
 - **Notifications**: macOS notifications for waiting/permission states via Claude Code hooks
 - **Glass UI**: Transparent window with dark overlay
@@ -53,6 +54,8 @@ Tenvy/
 │   │   ├── HookInstallationService.swift  # Claude Code hook setup
 │   │   ├── HookInstallationPromptView.swift  # Hook install prompt UI
 │   │   └── HookEventService.swift  # Reads hook events file
+│   ├── Inspector/                  # Right-side inspector panel
+│   │   └── InspectorPanelView.swift  # Session inspector (branch switcher, paths)
 │   ├── Git/                        # Git integration
 │   │   ├── GitChangedFile.swift    # Git changed file model
 │   │   ├── GitStatusService.swift  # Git status detection
@@ -307,6 +310,15 @@ Three-layer architecture with clear separation of concerns:
 - On success: opens `/Applications/Tenvy.app` then terminates current process
 - `isUpdating: Bool` flag bypasses quit/close confirmation dialogs when brew sends terminate signal
 - Release notes fetched from GitHub release body and shown in a dark `NSWindow` on first launch of a new version
+
+### Inspector Panel
+
+- Collapsible right-side panel using SwiftUI `.inspector()` modifier — divider extends through the navigation bar (Xcode-style)
+- Toggle: toolbar button (`sidebar.trailing` icon) or **⌘⌥I** (View > Toggle Inspector menu command via `Notification.toggleInspectorPanel`)
+- State: `ContentViewModel.showInspectorPanel`
+- Content renders only when `selectedSession` is non-nil; updates immediately on focus change
+- **Branch section**: `Picker` dropdown with current branch selected. Other local branches shown below a divider, excluding worktree-checked-out branches. `GitBranchService.worktreeBranches(at:)` reads `.git/worktrees/*/HEAD` (filesystem, no subprocess). `GitBranchService.checkoutBranch(_:at:)` runs `git checkout`; on failure shows alert with git error message.
+- **Paths section**: Working directory and project path with `~` abbreviation, folder icon (fills on hover) reveals in Finder
 
 ---
 

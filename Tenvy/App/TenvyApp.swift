@@ -27,6 +27,7 @@ import UserNotifications
 
 extension Notification.Name {
   static let importSession = Notification.Name("importSession")
+  static let toggleInspectorPanel = Notification.Name("toggleInspectorPanel")
 }
 
 // MARK: - App Entry Point
@@ -70,6 +71,12 @@ struct TenvyApp: App {
           NotificationCenter.default.post(name: .importSession, object: nil)
         }
         .keyboardShortcut("i", modifiers: [.command, .shift])
+      }
+      CommandGroup(after: .sidebar) {
+        Button("Toggle Inspector") {
+          NotificationCenter.default.post(name: .toggleInspectorPanel, object: nil)
+        }
+        .keyboardShortcut("i", modifiers: [.command, .option])
       }
       CommandGroup(replacing: .help) {
         Button("Report a Bug") {
