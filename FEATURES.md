@@ -253,6 +253,16 @@ Files can be dragged into the terminal:
 - Multiple files joined with spaces
 - Text inserted at cursor position
 
+### Pane Headers & Drag-to-Rearrange
+
+Every terminal pane has a header bar (always visible):
+- **Title**: Session name (Claude) or terminal title from escape sequences (plain terminals)
+- **Close button**: Closes the pane; shows confirmation for active Claude sessions
+- **Draggable**: Drag a header onto another pane to rearrange — drop zone overlay shows split direction (top/bottom/left/right)
+- **Drop zones**: Triangular edge detection (ported from Ghostty) — cursor's nearest edge determines the split direction
+- **Move operation**: Source pane is removed from its position and inserted at the destination (not a swap — matches Ghostty behavior)
+- **Self-drop**: No-op
+
 ---
 
 ## File Browser

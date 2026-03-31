@@ -21,7 +21,9 @@
 // SOFTWARE.
 
 import AppKit
+import Combine
 import Foundation
+import GhosttyEmbed
 
 // MARK: - Worktree Split Types
 
@@ -127,6 +129,14 @@ final class ContentViewModel {
   @ObservationIgnored
   private var plainTerminalIds: Set<String> = []
 
+  /// Observable titles for plain terminals (updated by Ghostty surface title publisher).
+  /// Claude sessions read titles from `sessionDiscovery.sessions` instead.
+  var plainTerminalTitles: [String: String] = [:]
+
+  /// Combine subscriptions for Ghostty surface title updates.
+  @ObservationIgnored
+  private var titleCancellables: [String: AnyCancellable] = [:]
+
   /// Per-terminal init script overrides (keyed by terminalId). Consumed on first access.
   @ObservationIgnored
   private var splitInitScripts: [String: String] = [:]
@@ -160,6 +170,14 @@ final class ContentViewModel {
   /// Stores a newly created GhosttyHostView so it survives view-tree restructuring.
   func cacheGhosttyHostView(_ view: GhosttyHostView, terminalId: String) {
     ghosttyHostViews[terminalId] = view
+    // Subscribe to surface title changes for plain terminals
+    if isPlainTerminal(terminalId), let surface = view.surface {
+      titleCancellables[terminalId] = surface.titlePublisher
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] newTitle in
+          self?.plainTerminalTitles[terminalId] = newTitle.isEmpty ? "Terminal" : newTitle
+        }
+    }
   }
 
   /// Removes the cached view, allowing it to deallocate and terminate its process.
@@ -169,6 +187,8 @@ final class ContentViewModel {
   /// deallocates — otherwise the C-layer userdata pointer dangles (BAD_ACCESS).
   func evictGhosttyHostView(terminalId: String) {
     guard let hostView = ghosttyHostViews.removeValue(forKey: terminalId) else { return }
+    titleCancellables.removeValue(forKey: terminalId)
+    plainTerminalTitles.removeValue(forKey: terminalId)
     hostView.close()
     DispatchQueue.main.async { [hostView] in _ = hostView }
   }
@@ -768,6 +788,7 @@ final class ContentViewModel {
     plainTerminalIds.contains(terminalId)
   }
 
+
   /// Returns and consumes the source session ID for fork, if applicable.
   func forkSourceSessionId(for terminalId: String) -> String? {
     pendingForkSessions.removeValue(forKey: terminalId)
@@ -874,6 +895,60 @@ final class ContentViewModel {
     }
   }
 
+  /// Move a pane from one position to another within the split tree (drag-to-rearrange).
+  /// If not already in split mode, this is a no-op (single pane can't move within itself).
+  func movePaneToSplit(sourceTerminalId: String, destinationTerminalId: String, zone: PaneDropZone) {
+    guard sourceTerminalId != destinationTerminalId else { return }
+
+    // Find session IDs from terminal IDs
+    let allSessions: [ClaudeSession]
+    if let tree = splitTree {
+      allSessions = tree.allSessions
+    } else if let session = selectedSession {
+      allSessions = [session]
+    } else {
+      return
+    }
+
+    guard let sourceSession = allSessions.first(where: { $0.terminalId == sourceTerminalId }),
+          let destSession = allSessions.first(where: { $0.terminalId == destinationTerminalId }) else {
+      return
+    }
+
+    let direction = zone.splitDirection
+
+    if let tree = splitTree {
+      // Already in split mode — move within tree
+      guard let newTree = tree.moving(sessionId: sourceSession.id, toDestination: destSession.id, direction: direction) else {
+        return
+      }
+      let remaining = newTree.allSessions
+      if remaining.count <= 1 {
+        splitTree = nil
+        selectedSession = remaining.first
+        bindWindowToSession(remaining.first)
+      } else {
+        splitTree = newTree
+        selectedSession = sourceSession
+      }
+    }
+    // Single pane mode: no-op for same-window (future: cross-window creates split)
+  }
+
+  /// Close a pane identified by terminalId (called from the pane header close button).
+  func closePaneByTerminalId(_ terminalId: String) {
+    let session: ClaudeSession?
+    if let tree = splitTree {
+      session = tree.allSessions.first(where: { $0.terminalId == terminalId })
+    } else if selectedSession?.terminalId == terminalId {
+      session = selectedSession
+    } else {
+      session = nil
+    }
+    guard let session else { return }
+    handleCloseRequested(for: session)
+  }
+
   /// Close all split panes and return to single-terminal mode.
   func closeSplit() {
     let primary = primarySession
@@ -942,10 +1017,16 @@ final class ContentViewModel {
       sessionToRename = nil
       return
     }
-    do {
-      try sessionDiscovery.renameSession(session, to: renameText)
-    } catch {
-      // Rename failed silently — session title stays unchanged
+    if isPlainTerminal(session.terminalId) {
+      // Plain terminal: set the Ghostty surface title directly
+      ghosttyHostViews[session.terminalId]?.surface?.rename(to: renameText)
+    } else {
+      // Claude session: update the JSONL file on disk
+      do {
+        try sessionDiscovery.renameSession(session, to: renameText)
+      } catch {
+        // Rename failed silently — session title stays unchanged
+      }
     }
     currentWindow?.title = renameText
     sessionToRename = nil

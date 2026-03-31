@@ -101,6 +101,17 @@ struct PaneSplitTree {
   func replacing(sessionId: String, with newSession: ClaudeSession) -> PaneSplitTree {
     PaneSplitTree(root: root.replacing(sessionId: sessionId, with: newSession))
   }
+
+  /// Move a pane from its current position to a new position adjacent to `destinationId`.
+  /// Returns `nil` if removing the source leaves an empty tree.
+  func moving(sessionId: String, toDestination destinationId: String, direction: SplitDirection) -> PaneSplitTree? {
+    // Extract the session before removing
+    guard let session = root.session(withId: sessionId) else { return nil }
+    // Remove source from tree
+    guard let treeWithoutSource = removing(sessionId: sessionId) else { return nil }
+    // Insert at destination
+    return treeWithoutSource.inserting(session, at: destinationId, direction: direction)
+  }
 }
 
 // MARK: - Node helpers
@@ -118,6 +129,13 @@ private extension PaneSplitTree.Node {
     switch self {
     case .leaf(let s): return s.id == sessionId
     case .split(let sp): return sp.left.contains(sessionId: sessionId) || sp.right.contains(sessionId: sessionId)
+    }
+  }
+
+  func session(withId sessionId: String) -> ClaudeSession? {
+    switch self {
+    case .leaf(let s): return s.id == sessionId ? s : nil
+    case .split(let sp): return sp.left.session(withId: sessionId) ?? sp.right.session(withId: sessionId)
     }
   }
 

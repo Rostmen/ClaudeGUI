@@ -49,6 +49,8 @@ struct SessionListView: View {
   var activatedSessions: [String: ClaudeSession]
   /// Session IDs that are part of this window's split tree.
   var splitSessionIds: Set<String> = []
+  /// Runtime titles for plain terminals (keyed by terminalId).
+  var plainTerminalTitles: [String: String] = [:]
 
   /// Local selection state for responsive UI - synced with selectedSession
   @State private var localSelection: ClaudeSession?
@@ -160,6 +162,7 @@ struct SessionListView: View {
             SessionRowView(
               sessionModel: ClaudeSessionModel(session: session, runtime: runtimeState.info(for: session.id)),
               isActive: true,
+              titleOverride: plainTerminalTitles[session.terminalId],
               onDragToNewWindow: { sessionId in onAction(.dragToNewWindow(sessionId: sessionId)) }
             )
               .tag(session)

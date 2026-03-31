@@ -1,6 +1,6 @@
 ---
 name: Split Pane Architecture
-description: Tree-based split layout, focus routing fix, PaneSplitTree/PaneSplitView implementation
+description: Tree-based split layout, pane headers with drag-to-rearrange, focus routing fix, PaneSplitTree/PaneSplitView implementation
 type: project
 ---
 
@@ -50,3 +50,17 @@ This sets `focused = false` on every new surface. Focus is granted only via `mak
 - `onHostViewCreated` fires for fresh views so callers can populate the cache.
 - Cache evicted in `closeSplitPane(id:)` and `closeSplit()` — ensures the process terminates when the pane is explicitly closed.
 - `TerminalView` (SwiftUI wrapper) passes these through; SwiftTerm ignores them (nil defaults).
+
+## Pane Headers & Drag-to-Rearrange
+
+Every pane has a `PaneHeaderView` (always visible, single or split mode): 30px height, title left, close button right.
+
+**Drag**: `PaneHeaderDragSourceNSView` (AppKit NSDraggingSource) encodes `terminalId` on pasteboard as `com.tenvy.paneId` UTType. 20%-scaled terminal snapshot as drag image. Follows Ghostty's `SurfaceDragSourceView` pattern.
+
+**Drop**: `PaneDropDelegate` (SwiftUI DropDelegate) on each `PaneLeafView`. `PaneDropZone` (ported from Ghostty's `TerminalSplitDropZone`) determines split direction via triangular edge detection.
+
+**Move**: `PaneSplitTree.moving(sessionId:toDestination:direction:)` — remove source, insert at destination. Matches Ghostty's `splitDidDrop`.
+
+**Title**: Claude sessions → `session.title`; plain terminals → `GhosttyEmbedSurface.title` (auto-updates from escape sequences).
+
+**Cross-window**: Pasteboard uses string terminalId. `Notification.paneDragEndedNoTarget` posted when drag ends outside windows — ready for future cross-window transfer.

@@ -31,6 +31,7 @@ struct SidebarView: View {
   var activeSessionIds: Set<String> = []
   var activatedSessions: [String: ClaudeSession] = [:]
   var splitSessionIds: Set<String> = []
+  var plainTerminalTitles: [String: String] = [:]
 
   private let settings = AppSettings.shared
   @State private var selectedTab: SidebarTab = .sessions
@@ -61,7 +62,8 @@ struct SidebarView: View {
           runtimeState: runtimeState,
           activeSessionIds: activeSessionIds,
           activatedSessions: activatedSessions,
-          splitSessionIds: splitSessionIds
+          splitSessionIds: splitSessionIds,
+          plainTerminalTitles: plainTerminalTitles
         )
         .opacity(selectedTab == .sessions ? 1 : 0)
         .allowsHitTesting(selectedTab == .sessions)

@@ -27,6 +27,8 @@ struct SessionRowView: View {
   /// Whether this session is in the activated set — the single source of truth for "active".
   /// Passed by the parent list which owns `activeSessionIds`.
   var isActive: Bool = false
+  /// Override title (e.g. for plain terminals whose Ghostty surface title changes at runtime).
+  var titleOverride: String?
   /// Callback for drag-to-new-window. When set, a drag handle appears for active sessions.
   var onDragToNewWindow: ((String) -> Void)?
 
@@ -45,24 +47,9 @@ struct SessionRowView: View {
   
   /// Status dot color based on hook state (only if active) or CPU state
   private var statusColor: Color {
-    // Only use hook state if session is active (has running process)
     if isActive, let hookState = runtimeInfo.hookState {
-      switch hookState {
-        case .thinking, .processing:
-          return .yellow  // Working
-        case .waiting:
-          return .green   // Ready for input
-        case .waitingPermission:
-          return .red     // Waiting for permission approval
-        case .started:
-          return .blue    // Just started
-        case .ended:
-          return .gray    // Session ended
-        case .unknown:
-          return .green
-      }
+      return hookState.statusColor
     }
-    // Fallback to CPU-based state or inactive
     return isActive ? .green : .gray
   }
   
@@ -138,7 +125,7 @@ struct SessionRowView: View {
   }
   
   @ViewBuilder var sessionNameRow: some View {
-    Text(session.title)
+    Text(titleOverride ?? session.title)
       .font(.headline)
       .foregroundColor(ClaudeTheme.textPrimary)
       .lineLimit(1)

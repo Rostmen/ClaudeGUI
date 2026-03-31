@@ -69,6 +69,24 @@ enum HookState: String, Codable {
   case unknown
 }
 
+// MARK: - HookState Color
+
+import SwiftUI
+
+extension HookState {
+  /// Status dot color for this hook state.
+  var statusColor: Color {
+    switch self {
+    case .thinking, .processing: .yellow
+    case .waiting: .green
+    case .waitingPermission: .red
+    case .started: .blue
+    case .ended: .gray
+    case .unknown: .green
+    }
+  }
+}
+
 /// Service that monitors hook events and updates session states
 @MainActor
 @Observable

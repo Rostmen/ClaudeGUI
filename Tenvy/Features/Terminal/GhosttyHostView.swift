@@ -53,6 +53,9 @@ final class GhosttyHostView: NSView {
 
   var surfaceViewIfReady: NSView? { surface?.nsView }
 
+  /// Snapshot of the terminal content for drag previews.
+  var snapshotImage: NSImage? { surface?.asImage }
+
   /// Set to true before adding to a window so `viewDidMoveToWindow` transfers focus immediately.
   var pendingFocus: Bool = false
 

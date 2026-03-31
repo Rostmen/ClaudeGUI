@@ -45,6 +45,8 @@ Tenvy/
 │   │   ├── ClaudeSessionTerminalView.swift  # Claude session terminal (NSViewRepresentable)
 │   │   ├── PlainTerminalView.swift # Plain shell terminal (NSViewRepresentable)
 │   │   ├── PaneSplitView.swift     # Two-pane split view with draggable divider
+│   │   ├── PaneHeaderView.swift   # Pane header bar with title + drag source for rearrangement
+│   │   ├── PaneDropZone.swift     # Drop zone calculation + overlay (ported from Ghostty)
 │   │   ├── EmptyTerminalView.swift # Empty state placeholder
 │   │   ├── ClaudePathResolver.swift   # Finds claude CLI binary
 │   │   ├── TerminalEnvironment.swift  # Terminal env var configuration
@@ -257,7 +259,8 @@ Active sessions in the sidebar can be dragged to merge into split panes or moved
 
 - **Tree model**: `PaneSplitTree` — recursive binary tree (`leaf(ClaudeSession)` | `split(Split)`). Splitting a leaf replaces only that leaf with a split node; the rest of the tree is untouched.
 - **`PaneSplitView`**: two-pane SwiftUI view using `GeometryReader + ZStack + offset` (NOT `NSSplitView`). Draggable divider updates `Split.ratio` via `ContentViewModel.updateSplitRatio(splitId:ratio:)`.
-- **`PaneSplitTreeRenderer`** (private struct in `ContentView`): recursively renders the tree — `leaf` → `TerminalView`, `split` → `PaneSplitView` with two recursive renderers.
+- **`PaneSplitTreeRenderer`** (private struct in `ContentView`): recursively renders the tree — `leaf` → `PaneLeafView`, `split` → `PaneSplitView` with two recursive renderers.
+- **`PaneLeafView`** (private struct in `ContentView`): wraps each terminal in a `VStack` with `PaneHeaderView` on top and a drop zone overlay. Used in both single-pane and split modes.
 - **`selectedSession`** tracks the focused pane; `primarySession` tracks the window-registered session (the first pane).
 - **Auto-close**: non-primary panes automatically close when their `claude` process exits (`.inactive` state).
 - **`syncSplitSession()`**: like `syncNewSessionWithDiscoveredSession()` but for split panes — updates `isNewSession` leaves when Claude creates the real session file.
@@ -281,6 +284,20 @@ SwiftUI destroys and recreates `NSViewRepresentable`-backed views when they move
 - `GhosttyTerminalView.makeNSView`: returns cached view if `existingHostView != nil`, skipping `setup()` (no new process).
 - `onHostViewCreated` callback: fires in `makeNSView` for fresh views, allowing callers to populate the cache.
 - Cache is evicted in `closeSplitPane(id:)` and `closeSplit()` before deactivating, so the Ghostty process terminates when the pane is explicitly closed.
+
+#### Pane Headers & Drag-to-Rearrange
+
+Every pane (single or split) has a `PaneHeaderView` at the top: 30px height, session title left-aligned, close button right-aligned. The header is the drag source for rearranging panes.
+
+**Drag source**: `PaneHeaderDragSourceNSView` (AppKit `NSDraggingSource`) — follows Ghostty's `SurfaceDragSourceView` pattern. Encodes the pane's `terminalId` (String) on the pasteboard using custom type `com.tenvy.paneId` (registered as `UTType` in `Info.plist`). Creates a 20%-scaled terminal snapshot as the drag preview image. Escape key cancels the drag.
+
+**Drop target**: `PaneDropDelegate` (SwiftUI `DropDelegate`) on each `PaneLeafView`. Uses `PaneDropZone` (ported from Ghostty's `TerminalSplitDropZone`) for triangular edge detection — the cursor's nearest edge determines the split direction (top/bottom/left/right). A colored overlay shows where the split will appear.
+
+**Move operation**: `PaneSplitTree.moving(sessionId:toDestination:direction:)` removes the source pane from the tree and inserts it adjacent to the destination in the drop zone direction. This matches Ghostty's `splitDidDrop` behavior (remove-then-insert). `ContentViewModel.movePaneToSplit()` maps terminal IDs to session IDs and updates the tree.
+
+**Title source**: Claude sessions use `session.title`; plain terminals use `GhosttyEmbedSurface.title` (auto-updates from terminal escape sequences via `@Published`).
+
+**Cross-window ready**: Pasteboard uses string-based `terminalId` (not object references). `Notification.paneDragEndedNoTarget` is posted when a drag ends outside any window, enabling future cross-window pane transfer.
 
 ### Ghostty Terminal Backend
 
