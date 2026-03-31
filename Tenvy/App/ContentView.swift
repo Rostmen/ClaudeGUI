@@ -22,6 +22,7 @@
 
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 import GhosttyEmbed
 
 // MARK: - Preference Key for Terminal Frame
@@ -285,20 +286,34 @@ private struct DetailView<Key: PreferenceKey>: View where Key.Value == CGRect {
   let viewModel: ContentViewModel
   let terminalFramePreferenceKey: Key.Type
 
+  /// Drives the SwiftUI `.onDrop` `isTargeted` for single-pane mode.
+  /// Synced to `viewModel.fileDropTargetTerminalId` via `onChange`.
+  @State private var isSinglePaneDropTargeted = false
+
   var body: some View {
     ZStack {
       if viewModel.isInSplitMode, let tree = viewModel.splitTree {
-        // Split mode: tree-based layout — each pane is split independently.
+        // Split mode: GhosttyHostView handles file drops at the AppKit level.
+        // Drag enter/exit/drop fire TerminalAction callbacks → PaneLeafView
+        // updates highlight + focus per-pane.
         PaneSplitTreeRenderer(node: tree.root, viewModel: viewModel)
           .background(terminalFrameReader(visible: true))
           .padding(16)
       } else if let session = viewModel.selectedSession,
                 viewModel.shouldRenderTerminal(for: session) {
-        // Normal single-terminal mode
+        // Single-pane mode: SwiftUI's hosting layer blocks AppKit drag events
+        // from reaching GhosttyHostView. Use SwiftUI .onDrop as fallback,
+        // applied after .allowsHitTesting() to avoid being blocked.
         PaneLeafView(session: session, viewModel: viewModel, isSplitPane: false)
           .id(session.terminalId)
           .opacity(viewModel.isTerminalVisible ? 1 : 0)
           .allowsHitTesting(viewModel.isTerminalVisible)
+          .onDrop(of: [.fileURL], isTargeted: $isSinglePaneDropTargeted) { providers in
+            viewModel.handleSinglePaneFileDrop(providers: providers, terminalId: session.terminalId)
+          }
+          .onChange(of: isSinglePaneDropTargeted) { _, targeted in
+            viewModel.fileDropTargetTerminalId = targeted ? session.terminalId : nil
+          }
           .background(terminalFrameReader(visible: viewModel.isTerminalVisible))
           .padding(16)
       }
@@ -383,6 +398,10 @@ private struct PaneLeafView: View {
 
   @State private var dropZone: PaneDropZone?
 
+  private var isFileDropTargeted: Bool {
+    viewModel.fileDropTargetTerminalId == session.terminalId
+  }
+
   /// Reactive title: reads from session manager (Claude) or observed surface title (plain terminal).
   private var paneTitle: String {
     if viewModel.isPlainTerminal(session.terminalId) {
@@ -402,6 +421,7 @@ private struct PaneLeafView: View {
           title: paneTitle,
           terminalId: session.terminalId,
           isSelected: viewModel.selectedSession?.id == session.id,
+          isFileDropTarget: isFileDropTargeted,
           runtimeInfo: viewModel.runtimeState.info(for: session.id),
           isActive: viewModel.appModel.isSessionActivated(session.id),
           snapshotProvider: { [weak viewModel] in
@@ -434,6 +454,26 @@ private struct PaneLeafView: View {
     }
   }
 
+  private func handleAction(_ action: TerminalAction) {
+    switch action {
+    case .fileDragEntered:
+      viewModel.fileDropTargetTerminalId = session.terminalId
+    case .fileDragExited:
+      if viewModel.fileDropTargetTerminalId == session.terminalId {
+        viewModel.fileDropTargetTerminalId = nil
+      }
+    case .fileDropped:
+      viewModel.fileDropTargetTerminalId = nil
+      viewModel.focusPane(terminalId: session.terminalId)
+    default:
+      if isSplitPane {
+        viewModel.handleSplitTerminalAction(action, for: session)
+      } else {
+        viewModel.handleTerminalAction(action, for: session)
+      }
+    }
+  }
+
   @ViewBuilder
   private var terminalView: some View {
     if viewModel.isPlainTerminal(session.terminalId) {
@@ -442,11 +482,7 @@ private struct PaneLeafView: View {
         isSelected: viewModel.selectedSession?.id == session.id,
         initScript: viewModel.initScript(for: session.terminalId),
         onAction: { action in
-          if isSplitPane {
-            viewModel.handleSplitTerminalAction(action, for: session)
-          } else {
-            viewModel.handleTerminalAction(action, for: session)
-          }
+          handleAction(action)
         },
         existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
         onHostViewCreated: { viewModel.cacheGhosttyHostView($0, terminalId: session.terminalId) }
@@ -459,11 +495,7 @@ private struct PaneLeafView: View {
         forkSourceSessionId: viewModel.forkSourceSessionId(for: session.terminalId),
         initScript: viewModel.initScript(for: session.terminalId),
         onAction: { action in
-          if isSplitPane {
-            viewModel.handleSplitTerminalAction(action, for: session)
-          } else {
-            viewModel.handleTerminalAction(action, for: session)
-          }
+          handleAction(action)
         },
         existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
         onHostViewCreated: { viewModel.cacheGhosttyHostView($0, terminalId: session.terminalId) }

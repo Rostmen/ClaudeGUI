@@ -54,6 +54,7 @@ struct PaneHeaderView: View {
   let title: String
   let terminalId: String
   var isSelected: Bool = false
+  var isFileDropTarget: Bool = false
   var runtimeInfo: SessionRuntimeInfo?
   var isActive: Bool = false
   let snapshotProvider: () -> NSImage?
@@ -61,6 +62,7 @@ struct PaneHeaderView: View {
 
   @Environment(\.colorScheme) private var colorScheme
   @State private var isBlinking = false
+  @State private var dropHighlightPulse = false
 
   private var statusColor: Color {
     if isActive, let hookState = runtimeInfo?.hookState {
@@ -74,6 +76,11 @@ struct PaneHeaderView: View {
   }
 
   private var backgroundColor: Color {
+    if isFileDropTarget {
+      return colorScheme == .dark
+        ? Color.accentColor.opacity(dropHighlightPulse ? 0.35 : 0.2)
+        : Color.accentColor.opacity(dropHighlightPulse ? 0.3 : 0.15)
+    }
     if isSelected {
       return colorScheme == .dark
         ? Color(red: 41/255, green: 42/255, blue: 47/255)
@@ -85,7 +92,10 @@ struct PaneHeaderView: View {
   }
 
   private var borderColor: Color {
-    colorScheme == .dark
+    if isFileDropTarget {
+      return Color.accentColor.opacity(0.5)
+    }
+    return colorScheme == .dark
       ? Color(nsColor: NSColor(white: 0.2, alpha: 1.0))
       : Color(nsColor: NSColor(white: 0.78, alpha: 1.0))
   }
@@ -131,6 +141,18 @@ struct PaneHeaderView: View {
     .onChange(of: shouldBlink) { _, newValue in
       isBlinking = newValue
     }
+    .onChange(of: isFileDropTarget) { _, targeted in
+      if targeted {
+        withAnimation(.easeInOut(duration: 0.4).repeatForever(autoreverses: true)) {
+          dropHighlightPulse = true
+        }
+      } else {
+        withAnimation(.easeOut(duration: 0.2)) {
+          dropHighlightPulse = false
+        }
+      }
+    }
+    .animation(.easeInOut(duration: 0.15), value: isFileDropTarget)
     .onAppear {
       if shouldBlink { isBlinking = true }
     }

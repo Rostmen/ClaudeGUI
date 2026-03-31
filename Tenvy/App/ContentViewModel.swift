@@ -1043,6 +1043,9 @@ final class ContentViewModel {
     case .renameRequested:
       sessionToRename = session
       renameText = session.title
+    case .fileDragEntered, .fileDragExited, .fileDropped:
+      // Handled by PaneLeafView directly
+      break
     }
   }
 
@@ -1065,6 +1068,51 @@ final class ContentViewModel {
     }
     currentWindow?.title = renameText
     sessionToRename = nil
+  }
+
+  // MARK: - File Drop
+
+  /// Terminal ID currently being hovered with a file drag (drives header highlight).
+  /// Set by AppKit drag callbacks (split mode) or SwiftUI isTargeted (single-pane).
+  var fileDropTargetTerminalId: String?
+
+  /// Focuses the pane with the given terminal ID — used when files are dropped on a non-focused pane.
+  func focusPane(terminalId: String) {
+    guard let session = findSessionByTerminalId(terminalId),
+          selectedSession?.terminalId != terminalId else { return }
+    selectedSession = session
+    ghosttyHostView(for: terminalId)?.makeFocused()
+  }
+
+  /// Handles file drop in single-pane mode (SwiftUI fallback).
+  /// GhosttyHostView's AppKit drag handler doesn't fire in single-pane because
+  /// SwiftUI's hosting layer intercepts drags before they reach child NSViews.
+  func handleSinglePaneFileDrop(providers: [NSItemProvider], terminalId: String) -> Bool {
+    guard let hostView = ghosttyHostView(for: terminalId) else { return false }
+
+    let group = DispatchGroup()
+    var urls: [URL] = []
+    let lock = NSLock()
+
+    for provider in providers {
+      group.enter()
+      _ = provider.loadObject(ofClass: URL.self) { url, _ in
+        defer { group.leave() }
+        guard let url else { return }
+        lock.lock()
+        urls.append(url)
+        lock.unlock()
+      }
+    }
+
+    group.notify(queue: .main) {
+      guard !urls.isEmpty else { return }
+      let text = urls
+        .map { GhosttyHostView.shellEscape($0.path) }
+        .joined(separator: " ")
+      hostView.surface?.sendText(text)
+    }
+    return true
   }
 
   /// Handler for split-pane terminals that also auto-closes when the claude process ends.
