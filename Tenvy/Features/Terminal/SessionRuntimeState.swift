@@ -137,23 +137,38 @@ final class SessionRuntimeRegistry {
     instances.removeValue(forKey: sessionId)
   }
 
-  /// Transfer runtime state from one session ID to another
-  /// Used when syncing a new session with its Claude-created file
+  /// Transfer runtime state from one session ID to another.
+  /// Used when syncing a new session with its Claude-created file.
+  /// Hook events may have already arrived under `newId` before sync completes,
+  /// so hook state on the target is preserved if the source has none.
   func transferState(from oldId: String, to newId: String) {
     guard let oldInfo = instances[oldId] else { return }
-    // Create new info with same values
     let newInfo = info(for: newId)
+
+    // Always transfer process/CPU state from the old (monitored) session
     newInfo.state = oldInfo.state
     newInfo.cpu = oldInfo.cpu
     newInfo.memory = oldInfo.memory
     newInfo.pid = oldInfo.pid
     newInfo.shellPid = oldInfo.shellPid
-    newInfo.hookState = oldInfo.hookState
-    newInfo.currentTool = oldInfo.currentTool
-    newInfo.hookTimestamp = oldInfo.hookTimestamp
-    newInfo.activatedAt = oldInfo.activatedAt
-    newInfo.hasUserInteracted = oldInfo.hasUserInteracted
     newInfo.gitBranch = oldInfo.gitBranch
+
+    // Prefer hook state that's already on the target (from hook events arriving
+    // under the real session ID before sync). Only copy from old if target has none.
+    if newInfo.hookState == nil {
+      newInfo.hookState = oldInfo.hookState
+      newInfo.currentTool = oldInfo.currentTool
+      newInfo.hookTimestamp = oldInfo.hookTimestamp
+    }
+
+    // Preserve activation tracking — use earliest activation time
+    if let oldActivated = oldInfo.activatedAt {
+      if newInfo.activatedAt == nil || oldActivated < newInfo.activatedAt! {
+        newInfo.activatedAt = oldActivated
+      }
+    }
+    newInfo.hasUserInteracted = oldInfo.hasUserInteracted || newInfo.hasUserInteracted
+
     // Remove old entry
     instances.removeValue(forKey: oldId)
   }

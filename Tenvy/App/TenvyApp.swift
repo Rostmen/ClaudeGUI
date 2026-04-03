@@ -22,6 +22,7 @@
 
 import SwiftUI
 import UserNotifications
+import GRDBQuery
 
 // MARK: - Notification Names for Menu Commands
 
@@ -61,6 +62,7 @@ struct TenvyApp: App {
       } else {
         ContentView(appModel: appDelegate.appModel)
           .environment(appDelegate.appModel)
+          .databaseContext(.readOnly { AppDatabase.shared.databaseReader })
       }
     }
     .windowStyle(.automatic)

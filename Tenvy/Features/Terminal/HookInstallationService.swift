@@ -74,11 +74,12 @@ final class HookInstallationService {
       .appendingPathComponent("chat-sessions-hook.sh")
     claudeSettingsPath = claudeDir.appendingPathComponent("settings.json")
 
-    // Check initial installation status
-    checkInstallationStatus()
+    // Auto-install or upgrade hooks at startup
+    ensureHooksInstalled()
   }
 
-  /// Check if hooks are installed
+  /// Ensure hooks are installed and up-to-date.
+  /// Installs if missing, upgrades if the script lacks `TENVY_TERMINAL_ID` support.
   func checkInstallationStatus() {
     let scriptExists = FileManager.default.fileExists(atPath: hookScriptPath.path)
     let hooks = loadHooks()
@@ -86,6 +87,33 @@ final class HookInstallationService {
       .flatMap(\.hooks)
       .contains { $0.command.contains("chat-sessions-hook.sh") } ?? false
     hooksInstalled = scriptExists && settingsConfigured
+  }
+
+  /// Auto-install or upgrade hooks. Called once at init.
+  private func ensureHooksInstalled() {
+    let scriptExists = FileManager.default.fileExists(atPath: hookScriptPath.path)
+    let hooks = loadHooks()
+    let settingsConfigured = hooks["Stop"]?
+      .flatMap(\.hooks)
+      .contains { $0.command.contains("chat-sessions-hook.sh") } ?? false
+
+    // Check if installed script has terminal_id support
+    var scriptUpToDate = false
+    if scriptExists, let content = try? String(contentsOf: hookScriptPath, encoding: .utf8) {
+      scriptUpToDate = content.contains("TENVY_TERMINAL_ID")
+    }
+
+    let needsInstall = !scriptExists || !settingsConfigured || !scriptUpToDate
+    if needsInstall {
+      Task {
+        let result = await installHooks()
+        if case .failure(let error) = result {
+          print("HookInstallationService: Failed to install hooks: \(error)")
+        }
+      }
+    } else {
+      hooksInstalled = true
+    }
   }
 
   /// Start tracking a session for hook events
@@ -325,6 +353,8 @@ final class HookInstallationService {
     CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
     TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
     NOTIFICATION_TYPE=$(echo "$INPUT" | jq -r '.notification_type // empty')
+    # Terminal ID from Tenvy — enables reliable session ID mapping
+    TERMINAL_ID="${TENVY_TERMINAL_ID:-}"
 
     # Skip if no session ID
     if [ -z "$SESSION_ID" ]; then
@@ -373,24 +403,15 @@ final class HookInstallationService {
     # Build JSON output (compact single-line with -c flag for JSONL format)
     TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-    if [ -n "$TOOL_NAME" ]; then
-      OUTPUT=$(jq -cn \\
-        --arg sid "$SESSION_ID" \\
-        --arg evt "$HOOK_EVENT" \\
-        --arg st "$STATE" \\
-        --arg cwd "$CWD" \\
-        --arg tool "$TOOL_NAME" \\
-        --arg ts "$TIMESTAMP" \\
-        '{session_id: $sid, event: $evt, state: $st, cwd: $cwd, tool: $tool, timestamp: $ts}')
-    else
-      OUTPUT=$(jq -cn \\
-        --arg sid "$SESSION_ID" \\
-        --arg evt "$HOOK_EVENT" \\
-        --arg st "$STATE" \\
-        --arg cwd "$CWD" \\
-        --arg ts "$TIMESTAMP" \\
-        '{session_id: $sid, event: $evt, state: $st, cwd: $cwd, timestamp: $ts}')
-    fi
+    OUTPUT=$(jq -cn \\
+      --arg sid "$SESSION_ID" \\
+      --arg evt "$HOOK_EVENT" \\
+      --arg st "$STATE" \\
+      --arg cwd "$CWD" \\
+      --arg tool "$TOOL_NAME" \\
+      --arg ts "$TIMESTAMP" \\
+      --arg tid "$TERMINAL_ID" \\
+      '{session_id: $sid, event: $evt, state: $st, cwd: $cwd, tool: (if $tool == "" then null else $tool end), timestamp: $ts, terminal_id: (if $tid == "" then null else $tid end)}')
 
     # Append to events file
     echo "$OUTPUT" >> "$EVENTS_FILE"

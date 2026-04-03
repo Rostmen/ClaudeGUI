@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 import SwiftUI
+import GRDBQuery
 
 struct SessionRowView: View {
   let sessionModel: ClaudeSessionModel
@@ -30,34 +31,49 @@ struct SessionRowView: View {
   /// Override title (e.g. for plain terminals whose Ghostty surface title changes at runtime).
   var titleOverride: String?
 
+  /// DB-backed session record for reactive hookState display.
+  @Query<SessionByTerminalIdRequest> private var sessionRecord: SessionRecord?
+
   /// Animation state for blinking dot
   @State private var isBlinking = false
+
+  init(sessionModel: ClaudeSessionModel, isActive: Bool = false, titleOverride: String? = nil) {
+    self.sessionModel = sessionModel
+    self.isActive = isActive
+    self.titleOverride = titleOverride
+    _sessionRecord = Query(SessionByTerminalIdRequest(terminalId: sessionModel.session.terminalId))
+  }
 
   private var session: ClaudeSession { sessionModel.session }
 
   /// Get the runtime info - accessing this in body sets up observation
   private var runtimeInfo: SessionRuntimeInfo { sessionModel.runtime }
-  
+
+  /// Resolved hook state — prefers DB record, falls back to in-memory runtimeInfo.
+  private var effectiveHookState: HookState? {
+    sessionRecord?.resolvedHookState ?? runtimeInfo.hookState
+  }
+
   /// Whether the dot should blink (waiting for user input or permission)
   private var shouldBlink: Bool {
-    isActive && (runtimeInfo.hookState == .waiting || runtimeInfo.hookState == .waitingPermission)
+    isActive && (effectiveHookState == .waiting || effectiveHookState == .waitingPermission)
   }
-  
+
   /// Status dot color based on hook state (only if active) or CPU state
   private var statusColor: Color {
-    if isActive, let hookState = runtimeInfo.hookState {
+    if isActive, let hookState = effectiveHookState {
       return hookState.statusColor
     }
     return isActive ? .green : .gray
   }
-  
+
   /// Status text based on hook state (only if active)
   private var statusText: String? {
     // Only show hook status if session is active
-    guard isActive, let hookState = runtimeInfo.hookState else { return nil }
+    guard isActive, let hookState = effectiveHookState else { return nil }
     switch hookState {
       case .thinking:
-        if let tool = runtimeInfo.currentTool {
+        if let tool = sessionRecord?.currentTool ?? runtimeInfo.currentTool {
           return formatToolName(tool)
         }
         return "Thinking..."

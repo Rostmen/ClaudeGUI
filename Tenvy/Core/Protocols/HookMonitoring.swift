@@ -26,8 +26,8 @@ import Foundation
 @MainActor
 protocol HookMonitoring: AnyObject {
   /// Callback fired when a session's state changes.
-  /// Parameters: (sessionId, hookState, tool, permissionMessage, eventTimestamp)
-  var onStateChange: ((String, HookState, String?, String?, Date?) -> Void)? { get set }
+  /// Parameters: (sessionId, hookState, tool, permissionMessage, eventTimestamp, terminalId)
+  var onStateChange: ((String, HookState, String?, String?, Date?, String?) -> Void)? { get set }
 
   /// Open the events file and start watching for new lines
   func startMonitoring()

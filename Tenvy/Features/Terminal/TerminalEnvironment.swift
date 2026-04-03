@@ -26,7 +26,9 @@ import Foundation
 struct TerminalEnvironment {
   /// Build the initial environment to pass to the shell process.
   /// The shell itself will source ~/.zprofile and ~/.zshrc and augment this further.
-  static func build() -> [String] {
+  /// - Parameter terminalId: If non-nil, sets `TENVY_TERMINAL_ID` so the hook script
+  ///   can include it in events for reliable session ID mapping. Pass nil for plain terminals.
+  static func build(terminalId: String? = nil) -> [String] {
     var env: [String] = ProcessInfo.processInfo.environment.map { "\($0.key)=\($0.value)" }
     env.setVariable("TERM", value: "xterm-256color")
     env.setVariable("COLORTERM", value: "truecolor")
@@ -40,6 +42,10 @@ struct TerminalEnvironment {
     // Apply user-defined custom variables (set in Settings → Environment Variables)
     for (key, value) in AppSettings.shared.customEnvironmentVariables {
       env.setVariable(key, value: value)
+    }
+    // Set terminal ID for hook event mapping (Claude sessions only, not plain terminals)
+    if let terminalId {
+      env.setVariable("TENVY_TERMINAL_ID", value: terminalId)
     }
     return env
   }

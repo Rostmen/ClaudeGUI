@@ -11,6 +11,8 @@
 		96B0AA032F6E2A0000B70D2B /* Dependencies in Frameworks */ = {isa = PBXBuildFile; productRef = 96B0AA022F6E2A0000B70D2B /* Dependencies */; };
 		AA000001AAAA0001AA000001 /* GhosttyEmbed in Frameworks */ = {isa = PBXBuildFile; productRef = AA000002AAAA0002AA000002 /* GhosttyEmbed */; };
 		BB000001BBBB0001BB000001 /* CodeEditor in Frameworks */ = {isa = PBXBuildFile; productRef = BB000002BBBB0002BB000002 /* CodeEditor */; };
+		D3DD740D2F7F44D300383520 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC000003CCCC0003CC000003 /* GRDB */; };
+		D3DD740E2F7F44D300383520 /* GRDBQuery in Frameworks */ = {isa = PBXBuildFile; productRef = CC000004CCCC0004CC000004 /* GRDBQuery */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -59,6 +61,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D3DD740E2F7F44D300383520 /* GRDBQuery in Frameworks */,
+				D3DD740D2F7F44D300383520 /* GRDB in Frameworks */,
 				96B000D82F6E1C0000B70D2B /* gitdiff in Frameworks */,
 				96B0AA032F6E2A0000B70D2B /* Dependencies in Frameworks */,
 				AA000001AAAA0001AA000001 /* GhosttyEmbed in Frameworks */,
@@ -127,6 +131,8 @@
 				96B0AA022F6E2A0000B70D2B /* Dependencies */,
 				AA000002AAAA0002AA000002 /* GhosttyEmbed */,
 				BB000002BBBB0002BB000002 /* CodeEditor */,
+				CC000003CCCC0003CC000003 /* GRDB */,
+				CC000004CCCC0004CC000004 /* GRDBQuery */,
 			);
 			productName = Tenvy;
 			productReference = 96B0FC312F6DB5AB00B70D2B /* Tenvy.app */;
@@ -215,6 +221,8 @@
 				96B0AA012F6E2A0000B70D2B /* XCRemoteSwiftPackageReference "swift-dependencies" */,
 				AA000003AAAA0003AA000003 /* XCLocalSwiftPackageReference "GhosttyEmbed" */,
 				BB000003BBBB0003BB000003 /* XCRemoteSwiftPackageReference "CodeEditor" */,
+				CC000001CCCC0001CC000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
+				CC000002CCCC0002CC000002 /* XCRemoteSwiftPackageReference "GRDBQuery" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 96B0FC322F6DB5AB00B70D2B /* Products */;
@@ -633,6 +641,22 @@
 				minimumVersion = 1.0.0;
 			};
 		};
+		CC000001CCCC0001CC000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 7.0.0;
+			};
+		};
+		CC000002CCCC0002CC000002 /* XCRemoteSwiftPackageReference "GRDBQuery" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDBQuery.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.10.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -655,6 +679,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = BB000003BBBB0003BB000003 /* XCRemoteSwiftPackageReference "CodeEditor" */;
 			productName = CodeEditor;
+		};
+		CC000003CCCC0003CC000003 /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC000001CCCC0001CC000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
+		};
+		CC000004CCCC0004CC000004 /* GRDBQuery */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC000002CCCC0002CC000002 /* XCRemoteSwiftPackageReference "GRDBQuery" */;
+			productName = GRDBQuery;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

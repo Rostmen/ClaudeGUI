@@ -626,6 +626,7 @@ final class ContentViewModel {
     // No git ops needed — just open the session
     if !hasGitRepo && !form.initGit {
       let session = pending.sourceSession
+      insertSessionRecord(session: session)
       splitInitScripts[session.terminalId] = form.initScript
       dismissSplitDialog()
       if pending.isNewSessionFlow {
@@ -637,6 +638,7 @@ final class ContentViewModel {
     // Git initialized, branch tab, no new branch — open as-is on current branch
     if hasGitRepo && !needsBranch && !needsWorktree {
       let session = pending.sourceSession
+      insertSessionRecord(session: session, branchName: form.baseBranch)
       splitInitScripts[session.terminalId] = form.initScript
       dismissSplitDialog()
       if pending.isNewSessionFlow {
@@ -658,6 +660,7 @@ final class ContentViewModel {
           try WorktreeService.initGitRepo(at: form.repoRoot)
           isCreatingWorktree = false
           let session = pending.sourceSession
+          insertSessionRecord(session: session)
           splitInitScripts[session.terminalId] = form.initScript
           dismissSplitDialog()
           if pending.isNewSessionFlow {
@@ -696,16 +699,26 @@ final class ContentViewModel {
           symlinkBuildArtifacts: form.symlinkBuildArtifacts
         )
         isCreatingWorktree = false
+
+        // Compute subfolder offset: if the source session was in a subfolder of the repo,
+        // the worktree session should start in the equivalent subfolder of the worktree.
+        let sessionWorkDir = Self.worktreeWorkingDirectory(
+          worktreePath: form.worktreePath,
+          repoRoot: form.repoRoot,
+          sourceWorkingDirectory: pending.sourceSession.workingDirectory
+        )
+
         if pending.isNewSessionFlow {
           let newSession = ClaudeSession(
             id: UUID().uuidString,
             title: "New Session",
             projectPath: form.worktreePath,
-            workingDirectory: form.worktreePath,
+            workingDirectory: sessionWorkDir,
             lastModified: Date(),
             filePath: nil,
             isNewSession: true
           )
+          insertSessionRecord(session: newSession, branchName: form.newBranchName, worktreePath: form.worktreePath)
           splitInitScripts[newSession.terminalId] = form.initScript
           dismissSplitDialog()
           activateNewSession(newSession)
@@ -713,6 +726,8 @@ final class ContentViewModel {
           performSplitWithWorktree(
             direction: pending.direction,
             worktreePath: form.worktreePath,
+            workingDirectory: sessionWorkDir,
+            branchName: form.newBranchName,
             forkSession: form.forkSession,
             sourceSession: pending.sourceSession,
             initScript: form.initScript
@@ -749,6 +764,7 @@ final class ContentViewModel {
         )
         isCreatingWorktree = false
         let session = pending.sourceSession
+        insertSessionRecord(session: session, branchName: form.newBranchName)
         splitInitScripts[session.terminalId] = form.initScript
         dismissSplitDialog()
         if pending.isNewSessionFlow {
@@ -779,6 +795,7 @@ final class ContentViewModel {
           filePath: nil,
           isNewSession: true
         )
+        insertSessionRecord(session: newSession, isPlainTerminal: true)
         plainTerminalIds.insert(newSession.terminalId)
         if let initScript {
           splitInitScripts[newSession.terminalId] = initScript
@@ -788,6 +805,7 @@ final class ContentViewModel {
       } else {
         // New session flow: open as Claude session (skip worktree)
         let session = pending.sourceSession
+        insertSessionRecord(session: session)
         if let initScript {
           splitInitScripts[session.terminalId] = initScript
         }
@@ -807,6 +825,7 @@ final class ContentViewModel {
       filePath: nil,
       isNewSession: true
     )
+    insertSessionRecord(session: newSession, isPlainTerminal: true)
     plainTerminalIds.insert(newSession.terminalId)
     if let initScript {
       splitInitScripts[newSession.terminalId] = initScript
@@ -842,6 +861,8 @@ final class ContentViewModel {
   private func performSplitWithWorktree(
     direction: SplitDirection,
     worktreePath: String,
+    workingDirectory: String,
+    branchName: String? = nil,
     forkSession: Bool,
     sourceSession: ClaudeSession,
     initScript: String? = nil
@@ -850,10 +871,16 @@ final class ContentViewModel {
       id: UUID().uuidString,
       title: "New Session",
       projectPath: worktreePath,
-      workingDirectory: worktreePath,
+      workingDirectory: workingDirectory,
       lastModified: Date(),
       filePath: nil,
       isNewSession: !forkSession
+    )
+    insertSessionRecord(
+      session: newSession,
+      branchName: branchName,
+      worktreePath: worktreePath,
+      forkSourceSessionId: forkSession ? sourceSession.id : nil
     )
     if forkSession {
       pendingForkSessions[newSession.terminalId] = sourceSession.id
@@ -863,6 +890,51 @@ final class ContentViewModel {
     }
     appModel.activateSession(newSession)
     insertSplitPane(newSession, at: sourceSession.id, direction: direction)
+  }
+
+  /// Inserts a SessionRecord into the persistent database for a newly created session.
+  /// Called at each session creation site where we have full context.
+  private func insertSessionRecord(
+    session: ClaudeSession,
+    isPlainTerminal: Bool = false,
+    branchName: String? = nil,
+    worktreePath: String? = nil,
+    forkSourceSessionId: String? = nil
+  ) {
+    let record = SessionRecord(
+      terminalId: session.terminalId,
+      workingDirectory: session.workingDirectory,
+      projectPath: session.projectPath,
+      title: session.title,
+      branchName: branchName,
+      worktreePath: worktreePath,
+      isPlainTerminal: isPlainTerminal,
+      isActive: true,
+      forkSourceSessionId: forkSourceSessionId,
+      createdAt: Date(),
+      lastModifiedAt: Date()
+    )
+    try? appModel.sessionStore.insertSession(record)
+  }
+
+  /// Computes the working directory for a worktree session, preserving any subfolder offset.
+  /// For example, if source is `/repo/project/ios` and repoRoot is `/repo`, the worktree
+  /// session should start in `<worktreePath>/project/ios` instead of just `<worktreePath>`.
+  static func worktreeWorkingDirectory(
+    worktreePath: String,
+    repoRoot: String,
+    sourceWorkingDirectory: String
+  ) -> String {
+    let normalizedSource = (sourceWorkingDirectory as NSString).standardizingPath
+    let normalizedRoot = (repoRoot as NSString).standardizingPath
+
+    guard normalizedSource.hasPrefix(normalizedRoot),
+          normalizedSource.count > normalizedRoot.count else {
+      return worktreePath
+    }
+
+    let relativeOffset = String(normalizedSource.dropFirst(normalizedRoot.count))
+    return (worktreePath as NSString).appendingPathComponent(relativeOffset)
   }
 
   private func insertSplitPane(_ newSession: ClaudeSession, at sourceId: String, direction: SplitDirection) {
@@ -1180,86 +1252,56 @@ final class ContentViewModel {
     }
   }
 
-  /// Sync new sessions with Claude-created session files
-  /// When we create a new session, we use a temporary ID. Claude CLI creates its own
-  /// session file with a different ID. This method finds the matching session and updates our reference.
-  /// The terminal continues running without interruption by preserving the terminalId.
-  func syncNewSessionWithDiscoveredSession() {
-    guard let current = selectedSession, current.isNewSession else { return }
+  /// Hook-event-driven session sync — replaces the old heuristic matching.
+  /// Called by AppModel when a hook event arrives with both `terminalId` and `claudeSessionId`.
+  /// Finds the session with the matching `terminalId` (which uses a temp UUID as its `id`)
+  /// and swaps its `id` to the real Claude session ID. The terminal continues running
+  /// without interruption because `terminalId` (SwiftUI view identity) stays the same.
+  func syncSessionFromHookEvent(terminalId: String, claudeSessionId: String) {
+    // Skip plain terminals — they don't have Claude sessions
+    guard !isPlainTerminal(terminalId) else { return }
 
-    // Find a session in the list that matches by working directory
-    // and was created recently (within last minute)
-    let recentThreshold = Date().addingTimeInterval(-60)
-    if let matchingSession = sessionDiscovery.sessions.first(where: { session in
-      session.workingDirectory == current.workingDirectory &&
-      session.lastModified > recentThreshold &&
-      session.id != current.id
-    }) {
-      // Create a synced session that keeps the original terminalId
-      // This prevents SwiftUI from recreating the terminal view
-      let syncedSession = ClaudeSession(
-        id: matchingSession.id,
-        title: matchingSession.title,
-        projectPath: matchingSession.projectPath,
-        workingDirectory: matchingSession.workingDirectory,
-        lastModified: matchingSession.lastModified,
-        filePath: matchingSession.filePath,
-        isNewSession: false,
-        terminalId: current.terminalId  // Keep the original terminalId!
-      )
+    // Find the session with this terminalId — check selected, split tree, or primary
+    let allSessions: [ClaudeSession] = {
+      var sessions = [ClaudeSession]()
+      if let sel = selectedSession { sessions.append(sel) }
+      if let tree = splitTree { sessions.append(contentsOf: tree.allSessions) }
+      return sessions
+    }()
 
-      // Transfer runtime state from old session ID to new session ID
-      runtimeState.transferState(from: current.id, to: syncedSession.id)
+    guard let current = allSessions.first(where: { $0.terminalId == terminalId }),
+          current.isNewSession,
+          current.id != claudeSessionId else { return }
 
-      // Update activated sessions
-      appModel.deactivateSession(current.id)
-      appModel.activateSession(syncedSession)
+    // Create synced session with Claude's real ID but same terminalId
+    let synced = ClaudeSession(
+      id: claudeSessionId,
+      title: current.title,
+      projectPath: current.projectPath,
+      workingDirectory: current.workingDirectory,
+      lastModified: Date(),
+      filePath: current.filePath,
+      isNewSession: false,
+      terminalId: current.terminalId
+    )
 
-      // Update selected session (terminal stays alive due to same terminalId)
-      selectedSession = syncedSession
+    // Transfer runtime state (CPU/PID) from temp ID to real ID
+    runtimeState.transferState(from: current.id, to: synced.id)
 
-      // Update window registration
-      bindWindowToSession(syncedSession)
-    }
-  }
+    // Update activated sessions
+    appModel.deactivateSession(current.id)
+    appModel.activateSession(synced)
 
-  /// Sync any new-session split panes with their Claude-created session files.
-  func syncSplitSession() {
-    guard let tree = splitTree else { return }
-    let newSessions = tree.allSessions.filter { $0.isNewSession }
-    guard !newSessions.isEmpty else { return }
-
-    let recentThreshold = Date().addingTimeInterval(-60)
-    var claimedIds: Set<String> = [selectedSession?.id].compactMap { $0 }.reduce(into: []) { $0.insert($1) }
-    var updatedTree = tree
-
-    for current in newSessions {
-      guard let matchingSession = sessionDiscovery.sessions.first(where: { s in
-        s.workingDirectory == current.workingDirectory &&
-        s.lastModified > recentThreshold &&
-        s.id != current.id &&
-        !claimedIds.contains(s.id)
-      }) else { continue }
-
-      claimedIds.insert(matchingSession.id)
-      let synced = ClaudeSession(
-        id: matchingSession.id,
-        title: matchingSession.title,
-        projectPath: matchingSession.projectPath,
-        workingDirectory: matchingSession.workingDirectory,
-        lastModified: matchingSession.lastModified,
-        filePath: matchingSession.filePath,
-        isNewSession: false,
-        terminalId: current.terminalId
-      )
-      runtimeState.transferState(from: current.id, to: synced.id)
-      appModel.deactivateSession(current.id)
-      appModel.activateSession(synced)
-      updatedTree = updatedTree.replacing(sessionId: current.id, with: synced)
-      if selectedSession?.id == current.id { selectedSession = synced }
+    // Update split tree if in split mode
+    if splitTree != nil {
+      splitTree = splitTree?.replacing(sessionId: current.id, with: synced)
     }
 
-    splitTree = updatedTree
+    // Update selected session
+    if selectedSession?.id == current.id {
+      selectedSession = synced
+      bindWindowToSession(synced)
+    }
   }
 
   /// Called when window reference changes

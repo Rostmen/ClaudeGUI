@@ -24,6 +24,7 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 import GhosttyEmbed
+import GRDBQuery
 
 // MARK: - Preference Key for Terminal Frame
 struct TerminalFrameKey: PreferenceKey {
@@ -210,11 +211,8 @@ struct ContentView: View {
     .onChange(of: viewModel.selectedSession) { _, session in
       currentWindow?.title = session?.title ?? "Select or start a new session"
     }
-    .onChange(of: viewModel.sessionDiscovery.sessions) { _, _ in
-      // When sessions reload, sync new sessions with Claude-created ones
-      viewModel.syncNewSessionWithDiscoveredSession()
-      viewModel.syncSplitSession()
-    }
+    // Session data (titles, hookState) is observed via @Query from the DB.
+    // Session ID sync is driven by hook events (AppModel.syncSessionFromHookEvent).
     .onChange(of: hookPromptVisible) { _, shouldShow in
       withAnimation(.easeInOut(duration: 0.3)) {
         showHookPrompt = shouldShow
@@ -396,7 +394,16 @@ private struct PaneLeafView: View {
   let viewModel: ContentViewModel
   var isSplitPane: Bool = false
 
+  /// DB-backed session record — provides hookState from the persistent store.
+  @Query<SessionByTerminalIdRequest> private var sessionRecord: SessionRecord?
   @State private var dropZone: PaneDropZone?
+
+  init(session: ClaudeSession, viewModel: ContentViewModel, isSplitPane: Bool = false) {
+    self.session = session
+    self.viewModel = viewModel
+    self.isSplitPane = isSplitPane
+    _sessionRecord = Query(SessionByTerminalIdRequest(terminalId: session.terminalId))
+  }
 
   private var isClaudeSession: Bool {
     !viewModel.isPlainTerminal(session.terminalId)
@@ -406,12 +413,14 @@ private struct PaneLeafView: View {
     viewModel.fileDropTargetTerminalId == session.terminalId
   }
 
-  /// Reactive title: reads from session manager (Claude) or observed surface title (plain terminal).
+  /// Reactive title: prefers DB record, falls back to session manager, then session struct.
   private var paneTitle: String {
     if viewModel.isPlainTerminal(session.terminalId) {
       return viewModel.plainTerminalTitles[session.terminalId] ?? "Terminal"
     }
-    // Read from session manager for latest title (triggers @Observable re-render on rename)
+    if let dbTitle = sessionRecord?.title, dbTitle != "New Session" {
+      return dbTitle
+    }
     if let updated = viewModel.sessionDiscovery.sessions.first(where: { $0.id == session.id }) {
       return updated.title
     }
@@ -427,6 +436,7 @@ private struct PaneLeafView: View {
           isSelected: viewModel.selectedSession?.id == session.id,
           isFileDropTarget: isFileDropTargeted,
           runtimeInfo: viewModel.runtimeState.info(for: session.id),
+          sessionRecord: sessionRecord,
           isActive: viewModel.appModel.isSessionActivated(session.id),
           ideResult: isClaudeSession ? viewModel.ideDetectionResult(for: session) : nil,
           projectPath: isClaudeSession ? (session.workingDirectory.isEmpty ? session.projectPath : session.workingDirectory) : nil,

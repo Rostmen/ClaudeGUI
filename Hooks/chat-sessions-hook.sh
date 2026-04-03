@@ -21,6 +21,8 @@ NOTIFICATION_MESSAGE=$(echo "$INPUT" | jq -r '.message // empty')
 # Also capture tool input for context (file path, command, etc.)
 TOOL_INPUT=$(echo "$INPUT" | jq -c '.tool_input // null')
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+# Terminal ID from Tenvy — enables reliable session ID mapping
+TERMINAL_ID="${TENVY_TERMINAL_ID:-}"
 
 # Skip if no session ID
 if [ -z "$SESSION_ID" ]; then
@@ -76,6 +78,7 @@ OUTPUT=$(jq -cn \
     --arg message "$NOTIFICATION_MESSAGE" \
     --argjson tool_input "$TOOL_INPUT" \
     --arg timestamp "$TIMESTAMP" \
+    --arg terminal_id "$TERMINAL_ID" \
     '{
         session_id: $session_id,
         event: $event,
@@ -84,7 +87,8 @@ OUTPUT=$(jq -cn \
         tool: (if $tool == "" then null else $tool end),
         message: (if $message == "" then null else $message end),
         tool_input: $tool_input,
-        timestamp: $timestamp
+        timestamp: $timestamp,
+        terminal_id: (if $terminal_id == "" then null else $terminal_id end)
     }')
 
 # Append to events file
