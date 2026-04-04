@@ -108,7 +108,9 @@ jobs:
           ls -la /tmp/metalToolchainExport/
           BUNDLE=$(ls -d /tmp/metalToolchainExport/*.exportedBundle 2>/dev/null | head -1)
           echo "Importing cached Metal toolchain: $BUNDLE"
-          sudo xcodebuild -importComponent metalToolchain -importPath "$BUNDLE"
+          sudo xcodebuild -importComponent metalToolchain -importPath "$BUNDLE" || {
+            echo "Import failed (toolchain may already be installed) — continuing"
+          }
 
       - name: Install Metal Toolchain (download + export for cache)
         if: steps.cache-metal.outputs.cache-hit != 'true'
