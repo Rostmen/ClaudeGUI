@@ -58,6 +58,8 @@ struct WorktreeSplitFormData {
   let sourceSessionId: String
   let sourceIsNewSession: Bool
   let repoRoot: String
+  /// Whether the repo has .gitmodules (submodule options only shown when true)
+  let hasSubmodules: Bool
   var initScript: String = AppSettings.shared.shellInitScript
 
   /// Whether to run `git init` (only relevant when hasGitRepo == false)
@@ -485,7 +487,8 @@ final class ContentViewModel {
         availableBranches: branches,
         sourceSessionId: session.id,
         sourceIsNewSession: true,
-        repoRoot: repoRoot
+        repoRoot: repoRoot,
+        hasSubmodules: WorktreeService.hasSubmodules(repoRoot: repoRoot)
       )
       return
     }
@@ -512,7 +515,8 @@ final class ContentViewModel {
       availableBranches: ["main"],
       sourceSessionId: session.id,
       sourceIsNewSession: true,
-      repoRoot: workDir
+      repoRoot: workDir,
+      hasSubmodules: false
     )
   }
 
@@ -557,7 +561,8 @@ final class ContentViewModel {
         availableBranches: [],
         sourceSessionId: focused.id,
         sourceIsNewSession: true,
-        repoRoot: focused.workingDirectory
+        repoRoot: focused.workingDirectory,
+        hasSubmodules: false
       )
       return
     }
@@ -589,7 +594,8 @@ final class ContentViewModel {
         availableBranches: branches,
         sourceSessionId: focused.id,
         sourceIsNewSession: focused.isNewSession,
-        repoRoot: repoRoot
+        repoRoot: repoRoot,
+        hasSubmodules: WorktreeService.hasSubmodules(repoRoot: repoRoot)
       )
     } else {
       // No git repo — still populate form for the unified dialog
@@ -607,7 +613,8 @@ final class ContentViewModel {
         availableBranches: ["main"],
         sourceSessionId: focused.id,
         sourceIsNewSession: focused.isNewSession,
-        repoRoot: workDir
+        repoRoot: workDir,
+        hasSubmodules: false
       )
     }
   }

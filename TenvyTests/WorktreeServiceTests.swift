@@ -213,6 +213,36 @@ struct WorktreeServiceTests {
     #expect(result == "/repo/.claude/worktrees/fix-focus-2")
   }
 
+  // MARK: - hasSubmodules
+
+  @Test func hasSubmodules_returnsTrueWhenGitmodulesExists() throws {
+    let tmp = try makeTempDir()
+    defer { cleanup(tmp) }
+
+    let gitmodulesPath = (tmp as NSString).appendingPathComponent(".gitmodules")
+    try "[submodule \"lib\"]\n\tpath = lib\n\turl = https://example.com/lib.git\n"
+      .write(toFile: gitmodulesPath, atomically: true, encoding: .utf8)
+
+    #expect(WorktreeService.hasSubmodules(repoRoot: tmp) == true)
+  }
+
+  @Test func hasSubmodules_returnsFalseWhenNoGitmodules() throws {
+    let tmp = try makeTempDir()
+    defer { cleanup(tmp) }
+
+    #expect(WorktreeService.hasSubmodules(repoRoot: tmp) == false)
+  }
+
+  @Test func hasSubmodules_returnsFalseWhenGitmodulesIsEmpty() throws {
+    let tmp = try makeTempDir()
+    defer { cleanup(tmp) }
+
+    let gitmodulesPath = (tmp as NSString).appendingPathComponent(".gitmodules")
+    try "".write(toFile: gitmodulesPath, atomically: true, encoding: .utf8)
+
+    #expect(WorktreeService.hasSubmodules(repoRoot: tmp) == false)
+  }
+
   @MainActor @Test func worktreeWorkingDirectory_sourceOutsideRepo() {
     // Source is outside the repo — just return worktree path
     let result = ContentViewModel.worktreeWorkingDirectory(

@@ -165,6 +165,14 @@ enum WorktreeService {
       .appendingPathComponent(".claude/worktrees/\(safeName)")
   }
 
+  /// Whether the repository has submodules (.gitmodules file exists and is non-empty).
+  static func hasSubmodules(repoRoot: String) -> Bool {
+    let gitmodulesPath = (repoRoot as NSString).appendingPathComponent(".gitmodules")
+    guard let attrs = try? FileManager.default.attributesOfItem(atPath: gitmodulesPath),
+          let size = attrs[.size] as? UInt64 else { return false }
+    return size > 0
+  }
+
   // MARK: - Private
 
   /// Finds gitignored build artifacts in the main repo's submodules and symlinks them
