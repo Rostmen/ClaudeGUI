@@ -158,4 +158,68 @@ struct WorktreeServiceTests {
     // NOT nested inside the first worktree
     #expect(!newPath.contains("fix-focus/.claude/worktrees"))
   }
+
+  // MARK: - worktreeWorkingDirectory
+
+  @MainActor @Test func worktreeWorkingDirectory_regularSubfolder() {
+    // Source in a subfolder of the repo (not a worktree)
+    let result = ContentViewModel.worktreeWorkingDirectory(
+      worktreePath: "/repo/.claude/worktrees/new-feature",
+      repoRoot: "/repo",
+      sourceWorkingDirectory: "/repo/src/ios"
+    )
+    #expect(result == "/repo/.claude/worktrees/new-feature/src/ios")
+  }
+
+  @MainActor @Test func worktreeWorkingDirectory_sourceIsRepoRoot() {
+    // Source is at the repo root — no offset
+    let result = ContentViewModel.worktreeWorkingDirectory(
+      worktreePath: "/repo/.claude/worktrees/new-feature",
+      repoRoot: "/repo",
+      sourceWorkingDirectory: "/repo"
+    )
+    #expect(result == "/repo/.claude/worktrees/new-feature")
+  }
+
+  @MainActor @Test func worktreeWorkingDirectory_sourceIsWorktreeRoot() {
+    // Source is at a worktree root — no subfolder offset, just the new worktree path
+    let result = ContentViewModel.worktreeWorkingDirectory(
+      worktreePath: "/repo/.claude/worktrees/fix-focus-2",
+      repoRoot: "/repo",
+      sourceWorkingDirectory: "/repo/.claude/worktrees/fix-focus"
+    )
+    #expect(result == "/repo/.claude/worktrees/fix-focus-2")
+  }
+
+  @MainActor @Test func worktreeWorkingDirectory_sourceIsWorktreeSubfolder() {
+    // Source is in a subfolder of a worktree — preserve the subfolder offset
+    let result = ContentViewModel.worktreeWorkingDirectory(
+      worktreePath: "/repo/.claude/worktrees/fix-focus-2",
+      repoRoot: "/repo",
+      sourceWorkingDirectory: "/repo/.claude/worktrees/fix-focus/src/views"
+    )
+    #expect(result == "/repo/.claude/worktrees/fix-focus-2/src/views")
+  }
+
+  @MainActor @Test func worktreeWorkingDirectory_doesNotNestWorktreePaths() {
+    // THE BUG: splitting from a worktree must NOT nest the worktree path
+    let result = ContentViewModel.worktreeWorkingDirectory(
+      worktreePath: "/repo/.claude/worktrees/fix-focus-2",
+      repoRoot: "/repo",
+      sourceWorkingDirectory: "/repo/.claude/worktrees/fix-worktree-dialog-focus"
+    )
+    // Must NOT contain nested worktree paths
+    #expect(!result.contains("fix-worktree-dialog-focus/.claude/worktrees"))
+    #expect(result == "/repo/.claude/worktrees/fix-focus-2")
+  }
+
+  @MainActor @Test func worktreeWorkingDirectory_sourceOutsideRepo() {
+    // Source is outside the repo — just return worktree path
+    let result = ContentViewModel.worktreeWorkingDirectory(
+      worktreePath: "/repo/.claude/worktrees/new-feature",
+      repoRoot: "/repo",
+      sourceWorkingDirectory: "/other/project"
+    )
+    #expect(result == "/repo/.claude/worktrees/new-feature")
+  }
 }
