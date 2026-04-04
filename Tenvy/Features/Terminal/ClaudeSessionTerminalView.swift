@@ -72,7 +72,12 @@ struct ClaudeSessionTerminalView: NSViewRepresentable {
       GhosttyEmbedApp.shared.applyAppearance(isDark: colorScheme == .dark)
     }
 
-    if isSelected {
+    let wasSelected = context.coordinator.wasSelected
+    context.coordinator.wasSelected = isSelected
+
+    // Only grab focus on the transition from deselected → selected,
+    // not on every re-render while selected (which steals focus from dialogs/dropdowns).
+    if isSelected && !wasSelected {
       if nsView.window != nil {
         DispatchQueue.main.async {
           guard let surfaceView = nsView.surfaceViewIfReady, nsView.window != nil else { return }
@@ -88,7 +93,10 @@ struct ClaudeSessionTerminalView: NSViewRepresentable {
   }
 
   func makeCoordinator() -> Coordinator { Coordinator() }
-  class Coordinator { var lastColorScheme: ColorScheme = .dark }
+  class Coordinator {
+    var lastColorScheme: ColorScheme = .dark
+    var wasSelected: Bool = false
+  }
 
   // MARK: - Context Menu
 

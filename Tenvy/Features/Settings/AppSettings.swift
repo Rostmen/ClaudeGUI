@@ -46,6 +46,20 @@ enum AppearanceMode: String, CaseIterable {
   }
 }
 
+// MARK: - WorktreeLocation
+
+enum WorktreeLocation: String, CaseIterable {
+  case defaultClaude = "default"
+  case custom = "custom"
+
+  var displayName: String {
+    switch self {
+    case .defaultClaude: return "Default (.claude/worktrees)"
+    case .custom: return "Custom"
+    }
+  }
+}
+
 // MARK: - AppSettings
 
 /// App-wide settings stored in UserDefaults
@@ -91,6 +105,16 @@ final class AppSettings {
   /// The default shell init script that sources ~/.zshrc.
   static let defaultShellInitScript = "[ -f \"$HOME/.zshrc\" ] && source \"$HOME/.zshrc\" 2>/dev/null;"
 
+  /// Where worktrees are created: relative to project (.claude/worktrees) or a custom folder
+  var worktreeLocation: WorktreeLocation {
+    didSet { UserDefaults.standard.set(worktreeLocation.rawValue, forKey: "settings.worktreeLocation") }
+  }
+
+  /// Custom root folder for worktrees (used when worktreeLocation == .custom)
+  var customWorktreeRoot: String {
+    didSet { UserDefaults.standard.set(customWorktreeRoot, forKey: "settings.customWorktreeRoot") }
+  }
+
   /// Appearance mode (System / Light / Dark)
   var appearanceMode: AppearanceMode {
     didSet {
@@ -113,7 +137,7 @@ final class AppSettings {
               let vars = try? JSONDecoder().decode([String: String].self, from: data) {
       // Migrate from UserDefaults to Keychain
       self.customEnvironmentVariables = vars
-      KeychainService.save(vars, account: Self.envVarsKeychainAccount)
+      _ = KeychainService.save(vars, account: Self.envVarsKeychainAccount)
       UserDefaults.standard.removeObject(forKey: "settings.customEnvironmentVariables")
     } else {
       self.customEnvironmentVariables = [:]
@@ -126,6 +150,15 @@ final class AppSettings {
     } else {
       self.shellInitScript = AppSettings.defaultShellInitScript
     }
+
+    // Load worktree location setting
+    if let rawValue = UserDefaults.standard.string(forKey: "settings.worktreeLocation"),
+       let location = WorktreeLocation(rawValue: rawValue) {
+      self.worktreeLocation = location
+    } else {
+      self.worktreeLocation = .defaultClaude
+    }
+    self.customWorktreeRoot = UserDefaults.standard.string(forKey: "settings.customWorktreeRoot") ?? ""
 
     // Load appearance mode, defaulting to System
     if let rawValue = UserDefaults.standard.object(forKey: "settings.appearanceMode") as? String,
