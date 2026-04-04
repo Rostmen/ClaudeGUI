@@ -20,8 +20,8 @@ struct PaneHeaderView: View {
   var isSelected: Bool = false
   var isFileDropTarget: Bool = false
   var runtimeInfo: SessionRuntimeInfo?
-  /// DB-backed session record — provides hookState from the persistent store.
-  /// When present, takes priority over runtimeInfo.hookState for display.
+  /// DB-backed session record — used for persistent fields (title, etc.).
+  /// Hook state comes from runtimeInfo (in-memory, not persisted to DB).
   var sessionRecord: SessionRecord?
   var isActive: Bool = false
   var ideResult: IDEDetectionResult?
@@ -33,9 +33,9 @@ struct PaneHeaderView: View {
   @State private var isBlinking = false
   @State private var dropHighlightPulse = false
 
-  /// Resolved hook state — prefers DB record, falls back to in-memory runtimeInfo.
+  /// Resolved hook state — in-memory runtimeInfo is the source of truth.
   private var effectiveHookState: HookState? {
-    sessionRecord?.resolvedHookState ?? runtimeInfo?.hookState
+    runtimeInfo?.hookState
   }
 
   private var statusColor: Color {

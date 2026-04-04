@@ -21,7 +21,6 @@
 // SOFTWARE.
 
 import SwiftUI
-import GRDBQuery
 
 struct SessionRowView: View {
   let sessionModel: ClaudeSessionModel
@@ -31,27 +30,18 @@ struct SessionRowView: View {
   /// Override title (e.g. for plain terminals whose Ghostty surface title changes at runtime).
   var titleOverride: String?
 
-  /// DB-backed session record for reactive hookState display.
-  @Query<SessionByTerminalIdRequest> private var sessionRecord: SessionRecord?
-
   /// Animation state for blinking dot
   @State private var isBlinking = false
-
-  init(sessionModel: ClaudeSessionModel, isActive: Bool = false, titleOverride: String? = nil) {
-    self.sessionModel = sessionModel
-    self.isActive = isActive
-    self.titleOverride = titleOverride
-    _sessionRecord = Query(SessionByTerminalIdRequest(terminalId: sessionModel.session.terminalId))
-  }
 
   private var session: ClaudeSession { sessionModel.session }
 
   /// Get the runtime info - accessing this in body sets up observation
   private var runtimeInfo: SessionRuntimeInfo { sessionModel.runtime }
 
-  /// Resolved hook state — prefers DB record, falls back to in-memory runtimeInfo.
+  /// Resolved hook state — in-memory runtimeInfo is the source of truth.
+  /// DB record is no longer updated on every hook event (to avoid @Query storm).
   private var effectiveHookState: HookState? {
-    sessionRecord?.resolvedHookState ?? runtimeInfo.hookState
+    runtimeInfo.hookState
   }
 
   /// Whether the dot should blink (waiting for user input or permission)
@@ -73,7 +63,7 @@ struct SessionRowView: View {
     guard isActive, let hookState = effectiveHookState else { return nil }
     switch hookState {
       case .thinking:
-        if let tool = sessionRecord?.currentTool ?? runtimeInfo.currentTool {
+        if let tool = runtimeInfo.currentTool {
           return formatToolName(tool)
         }
         return "Thinking..."
