@@ -58,6 +58,7 @@ struct ContentView: View {
   @State private var showHookPrompt: Bool = false
   @State private var showNotificationPrompt: Bool = false
   @State private var showUpdatePrompt: Bool = false
+  @State private var updateDismissTimer: Timer?
 
   private var selectedSessionBinding: Binding<ClaudeSession?> {
     Binding(
@@ -125,54 +126,6 @@ struct ContentView: View {
 
       navigationContent
 
-      // Notification permission prompt overlay
-      if showNotificationPrompt {
-        VStack {
-          Spacer()
-          HStack {
-            Spacer()
-            NotificationPermissionPromptView {
-              showNotificationPrompt = false
-            }
-            .frame(maxWidth: 420)
-            .padding(24)
-          }
-        }
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-      }
-
-      // Hook installation prompt overlay (only when notification prompt is not showing)
-      if showHookPrompt && !showNotificationPrompt {
-        VStack {
-          Spacer()
-          HStack {
-            Spacer()
-            HookInstallationPromptView {
-              showHookPrompt = false
-            }
-            .frame(maxWidth: 420)
-            .padding(24)
-          }
-        }
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-      }
-
-      // Update available prompt overlay (only when no other prompt is showing)
-      if showUpdatePrompt && !showNotificationPrompt && !showHookPrompt {
-        VStack {
-          Spacer()
-          HStack {
-            Spacer()
-            UpdatePromptView {
-              showUpdatePrompt = false
-            }
-            .frame(maxWidth: 420)
-            .padding(24)
-          }
-        }
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-      }
-
       // Worktree split dialog overlay (centered, with dim backdrop)
       if viewModel.pendingSplit != nil {
         Color.black.opacity(0.3)
@@ -184,6 +137,41 @@ struct ContentView: View {
       }
     }
     .coordinateSpace(name: "window")
+    .overlay(alignment: .bottomTrailing) {
+      // Notification permission prompt overlay
+      if showNotificationPrompt {
+        NotificationPermissionPromptView {
+          showNotificationPrompt = false
+        }
+        .frame(maxWidth: 420)
+        .padding(24)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
+    }
+    .overlay(alignment: .bottomTrailing) {
+      // Hook installation prompt overlay (only when notification prompt is not showing)
+      if showHookPrompt && !showNotificationPrompt {
+        HookInstallationPromptView {
+          showHookPrompt = false
+        }
+        .frame(maxWidth: 420)
+        .padding(24)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
+    }
+    .overlay(alignment: .bottomTrailing) {
+      // Update available prompt overlay (only when no other prompt is showing)
+      if showUpdatePrompt && !showNotificationPrompt && !showHookPrompt {
+        UpdatePromptView {
+          showUpdatePrompt = false
+        }
+        .frame(maxWidth: 420)
+        .padding(24)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .onAppear { startUpdateDismissTimer() }
+        .onDisappear { updateDismissTimer?.invalidate() }
+      }
+    }
     .onPreferenceChange(TerminalFrameKey.self) { frame in
       terminalFrame = frame
     }
@@ -250,6 +238,19 @@ struct ContentView: View {
         // Only open here if this window has no session yet
         guard viewModel.selectedSession == nil else { return }
         viewModel.selectSession(session)
+      }
+    }
+  }
+
+  private func startUpdateDismissTimer() {
+    updateDismissTimer?.invalidate()
+    updateDismissTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: false) { _ in
+      DispatchQueue.main.async {
+        // Only auto-dismiss in idle state (not while installing/failed)
+        guard viewModel.appModel.updater.updateState == .idle else { return }
+        withAnimation(.easeInOut(duration: 0.3)) {
+          showUpdatePrompt = false
+        }
       }
     }
   }
