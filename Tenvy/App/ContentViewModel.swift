@@ -62,6 +62,10 @@ struct WorktreeSplitFormData {
   let hasSubmodules: Bool
   var initScript: String = AppSettings.shared.shellInitScript
 
+  /// Pre-generated unique session ID. Used in custom worktree paths
+  /// so the path includes a unique identifier before the session is created.
+  let uniqueSessionId: String = UUID().uuidString
+
   /// Whether to run `git init` (only relevant when hasGitRepo == false)
   var initGit: Bool = false
 
@@ -479,10 +483,10 @@ final class ContentViewModel {
         isNewSessionFlow: true
       )
 
-      worktreeSplitForm = WorktreeSplitFormData(
+      let form = WorktreeSplitFormData(
         baseBranch: currentBranch,
         newBranchName: defaultBranchName,
-        worktreePath: WorktreeService.defaultWorktreePath(repoRoot: repoRoot, branchName: defaultBranchName),
+        worktreePath: "",
         forkSession: false,
         availableBranches: branches,
         sourceSessionId: session.id,
@@ -490,6 +494,8 @@ final class ContentViewModel {
         repoRoot: repoRoot,
         hasSubmodules: WorktreeService.hasSubmodules(repoRoot: repoRoot)
       )
+      worktreeSplitForm = form
+      worktreeSplitForm?.worktreePath = WorktreeService.defaultWorktreePath(repoRoot: repoRoot, branchName: defaultBranchName, sessionId: form.uniqueSessionId)
       return
     }
 
@@ -508,16 +514,18 @@ final class ContentViewModel {
       isNewSessionFlow: true
     )
 
-    worktreeSplitForm = WorktreeSplitFormData(
+    let form2 = WorktreeSplitFormData(
       baseBranch: "main",
       newBranchName: defaultBranchName,
-      worktreePath: WorktreeService.defaultWorktreePath(repoRoot: workDir, branchName: defaultBranchName),
+      worktreePath: "",
       availableBranches: ["main"],
       sourceSessionId: session.id,
       sourceIsNewSession: true,
       repoRoot: workDir,
       hasSubmodules: false
     )
+    worktreeSplitForm = form2
+    worktreeSplitForm?.worktreePath = WorktreeService.defaultWorktreePath(repoRoot: workDir, branchName: defaultBranchName, sessionId: form2.uniqueSessionId)
   }
 
   /// Activates a new session in the current window or a new tab.
@@ -587,16 +595,18 @@ final class ContentViewModel {
         .replacingOccurrences(of: " ", with: "-")
         .lowercased()
 
-      worktreeSplitForm = WorktreeSplitFormData(
+      let splitForm = WorktreeSplitFormData(
         baseBranch: currentBranch,
         newBranchName: defaultBranchName,
-        worktreePath: WorktreeService.defaultWorktreePath(repoRoot: repoRoot, branchName: defaultBranchName),
+        worktreePath: "",
         availableBranches: branches,
         sourceSessionId: focused.id,
         sourceIsNewSession: focused.isNewSession,
         repoRoot: repoRoot,
         hasSubmodules: WorktreeService.hasSubmodules(repoRoot: repoRoot)
       )
+      worktreeSplitForm = splitForm
+      worktreeSplitForm?.worktreePath = WorktreeService.defaultWorktreePath(repoRoot: repoRoot, branchName: defaultBranchName, sessionId: splitForm.uniqueSessionId)
     } else {
       // No git repo — still populate form for the unified dialog
       let workDir = focused.workingDirectory
@@ -606,16 +616,18 @@ final class ContentViewModel {
         .replacingOccurrences(of: " ", with: "-")
         .lowercased()
 
-      worktreeSplitForm = WorktreeSplitFormData(
+      let splitForm2 = WorktreeSplitFormData(
         baseBranch: "main",
         newBranchName: defaultBranchName,
-        worktreePath: WorktreeService.defaultWorktreePath(repoRoot: workDir, branchName: defaultBranchName),
+        worktreePath: "",
         availableBranches: ["main"],
         sourceSessionId: focused.id,
         sourceIsNewSession: focused.isNewSession,
         repoRoot: workDir,
         hasSubmodules: false
       )
+      worktreeSplitForm = splitForm2
+      worktreeSplitForm?.worktreePath = WorktreeService.defaultWorktreePath(repoRoot: workDir, branchName: defaultBranchName, sessionId: splitForm2.uniqueSessionId)
     }
   }
 
@@ -723,7 +735,8 @@ final class ContentViewModel {
             workingDirectory: sessionWorkDir,
             lastModified: Date(),
             filePath: nil,
-            isNewSession: true
+            isNewSession: true,
+            terminalId: form.uniqueSessionId
           )
           insertSessionRecord(session: newSession, branchName: form.newBranchName, worktreePath: form.worktreePath)
           splitInitScripts[newSession.terminalId] = form.initScript
@@ -737,7 +750,8 @@ final class ContentViewModel {
             branchName: form.newBranchName,
             forkSession: form.forkSession,
             sourceSession: pending.sourceSession,
-            initScript: form.initScript
+            initScript: form.initScript,
+            terminalId: form.uniqueSessionId
           )
           dismissSplitDialog()
         }
@@ -872,7 +886,8 @@ final class ContentViewModel {
     branchName: String? = nil,
     forkSession: Bool,
     sourceSession: ClaudeSession,
-    initScript: String? = nil
+    initScript: String? = nil,
+    terminalId: String? = nil
   ) {
     let newSession = ClaudeSession(
       id: UUID().uuidString,
@@ -881,7 +896,8 @@ final class ContentViewModel {
       workingDirectory: workingDirectory,
       lastModified: Date(),
       filePath: nil,
-      isNewSession: !forkSession
+      isNewSession: !forkSession,
+      terminalId: terminalId
     )
     insertSessionRecord(
       session: newSession,

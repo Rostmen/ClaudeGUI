@@ -71,6 +71,50 @@ struct SettingsView: View {
           .foregroundColor(.secondary)
       }
 
+      // Worktree Location section
+      Section {
+        Picker("Location", selection: $settings.worktreeLocation) {
+          ForEach(WorktreeLocation.allCases, id: \.self) { location in
+            Text(location.displayName).tag(location)
+          }
+        }
+        .pickerStyle(MenuPickerStyle())
+
+        if settings.worktreeLocation == .custom {
+          HStack(spacing: 8) {
+            if settings.customWorktreeRoot.isEmpty {
+              Text("No folder selected")
+                .foregroundStyle(.secondary)
+                .font(.subheadline)
+            } else {
+              Text(settings.customWorktreeRoot)
+                .font(.system(.subheadline, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(settings.customWorktreeRoot)
+            }
+
+            Spacer()
+
+            Button("Browse...") {
+              browseWorktreeRoot()
+            }
+          }
+        }
+      } header: {
+        Text("Worktree Location")
+      } footer: {
+        if settings.worktreeLocation == .defaultClaude {
+          Text("Worktrees are created inside each project's .claude/worktrees/ folder.")
+            .font(.caption)
+            .foregroundColor(.secondary)
+        } else {
+          Text("Worktrees are created under <folder>/<project-name>-<session-id>/.")
+            .font(.caption)
+            .foregroundColor(.secondary)
+        }
+      }
+
       // Hooks section
       Section {
         HStack {
@@ -244,6 +288,23 @@ struct SettingsView: View {
     .frame(width: 420, height: 600)
     .onAppear {
       appModel.hookSetup.checkInstallationStatus()
+    }
+  }
+
+  private func browseWorktreeRoot() {
+    let panel = NSOpenPanel()
+    panel.title = "Choose worktree root folder"
+    panel.canChooseDirectories = true
+    panel.canChooseFiles = false
+    panel.canCreateDirectories = true
+    panel.allowsMultipleSelection = false
+    // Present as a sheet on the Settings window so it doesn't close the window.
+    // beginSheetModal blocks interaction with the parent but keeps it visible.
+    guard let window = NSApp.keyWindow else { return }
+    panel.beginSheetModal(for: window) { response in
+      if response == .OK, let url = panel.url {
+        settings.customWorktreeRoot = url.path
+      }
     }
   }
 

@@ -158,11 +158,29 @@ enum WorktreeService {
     return nil
   }
 
-  /// Suggests a default worktree destination path under `<repoRoot>/.claude/worktrees/`.
-  static func defaultWorktreePath(repoRoot: String, branchName: String) -> String {
+  /// Suggests a default worktree destination path based on the user's worktree location setting.
+  /// - Default: `<repoRoot>/.claude/worktrees/<safeBranchName>`
+  /// - Custom:  `<customRoot>/<projectName>-<sessionId>/<safeBranchName>`
+  static func defaultWorktreePath(repoRoot: String, branchName: String, sessionId: String? = nil) -> String {
     let safeName = branchName.replacingOccurrences(of: "/", with: "-")
-    return (repoRoot as NSString)
-      .appendingPathComponent(".claude/worktrees/\(safeName)")
+    let settings = AppSettings.shared
+
+    switch settings.worktreeLocation {
+    case .defaultClaude:
+      return (repoRoot as NSString)
+        .appendingPathComponent(".claude/worktrees/\(safeName)")
+
+    case .custom where !settings.customWorktreeRoot.isEmpty:
+      let projectName = (repoRoot as NSString).lastPathComponent
+      let sessionSuffix = sessionId.map { "-\($0.prefix(8))" } ?? ""
+      return (settings.customWorktreeRoot as NSString)
+        .appendingPathComponent("\(projectName)\(sessionSuffix)/\(safeName)")
+
+    default:
+      // Fallback to default if custom root is empty
+      return (repoRoot as NSString)
+        .appendingPathComponent(".claude/worktrees/\(safeName)")
+    }
   }
 
   /// Whether the repository has submodules (.gitmodules file exists and is non-empty).

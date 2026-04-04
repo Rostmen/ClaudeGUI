@@ -673,8 +673,9 @@ extension Ghostty {
                   window == event.window else { return event }
 
             // The clicked location in this window should be this view.
-            let location = convert(event.locationInWindow, from: nil)
-            guard hitTest(location) == self else { return event }
+            // Use window.contentView?.hitTest to check the full view hierarchy —
+            // self.hitTest only checks our subtree and misses overlay views (dialogs, etc.).
+            guard window.contentView?.hitTest(event.locationInWindow) == self else { return event }
 
             // We always assume that we're resetting our mouse suppression
             // unless we see the specific scenario below to set it.
