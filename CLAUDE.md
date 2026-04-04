@@ -62,7 +62,14 @@ Tenvy/
 │   ├── IDE/                        # IDE detection & "Open in" integration
 │   │   └── IDEDetectionService.swift  # Detects project type & installed IDEs
 │   ├── Inspector/                  # Right-side inspector panel
-│   │   └── InspectorPanelView.swift  # Session inspector (branch switcher, paths)
+│   │   └── InspectorPanelView.swift  # Session inspector (branch switcher, paths, permissions)
+│   ├── Permissions/                # Permission configuration
+│   │   ├── ClaudePermissions.swift        # Data types: ClaudePermissionMode, ClaudePermissions, ClaudePermissionSettings
+│   │   ├── ClaudeSettingsService.swift    # Read/write ~/.claude/settings.json + project settings, merge logic
+│   │   ├── SessionSettingsFileManager.swift # Per-session settings files in Application Support
+│   │   ├── PermissionEditorView.swift     # Shared UI: mode picker, presets, rule lists, raw JSON
+│   │   ├── PermissionRuleListView.swift   # Add/remove rule list component
+│   │   └── RawPermissionsEditorView.swift # Raw JSON editor sheet
 │   ├── Git/                        # Git integration
 │   │   ├── GitChangedFile.swift    # Git changed file model
 │   │   ├── GitStatusService.swift  # Git status detection
@@ -339,6 +346,20 @@ Three-layer architecture with clear separation of concerns:
 
 - Resize: `GhosttyHostView.layout()` calls `surface.notifyResize(bounds.size)` → `surfaceView.sizeDidChange(_:)`
 - Input: `GhosttyInputProxy` conforms to `TerminalInputSender`; restart is a no-op (Ghostty doesn't support programmatic restart)
+
+### Permission Configuration
+
+Two-level permission management: global (App Settings) and per-session (Inspector Panel).
+
+**Global permissions**: Read/write `~/.claude/settings.json` via `ClaudeSettingsService`. Preserves other keys (hooks, plugins) when writing. Exposed in Settings → "Claude Permissions" section.
+
+**Per-session permissions**: Stored as JSON in `SessionRecord.permissionSettings` column (GRDB). On session creation, `ContentViewModel.insertSessionRecord()` merges global + project permissions via `ClaudeSettingsService.mergeForNewSession()`. Users can customize per-session in the Inspector Panel.
+
+**Launch integration**: `ClaudeSessionTerminalView.makeNSView()` reads permission settings from DB and passes `--permission-mode`, `--allowedTools`, and `--disallowedTools` CLI flags. CLI flags are additive, so tools the user removed from the inherited allow list are automatically passed as `--disallowedTools` (deny overrides allow in Claude Code). The launched-with state is recorded as a SHA-256 hash in `SessionRecord.launchedPermissionsHash`.
+
+**Live changes**: Per-session permission edits are saved to DB immediately but don't take effect on the running CLI until restart. Inspector shows a warning on first edit and a "Restart with New Permissions" button when `sessionPermissions.contentHash != launchedPermissionsHash`. Restart shows a confirmation dialog, then kills the process, evicts the cached GhosttyHostView, and bumps `terminalViewGenerations` to force SwiftUI to recreate the terminal (triggering a fresh `makeNSView`).
+
+**Shared UI**: `PermissionEditorView` is used by both Settings (global) and Inspector (per-session). Takes `Binding<ClaudePermissionSettings>`. Includes mode picker, preset toggles, allow/deny/ask rule lists, and raw JSON editor sheet.
 
 ### Update Checker
 

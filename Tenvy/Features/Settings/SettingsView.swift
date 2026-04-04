@@ -32,6 +32,7 @@ struct SettingsView: View {
   @State private var hookInstallResult: HookInstallResult?
   @State private var newEnvKey = ""
   @State private var newEnvValue = ""
+  @State private var globalPermissions = ClaudePermissionSettings.empty
 
   private enum HookInstallResult {
     case installSuccess(sessionsRestarted: Int)
@@ -113,6 +114,17 @@ struct SettingsView: View {
             .font(.caption)
             .foregroundColor(.secondary)
         }
+      }
+
+      // Claude Permissions section
+      Section {
+        PermissionEditorView(settings: $globalPermissions)
+      } header: {
+        Text("Claude Permissions")
+      } footer: {
+        Text("Manages permissions in ~/.claude/settings.json. Changes apply to new sessions.")
+          .font(.caption)
+          .foregroundColor(.secondary)
       }
 
       // Hooks section
@@ -285,9 +297,17 @@ struct SettingsView: View {
       }
     }
     .formStyle(.grouped)
-    .frame(width: 420, height: 600)
+    .frame(width: 420, height: 750)
     .onAppear {
       appModel.hookSetup.checkInstallationStatus()
+      globalPermissions = ClaudeSettingsService.readPermissionSettings(
+        from: ClaudeSettingsService.globalSettingsURL
+      )
+    }
+    .onChange(of: globalPermissions) { _, newValue in
+      try? ClaudeSettingsService.writePermissionSettings(
+        newValue, to: ClaudeSettingsService.globalSettingsURL
+      )
     }
   }
 

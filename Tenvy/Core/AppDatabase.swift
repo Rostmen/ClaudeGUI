@@ -99,6 +99,13 @@ struct AppDatabase {
       }
     }
 
+    migrator.registerMigration("v2_addPermissionSettings") { db in
+      try db.alter(table: "sessionRecord") { t in
+        t.add(column: "permissionSettings", .text)
+        t.add(column: "launchedPermissionsHash", .text)
+      }
+    }
+
     return migrator
   }
 

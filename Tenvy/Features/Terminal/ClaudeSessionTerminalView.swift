@@ -22,6 +22,7 @@
 
 import SwiftUI
 import GhosttyEmbed
+import GRDB
 
 /// Terminal view for a Claude Code session.
 /// Launches the Claude CLI, monitors the process, and provides a session-specific context menu.
@@ -48,6 +49,53 @@ struct ClaudeSessionTerminalView: NSViewRepresentable {
     } else if let session = session, !session.isNewSession {
       args = ["--resume", session.id]
     }
+
+    // Apply per-session permission settings as CLI flags and record the launch hash.
+    //
+    // CLI flags are ADDITIVE — they can't remove permissions already granted by
+    // ~/.claude/settings.json or project settings. To handle removals:
+    // - Compare per-session allow list against inherited (global+project) allow list
+    // - Tools removed by the user → pass as --disallowedTools (deny overrides allow)
+    // - Tools added by the user → pass as --allowedTools
+    // - Explicit deny list → also passed as --disallowedTools
+    if let terminalId = session?.terminalId,
+       let record = try? AppDatabase.shared.databaseReader.read({ db in
+         try SessionRecord.fetchOne(db, key: terminalId)
+       }),
+       let permSettings = record.decodedPermissionSettings {
+      // Store the hash of what we're launching with so the Inspector can detect changes
+      try? AppDatabase.shared.databaseWriter.write { db in
+        if var rec = try SessionRecord.fetchOne(db, key: terminalId) {
+          rec.launchedPermissionsHash = permSettings.contentHash
+          try rec.update(db)
+        }
+      }
+
+      args.append(contentsOf: ["--permission-mode", permSettings.permissionMode.rawValue])
+
+      // Compute what was inherited so we can detect removals
+      let inherited = ClaudeSettingsService.mergeForNewSession(
+        projectPath: session?.projectPath ?? ""
+      )
+
+      // Tools the user explicitly allows (pass as --allowedTools)
+      if !permSettings.permissions.allow.isEmpty {
+        args.append("--allowedTools")
+        args.append(permSettings.permissions.allow.joined(separator: " "))
+      }
+
+      // Tools to deny: explicit deny list + tools removed from inherited allow list.
+      // Deny rules override allow rules at any scope, so this effectively revokes
+      // permissions that global/project settings would otherwise grant.
+      let removedFromAllow = Set(inherited.permissions.allow)
+        .subtracting(permSettings.permissions.allow)
+      let allDenied = Set(permSettings.permissions.deny).union(removedFromAllow)
+      if !allDenied.isEmpty {
+        args.append("--disallowedTools")
+        args.append(allDenied.joined(separator: " "))
+      }
+    }
+
     let launch = TerminalEnvironment.shellArgs(executable: claudePath, args: args, currentDirectory: workingDirectory, initScript: initScript)
 
     hostView.setupSurface(launch: launch, workingDirectory: workingDirectory, terminalId: session?.terminalId, onAction: onAction)

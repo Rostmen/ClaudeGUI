@@ -100,6 +100,10 @@ final class ContentViewModel {
   @ObservationIgnored
   private var ghosttyHostViews: [String: GhosttyHostView] = [:]
 
+  /// Generation counter per terminal — incremented on restart to force SwiftUI to
+  /// destroy and recreate the NSViewRepresentable (triggering a fresh `makeNSView`).
+  private(set) var terminalViewGenerations: [String: Int] = [:]
+
   /// Currently selected diff file (for diff viewer)
   var selectedDiffFile: GitChangedFile?
 
@@ -190,6 +194,13 @@ final class ContentViewModel {
   // MARK: - GhosttyHostView Cache
 
   /// Returns the cached GhosttyHostView for the given terminal identity, if any.
+  /// Returns a stable view identity string for the terminal. Includes a generation
+  /// counter that increments on restart, forcing SwiftUI to recreate the NSViewRepresentable.
+  func terminalViewId(for terminalId: String) -> String {
+    let gen = terminalViewGenerations[terminalId, default: 0]
+    return gen == 0 ? terminalId : "\(terminalId)-\(gen)"
+  }
+
   /// Also checks AppModel's transfer store for cross-window moves.
   func ghosttyHostView(for terminalId: String) -> GhosttyHostView? {
     if let view = ghosttyHostViews[terminalId] { return view }
@@ -924,6 +935,11 @@ final class ContentViewModel {
     worktreePath: String? = nil,
     forkSourceSessionId: String? = nil
   ) {
+    // Merge global + project permissions for Claude sessions (not plain terminals)
+    let mergedPermissions: ClaudePermissionSettings? = isPlainTerminal
+      ? nil
+      : ClaudeSettingsService.mergeForNewSession(projectPath: session.projectPath)
+
     let record = SessionRecord(
       terminalId: session.terminalId,
       workingDirectory: session.workingDirectory,
@@ -935,7 +951,8 @@ final class ContentViewModel {
       isActive: true,
       forkSourceSessionId: forkSourceSessionId,
       createdAt: Date(),
-      lastModifiedAt: Date()
+      lastModifiedAt: Date(),
+      permissionSettings: mergedPermissions.flatMap { SessionRecord.encode($0) }
     )
     try? appModel.sessionStore.insertSession(record)
   }
@@ -1136,6 +1153,36 @@ final class ContentViewModel {
     case .moveToNewWindow(let session):
       moveToNewWindow(session)
     }
+  }
+
+  // MARK: - Inspector Action Handler
+
+  /// Handle actions from the InspectorPanelView.
+  func handleInspectorAction(_ action: InspectorPanelView.Action, for session: ClaudeSession) {
+    switch action {
+    case .restartWithNewPermissions(let sessionId):
+      restartSessionWithNewPermissions(session: session)
+    }
+  }
+
+  /// Restart a session to apply updated permission settings.
+  /// Kills the current process, evicts the Ghostty view, clears the modified flag,
+  /// and lets SwiftUI recreate the terminal with the new `--settings` flag.
+  private func restartSessionWithNewPermissions(session: ClaudeSession) {
+    let runtimeInfo = runtimeState.info(for: session.id)
+
+    // Kill the running process
+    let pid = runtimeInfo.shellPid > 0 ? runtimeInfo.shellPid : runtimeInfo.pid
+    if pid > 0 {
+      ProcessManager.shared.terminateProcess(pid: pid)
+    }
+
+    // Evict the cached host view and bump the generation counter.
+    // The generation change updates the `.id()` on the terminal view, forcing SwiftUI
+    // to destroy the old NSViewRepresentable and create a fresh one (calling `makeNSView`).
+    evictGhosttyHostView(terminalId: session.terminalId)
+    terminalViewGenerations[session.terminalId, default: 0] += 1
+    runtimeInfo.reset()
   }
 
   // MARK: - Terminal Action Handler
