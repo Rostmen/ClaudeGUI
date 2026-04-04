@@ -322,19 +322,13 @@ final class AppModel {
         self.runtimeRegistry.updateHookState(for: sessionId, state: hookState, tool: tool, eventTime: eventTime)
         self.hookSetup.receivedHookEvent(for: sessionId)
 
-        // Write hook state to persistent DB for reactive UI updates
+        // Map claudeSessionId → terminalId in DB (one-time per session).
+        // Hook state is kept in-memory only (runtimeRegistry) — writing it to DB
+        // on every event caused a cascade of @Query refetches that saturated I/O.
         if let terminalId {
-          try? self.sessionStore.updateHookState(
+          try? self.sessionStore.mapClaudeSessionId(
             terminalId: terminalId,
-            claudeSessionId: sessionId,
-            hookState: hookState.rawValue,
-            currentTool: tool
-          )
-        } else {
-          try? self.sessionStore.updateHookStateByClaudeId(
-            claudeSessionId: sessionId,
-            hookState: hookState.rawValue,
-            currentTool: tool
+            claudeSessionId: sessionId
           )
         }
 

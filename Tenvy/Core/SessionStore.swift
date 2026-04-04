@@ -44,40 +44,16 @@ final class SessionStore: Sendable {
     }
   }
 
-  // MARK: - Hook State Updates
+  // MARK: - Claude Session ID Mapping
 
-  /// Update hook state and map the Claude session ID for a known terminal.
-  /// Called by AppModel when a hook event arrives with both `session_id` and `terminal_id`.
-  func updateHookState(
-    terminalId: String,
-    claudeSessionId: String,
-    hookState: String?,
-    currentTool: String?
-  ) throws {
+  /// Map a Claude session ID to a terminal ID (one-time per session).
+  /// Skips the write if the mapping is already set — avoids triggering
+  /// GRDB @Query observers on every hook event.
+  func mapClaudeSessionId(terminalId: String, claudeSessionId: String) throws {
     try writer.write { db in
       if var record = try SessionRecord.fetchOne(db, key: terminalId) {
+        guard record.claudeSessionId != claudeSessionId else { return }
         record.claudeSessionId = claudeSessionId
-        record.hookState = hookState
-        record.currentTool = currentTool
-        record.lastModifiedAt = Date()
-        try record.update(db)
-      }
-    }
-  }
-
-  /// Update hook state when only the Claude session ID is known (no terminal ID).
-  /// Falls back to looking up by `claudeSessionId`.
-  func updateHookStateByClaudeId(
-    claudeSessionId: String,
-    hookState: String?,
-    currentTool: String?
-  ) throws {
-    try writer.write { db in
-      if var record = try SessionRecord
-        .filter(Column("claudeSessionId") == claudeSessionId)
-        .fetchOne(db) {
-        record.hookState = hookState
-        record.currentTool = currentTool
         record.lastModifiedAt = Date()
         try record.update(db)
       }
@@ -124,6 +100,10 @@ final class SessionStore: Sendable {
       if var existing = try SessionRecord
         .filter(Column("claudeSessionId") == claudeSessionId)
         .fetchOne(db) {
+        // Skip update if nothing changed — avoids triggering @Query observers
+        guard existing.title != title
+                || existing.sessionFilePath != filePath
+                || existing.lastModifiedAt != lastModified else { return }
         // Update only discoverable fields — don't touch terminalId or paths
         existing.title = title
         existing.sessionFilePath = filePath
