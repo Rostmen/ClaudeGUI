@@ -51,7 +51,8 @@ struct NewSessionDialogView: View {
     Binding(
       get: { viewModel.worktreeSplitForm ?? WorktreeSplitFormData(
         baseBranch: "main", newBranchName: "", worktreePath: "",
-        availableBranches: [], sourceSessionId: "", sourceIsNewSession: true, repoRoot: ""
+        availableBranches: [], sourceSessionId: "", sourceIsNewSession: true, repoRoot: "",
+        hasSubmodules: false
       )},
       set: { viewModel.worktreeSplitForm = $0 }
     )
@@ -262,7 +263,9 @@ struct NewSessionDialogView: View {
       newBranchField
       baseBranchPicker
       destinationField
-      submoduleOptions
+      if form.wrappedValue.hasSubmodules {
+        submoduleOptions
+      }
     }
   }
 
