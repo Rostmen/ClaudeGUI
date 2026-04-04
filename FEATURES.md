@@ -615,6 +615,30 @@ On change:
 - `ClaudeThemeSync` writes `"theme": "dark"|"light"` to `~/.claude.json` so Claude CLI output colors match
 - Sessions with `hookState == .waiting` are restarted automatically so the new theme takes effect; busy sessions are left alone
 
+### Permission Configuration
+
+Two-level permission management for Claude Code:
+
+**Global Permissions** (Settings → Claude Permissions):
+- Permission mode picker: Default, Accept Edits, Plan, Auto, Bypass Permissions
+- Allow/Deny/Ask rule lists with add/remove (e.g., `Bash(git *)`, `Edit`, `WebFetch(domain:example.com)`)
+- Quick preset toggles: "Allow all file edits", "Allow all bash commands", "Allow web access", "Allow all MCP tools"
+- Raw JSON editor for power users
+- Reads/writes `~/.claude/settings.json` (preserving hooks, plugins, etc.)
+
+**Per-Session Permissions** (Inspector Panel → Permissions):
+- Each new session inherits merged global + project permissions at creation
+- Users can customize per-session in the Inspector; changes saved to DB immediately
+- Changes require session restart — warning banner + "Restart with New Permissions" button (with confirmation dialog)
+- Restart button uses SHA-256 hash comparison: appears only when current permissions differ from launched-with state
+- "Reset to Inherited" button reverts to merged global + project settings
+- Stored in GRDB as JSON column on SessionRecord
+
+**Launch Integration**:
+- Per-session permissions passed as CLI flags: `--permission-mode`, `--allowedTools`, `--disallowedTools`
+- CLI flags are additive, so tools removed from the inherited allow list are automatically denied via `--disallowedTools` (deny overrides allow in Claude Code)
+- Launched-with state recorded as SHA-256 hash in `SessionRecord.launchedPermissionsHash`
+
 ### Persisted Data
 
 | Key | Storage | Purpose |

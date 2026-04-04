@@ -93,7 +93,11 @@ struct ContentView: View {
       if let session = viewModel.selectedSession {
         InspectorPanelView(
           session: session,
-          runtimeInfo: viewModel.runtimeState.info(for: session.id)
+          runtimeInfo: viewModel.runtimeState.info(for: session.id),
+          restartGeneration: viewModel.terminalViewGenerations[session.terminalId, default: 0],
+          onAction: { action in
+            viewModel.handleInspectorAction(action, for: session)
+          }
         )
         .inspectorColumnWidth(min: 200, ideal: 260, max: 360)
       }
@@ -504,7 +508,7 @@ private struct PaneLeafView: View {
         existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
         onHostViewCreated: { viewModel.cacheGhosttyHostView($0, terminalId: session.terminalId) }
       )
-      .id(session.terminalId)
+      .id(viewModel.terminalViewId(for: session.terminalId))
     } else {
       ClaudeSessionTerminalView(
         session: session,
@@ -517,7 +521,7 @@ private struct PaneLeafView: View {
         existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
         onHostViewCreated: { viewModel.cacheGhosttyHostView($0, terminalId: session.terminalId) }
       )
-      .id(session.terminalId)
+      .id(viewModel.terminalViewId(for: session.terminalId))
     }
   }
 }

@@ -76,12 +76,34 @@ struct SessionRecord: Codable, FetchableRecord, PersistableRecord, Identifiable 
   /// Path to the `.jsonl` session file once discovered by SessionManager.
   var sessionFilePath: String?
 
+  /// JSON-encoded `ClaudePermissionSettings` for per-session permission overrides.
+  /// Nil means the session uses inherited defaults (global + project).
+  var permissionSettings: String?
+
+  /// SHA-256 hash of the permission settings when the session was last launched.
+  /// Compared against the current `permissionSettings` hash to determine if
+  /// the user has made changes that require a restart.
+  var launchedPermissionsHash: String?
+
   static let databaseTableName = "sessionRecord"
 
   /// Resolved HookState from the stored raw string.
   var resolvedHookState: HookState? {
     guard let hookState else { return nil }
     return HookState(rawValue: hookState)
+  }
+
+  /// Decoded permission settings from the stored JSON string.
+  var decodedPermissionSettings: ClaudePermissionSettings? {
+    guard let permissionSettings,
+          let data = permissionSettings.data(using: .utf8) else { return nil }
+    return try? JSONDecoder().decode(ClaudePermissionSettings.self, from: data)
+  }
+
+  /// Encode permission settings to a JSON string for storage.
+  static func encode(_ settings: ClaudePermissionSettings) -> String? {
+    guard let data = try? JSONEncoder().encode(settings) else { return nil }
+    return String(data: data, encoding: .utf8)
   }
 }
 

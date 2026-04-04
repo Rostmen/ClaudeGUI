@@ -21,32 +21,90 @@
 // SOFTWARE.
 
 import SwiftUI
+import GRDB
 
 /// Right-side inspector panel showing details about the focused session or terminal.
 /// Available only in DEBUG builds.
 struct InspectorPanelView: View {
+
+  /// Actions emitted by the inspector for the parent to handle.
+  enum Action {
+    /// User requested restarting the session with updated permission settings.
+    case restartWithNewPermissions(sessionId: String)
+  }
+
   let session: ClaudeSession
   let runtimeInfo: SessionRuntimeInfo
+  /// Incremented by the parent when the session is restarted (e.g. with new permissions).
+  /// Observed to reload the launched-with snapshot so the restart button disappears.
+  var restartGeneration: Int = 0
+  var onAction: (Action) -> Void = { _ in }
 
+  @Environment(AppModel.self) private var appModel
   @State private var availableBranches: [String] = []
   @State private var branchError: String?
   @State private var showBranchError = false
+  @State private var sessionPermissions = ClaudePermissionSettings.empty
+  /// SHA-256 hash of the permissions when the session was last launched.
+  /// Read from DB; compared against `sessionPermissions.contentHash` to detect changes.
+  @State private var launchedPermissionsHash = ""
+  @State private var permissionsLoaded = false
+  @State private var showPermissionRestartWarning = false
+  @State private var showRestartConfirmation = false
+  @State private var isPlainTerminal = false
+
+  /// True when the current permissions differ from what the session launched with.
+  private var permissionSettingsModified: Bool {
+    !launchedPermissionsHash.isEmpty && sessionPermissions.contentHash != launchedPermissionsHash
+  }
 
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 16) {
         branchSection
         pathsSection
+        if !isPlainTerminal {
+          permissionsSection
+        }
       }
       .padding(12)
     }
     .frame(maxHeight: .infinity, alignment: .top)
-    .onAppear { loadBranches() }
-    .onChange(of: session.id) { _, _ in loadBranches() }
+    .onAppear {
+      loadBranches()
+      loadPermissions()
+    }
+    .onChange(of: session.id) { _, _ in
+      loadBranches()
+      loadPermissions()
+    }
+    .onChange(of: restartGeneration) { _, _ in
+      // After restart, re-read the launched hash from DB.
+      // makeNSView() writes the hash when it launches with the current permissions,
+      // so the hash now matches sessionPermissions.contentHash → button disappears.
+      if let record = try? AppDatabase.shared.databaseReader.read({ db in
+        try SessionRecord.fetchOne(db, key: session.terminalId)
+      }) {
+        launchedPermissionsHash = record.launchedPermissionsHash ?? ""
+      }
+      showPermissionRestartWarning = false
+    }
+    .onChange(of: sessionPermissions) { _, newValue in
+      guard permissionsLoaded else { return }
+      savePermissions(newValue)
+    }
     .alert("Branch Switch Failed", isPresented: $showBranchError) {
       Button("OK", role: .cancel) {}
     } message: {
       Text(branchError ?? "Unknown error")
+    }
+    .alert("Restart Session?", isPresented: $showRestartConfirmation) {
+      Button("Cancel", role: .cancel) {}
+      Button("Restart", role: .destructive) {
+        onAction(.restartWithNewPermissions(sessionId: session.id))
+      }
+    } message: {
+      Text("This will terminate the current session and restart it with the updated permissions.")
     }
   }
 
@@ -81,6 +139,107 @@ struct InspectorPanelView: View {
       InspectorPathRow("Working Dir", path: session.workingDirectory)
       InspectorPathRow("Project", path: session.projectPath)
     }
+  }
+
+  // MARK: - Permissions Section
+
+  @ViewBuilder
+  private var permissionsSection: some View {
+    InspectorSection("Permissions") {
+      HStack {
+        Image(systemName: permissionSettingsModified ? "pencil.circle.fill" : "arrow.down.circle.fill")
+          .font(.caption2)
+          .foregroundStyle(permissionSettingsModified ? .orange : .secondary)
+        Text(permissionSettingsModified ? "Customized" : "Inherited from Global + Project")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+      }
+
+      if showPermissionRestartWarning {
+        HStack(spacing: 4) {
+          Image(systemName: "exclamationmark.triangle.fill")
+            .font(.caption2)
+            .foregroundStyle(.orange.opacity(0.7))
+          Text("Permission changes take effect after restart")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+      }
+
+      PermissionEditorView(settings: $sessionPermissions)
+
+      if permissionSettingsModified {
+        Button {
+          showRestartConfirmation = true
+        } label: {
+          HStack(spacing: 4) {
+            Image(systemName: "arrow.clockwise")
+            Text("Restart with New Permissions")
+          }
+          .font(.caption)
+          .foregroundStyle(.orange)
+          .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+      }
+
+      Button {
+        resetPermissions()
+      } label: {
+        HStack(spacing: 4) {
+          Image(systemName: "arrow.uturn.backward")
+          Text("Reset to Inherited")
+        }
+        .font(.caption)
+      }
+      .buttonStyle(.plain)
+      .foregroundStyle(.secondary)
+    }
+  }
+
+  // MARK: - Permission Logic
+
+  private func loadPermissions() {
+    permissionsLoaded = false
+
+    if let record = try? AppDatabase.shared.databaseReader.read({ db in
+      try SessionRecord.fetchOne(db, key: session.terminalId)
+    }) {
+      isPlainTerminal = record.isPlainTerminal
+      launchedPermissionsHash = record.launchedPermissionsHash ?? ""
+      if let stored = record.decodedPermissionSettings {
+        sessionPermissions = stored
+      } else {
+        sessionPermissions = ClaudeSettingsService.mergeForNewSession(projectPath: session.projectPath)
+      }
+    } else {
+      isPlainTerminal = false
+      launchedPermissionsHash = ""
+      sessionPermissions = ClaudeSettingsService.mergeForNewSession(projectPath: session.projectPath)
+    }
+
+    showPermissionRestartWarning = false
+    permissionsLoaded = true
+  }
+
+  private func savePermissions(_ settings: ClaudePermissionSettings) {
+    try? appModel.sessionStore.updatePermissionSettings(
+      terminalId: session.terminalId,
+      settings: settings
+    )
+    if permissionSettingsModified {
+      showPermissionRestartWarning = true
+    }
+  }
+
+  private func resetPermissions() {
+    permissionsLoaded = false
+    try? appModel.sessionStore.resetPermissionSettings(terminalId: session.terminalId)
+    sessionPermissions = ClaudeSettingsService.mergeForNewSession(projectPath: session.projectPath)
+    launchedPermissionsHash = ""
+    showPermissionRestartWarning = false
+    permissionsLoaded = true
   }
 
   // MARK: - Branch Logic
@@ -191,8 +350,11 @@ private struct InspectorPathRow: View {
   }()
   InspectorPanelView(
     session: session,
-    runtimeInfo: info
+    runtimeInfo: info,
+    restartGeneration: 0,
+    onAction: { action in print("Inspector action: \(action)") }
   )
-  .frame(width: 260, height: 400)
+  .frame(width: 260, height: 600)
   .background(.ultraThinMaterial)
+  .environment(AppModel())
 }

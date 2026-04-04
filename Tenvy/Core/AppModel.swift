@@ -248,6 +248,9 @@ final class AppModel {
     let terminalId = activatedSessions[sessionId]?.terminalId ?? sessionId
     try? sessionStore.deactivateSession(terminalId: terminalId)
 
+    // Clean up per-session settings file
+    SessionSettingsFileManager.removeSettingsFile(terminalId: terminalId)
+
     activatedSessions.removeValue(forKey: sessionId)
     runtimeRegistry.info(for: sessionId).reset()
   }

@@ -154,4 +154,40 @@ final class SessionStore: Sendable {
       }
     }
   }
+
+  // MARK: - Permission Settings
+
+  /// Update permission settings for a session.
+  func updatePermissionSettings(terminalId: String, settings: ClaudePermissionSettings) throws {
+    try writer.write { db in
+      if var record = try SessionRecord.fetchOne(db, key: terminalId) {
+        record.permissionSettings = SessionRecord.encode(settings)
+        record.lastModifiedAt = Date()
+        try record.update(db)
+      }
+    }
+  }
+
+  /// Reset permission settings to nil (re-inherit from global + project on next launch).
+  func resetPermissionSettings(terminalId: String) throws {
+    try writer.write { db in
+      if var record = try SessionRecord.fetchOne(db, key: terminalId) {
+        record.permissionSettings = nil
+        record.launchedPermissionsHash = nil
+        record.lastModifiedAt = Date()
+        try record.update(db)
+      }
+    }
+  }
+
+  /// Update the launched permissions hash after a session starts or restarts.
+  func updateLaunchedPermissionsHash(terminalId: String, hash: String) throws {
+    try writer.write { db in
+      if var record = try SessionRecord.fetchOne(db, key: terminalId) {
+        record.launchedPermissionsHash = hash
+        record.lastModifiedAt = Date()
+        try record.update(db)
+      }
+    }
+  }
 }
