@@ -64,6 +64,10 @@ final class AppModel {
 
   let runtimeRegistry: SessionRuntimeRegistry
 
+  // MARK: - Persistent session store (GRDB)
+
+  let sessionStore: SessionStore
+
   // MARK: - Host View Transfer (cross-window session moves)
 
   /// Temporary store for GhosttyHostViews being transferred between windows.
@@ -114,6 +118,15 @@ final class AppModel {
       guard let vm = ref.value, vm.ownsSession(targetSessionId) else { continue }
       vm.receiveTransferredSession(session, alongside: targetSessionId, direction: direction)
       break
+    }
+  }
+
+  /// Notify all ViewModels about a hook-event-driven session sync.
+  /// Called when a hook event arrives with both `terminalId` and `claudeSessionId`.
+  func syncSessionFromHookEvent(terminalId: String, claudeSessionId: String) {
+    registeredViewModels.removeAll { $0.value == nil }
+    for ref in registeredViewModels {
+      ref.value?.syncSessionFromHookEvent(terminalId: terminalId, claudeSessionId: claudeSessionId)
     }
   }
 
@@ -181,7 +194,8 @@ final class AppModel {
     updater: any AppUpdating,
     windowRegistry: any WindowRegistering,
     terminalInput: any TerminalInput,
-    runtimeRegistry: SessionRuntimeRegistry
+    runtimeRegistry: SessionRuntimeRegistry,
+    sessionStore: SessionStore
   ) {
     self.sessionDiscovery = sessionDiscovery
     self.hookMonitor = hookMonitor
@@ -191,6 +205,13 @@ final class AppModel {
     self.windowRegistry = windowRegistry
     self.terminalInput = terminalInput
     self.runtimeRegistry = runtimeRegistry
+    self.sessionStore = sessionStore
+
+    // Inject session store into discovery service for DB upserts
+    if let manager = sessionDiscovery as? SessionManager {
+      manager.sessionStore = sessionStore
+    }
+
     wireCallbacks()
     setupWindowObservers()
   }
@@ -206,7 +227,8 @@ final class AppModel {
       updater: UpdateService(),
       windowRegistry: WindowSessionRegistry(),
       terminalInput: TerminalRegistry(),
-      runtimeRegistry: SessionRuntimeRegistry()
+      runtimeRegistry: SessionRuntimeRegistry(),
+      sessionStore: SessionStore(database: .shared)
     )
   }
 
@@ -222,6 +244,10 @@ final class AppModel {
   /// Remove a session from the activated set (terminal closed or session terminated).
   /// Also resets the runtime info so the sidebar no longer shows stale CPU/MEM/PID data.
   func deactivateSession(_ sessionId: String) {
+    // Find the terminalId for DB update — check activated sessions first
+    let terminalId = activatedSessions[sessionId]?.terminalId ?? sessionId
+    try? sessionStore.deactivateSession(terminalId: terminalId)
+
     activatedSessions.removeValue(forKey: sessionId)
     runtimeRegistry.info(for: sessionId).reset()
   }
@@ -282,11 +308,35 @@ final class AppModel {
   }
 
   private func wireCallbacks() {
-    hookMonitor.onStateChange = { [weak self] sessionId, hookState, tool, message, eventTime in
+    hookMonitor.onStateChange = { [weak self] sessionId, hookState, tool, message, eventTime, terminalId in
       Task { @MainActor in
         guard let self else { return }
+
+        // Sync FIRST: swap temp UUID → real Claude session ID if needed.
+        // This ensures runtimeRegistry and notifications use the correct ID.
+        if let terminalId {
+          self.syncSessionFromHookEvent(terminalId: terminalId, claudeSessionId: sessionId)
+        }
+
+        // Now update in-memory runtime state — after sync, session.id matches sessionId
         self.runtimeRegistry.updateHookState(for: sessionId, state: hookState, tool: tool, eventTime: eventTime)
         self.hookSetup.receivedHookEvent(for: sessionId)
+
+        // Write hook state to persistent DB for reactive UI updates
+        if let terminalId {
+          try? self.sessionStore.updateHookState(
+            terminalId: terminalId,
+            claudeSessionId: sessionId,
+            hookState: hookState.rawValue,
+            currentTool: tool
+          )
+        } else {
+          try? self.sessionStore.updateHookStateByClaudeId(
+            claudeSessionId: sessionId,
+            hookState: hookState.rawValue,
+            currentTool: tool
+          )
+        }
 
         if hookState == .waiting || hookState == .waitingPermission {
           let sessionName = self.activatedSessions[sessionId]?.title ?? ""

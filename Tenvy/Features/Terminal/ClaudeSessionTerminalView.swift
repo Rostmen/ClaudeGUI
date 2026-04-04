@@ -50,7 +50,7 @@ struct ClaudeSessionTerminalView: NSViewRepresentable {
     }
     let launch = TerminalEnvironment.shellArgs(executable: claudePath, args: args, currentDirectory: workingDirectory, initScript: initScript)
 
-    hostView.setupSurface(launch: launch, workingDirectory: workingDirectory, onAction: onAction)
+    hostView.setupSurface(launch: launch, workingDirectory: workingDirectory, terminalId: session?.terminalId, onAction: onAction)
     hostView.contextMenuProvider = { [weak hostView] in
       guard let hostView else { return NSMenu() }
       let target = SessionMenuTarget(onAction: hostView.onAction)

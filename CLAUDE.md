@@ -22,9 +22,9 @@ macOS app for managing and resuming Claude Code CLI sessions with a native trans
 ```
 Tenvy/
 ├── App/                            # App entry & shared state
-│   ├── TenvyApp.swift              # App entry + AppDelegate + WindowAccessor
+│   ├── TenvyApp.swift              # App entry + AppDelegate + WindowAccessor + DatabaseContext
 │   ├── AppState.swift              # Shared singleton (sessions, runtime, registry)
-│   ├── ContentView.swift           # Main layout (UI only)
+│   ├── ContentView.swift           # Main layout (UI only, uses @Query for DB-backed state)
 │   ├── ContentViewModel.swift      # Session selection & window coordination
 │   ├── NotificationService.swift   # macOS notifications (UNUserNotificationCenter)
 │   └── NotificationPermissionPromptView.swift  # In-app permission prompt
@@ -84,6 +84,11 @@ Tenvy/
 │       ├── UpdatePromptView.swift  # Bottom-right update prompt overlay
 │       └── ReleaseNotesView.swift  # Release notes window on new version
 ├── Core/
+│   ├── AppDatabase.swift           # GRDB DatabasePool setup + migrations
+│   ├── SessionRecord.swift         # GRDB model + @Query request types
+│   ├── SessionStore.swift          # Sole DB write service (ViewModels/services → DB)
+│   ├── AppModel.swift              # Shared singleton (sessions, runtime, registry)
+│   ├── ClaudeSessionModel.swift    # Observable facade: ClaudeSession + SessionRuntimeInfo
 │   └── Extensions/
 │       └── ClaudeSessionModel+Preview.swift  # Preview mocks for ClaudeSessionModel
 ├── Shared/                         # Shared components
@@ -104,6 +109,8 @@ Tenvy/
 | Package | Purpose |
 |---------|---------|
 | [GhosttyEmbed](https://github.com/ghostty-org/ghostty) | Ghostty terminal backend |
+| [GRDB.swift](https://github.com/groue/GRDB.swift) | SQLite database for persistent session storage |
+| [GRDBQuery](https://github.com/groue/GRDBQuery) | `@Query` property wrapper for reactive SwiftUI observation of GRDB |
 | [gitdiff](https://github.com/tornikegomareli/gitdiff) | Diff rendering |
 | [CodeEditor](https://github.com/ZeeZide/CodeEditor) | Syntax-highlighted code editor (bash init script in Settings & split dialogs) |
 
@@ -186,6 +193,20 @@ CPU-based state detection:
 
 **PID discovery**: `SessionStateMonitor` receives a `pidProvider` closure that queries Ghostty's `surface.foregroundPid`. This returns the `login` process PID (Ghostty's PTY child). The monitor walks down the process tree via `findLeafDescendant` to find the actual process we launched (e.g. `login → claude`). Once the leaf PID is found in the `ProcessPoller` snapshot, it's locked in for the monitor's lifetime. If the locked PID disappears, the provider is re-queried and the leaf walk repeats to discover a replacement. No process arg-matching or name checking — we trust the PTY ancestry chain.
 
+### Persistent Session Store (GRDB)
+
+Sessions are stored in a local SQLite database at `~/Library/Application Support/Tenvy/sessions.sqlite` using GRDB + GRDBQuery.
+
+**Architecture**: `SessionStore` is the sole service that writes to the DB. Views never write directly — they observe via GRDBQuery's `@Query` property wrapper and emit actions to ViewModels/services.
+
+**Session ID mapping**: When Claude is launched from Tenvy, the `TENVY_TERMINAL_ID` env var is set to the session's `terminalId`. The hook script includes this in JSONL events as `terminal_id`. When the first hook event arrives with both `session_id` (Claude's) and `terminal_id` (ours), `SessionStore.updateHookState()` writes the mapping to DB — instant, reliable sync with no heuristic matching.
+
+**What's in the DB**: Session identity (`terminalId`, `claudeSessionId`), paths (`workingDirectory`, `projectPath`), display state (`title`, `hookState`, `currentTool`), metadata (`branchName`, `worktreePath`, `isPlainTerminal`, `isActive`).
+
+**What stays in-memory**: CPU/memory/PID metrics (`SessionRuntimeInfo`) — changes every 500ms, meaningless after restart.
+
+**Write discipline**: Views → Action enum → ViewModel → `SessionStore`. Services (HookEventService, SessionManager) → `AppModel.wireCallbacks()` → `SessionStore`.
+
 ### Claude Code Hooks
 
 Hook events are written to `~/.claude/chat-sessions-events.jsonl` by `Hooks/chat-sessions-hook.sh`.
@@ -205,6 +226,8 @@ Registered events and their state mappings:
 | `SessionEnd` | — | `ended` |
 
 **Key**: `PermissionRequest` is the correct hook for actual permission dialogs. `Notification` is a generic event that fires for multiple types — always check `notification_type`.
+
+**Terminal ID mapping**: Each hook event includes `terminal_id` (from `TENVY_TERMINAL_ID` env var). This enables instant, reliable mapping of Claude's `session_id` to Tenvy's `terminalId` — no heuristic matching needed. Events from sessions not launched by Tenvy have `terminal_id: null`.
 
 ### Notifications
 

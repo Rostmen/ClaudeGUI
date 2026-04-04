@@ -33,6 +33,9 @@ class SessionManager {
   private let fileManager = FileManager.default
   private var directoryMonitor: DirectoryMonitor?
 
+  /// Persistent session store — sessions discovered from disk are upserted here.
+  var sessionStore: SessionStore?
+
   init() {
     let homeDirectory = fileManager.homeDirectoryForCurrentUser
     claudeProjectsPath = homeDirectory.appendingPathComponent(".claude/projects")
@@ -180,6 +183,16 @@ class SessionManager {
       return nil
     }
 
+    // Upsert into persistent DB so @Query views see discovered sessions
+    try? sessionStore?.upsertFromSessionFile(
+      claudeSessionId: sessionId,
+      title: title,
+      filePath: fileURL.path,
+      lastModified: lastModified,
+      workingDirectory: workingDirectory,
+      projectPath: projectPath
+    )
+
     return ClaudeSession(
       id: sessionId,
       title: title,
@@ -239,6 +252,9 @@ class SessionManager {
   }
 
   func deleteSession(_ session: ClaudeSession) throws {
+    // Remove from persistent DB
+    try? sessionStore?.deleteSession(terminalId: session.terminalId)
+
     guard let filePath = session.filePath else {
       // New session without a file - just remove from list
       sessions.removeAll { $0.id == session.id }
@@ -296,6 +312,9 @@ class SessionManager {
         filePath: session.filePath
       )
     }
+
+    // Update in persistent DB
+    try? sessionStore?.updateTitle(terminalId: session.terminalId, title: newTitle)
   }
 }
 
