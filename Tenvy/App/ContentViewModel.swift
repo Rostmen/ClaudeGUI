@@ -920,6 +920,10 @@ final class ContentViewModel {
   /// Computes the working directory for a worktree session, preserving any subfolder offset.
   /// For example, if source is `/repo/project/ios` and repoRoot is `/repo`, the worktree
   /// session should start in `<worktreePath>/project/ios` instead of just `<worktreePath>`.
+  ///
+  /// When the source is itself inside a worktree (e.g. `/repo/.claude/worktrees/feat-x/src`),
+  /// the offset is computed relative to the **worktree root**, not the repo root — otherwise
+  /// the entire worktree path would be appended, creating a nested path.
   static func worktreeWorkingDirectory(
     worktreePath: String,
     repoRoot: String,
@@ -933,8 +937,25 @@ final class ContentViewModel {
       return worktreePath
     }
 
-    let relativeOffset = String(normalizedSource.dropFirst(normalizedRoot.count))
-    return (worktreePath as NSString).appendingPathComponent(relativeOffset)
+    let relativeToRepo = String(normalizedSource.dropFirst(normalizedRoot.count + 1)) // strip leading /
+
+    // If source is inside a worktree (<repoRoot>/.claude/worktrees/<name>/...),
+    // compute offset relative to that worktree root, not the repo root.
+    let worktreePrefix = ".claude/worktrees/"
+    if relativeToRepo.hasPrefix(worktreePrefix) {
+      let afterPrefix = relativeToRepo.dropFirst(worktreePrefix.count)
+      // Skip the worktree name (first path component after the prefix)
+      if let slashIndex = afterPrefix.firstIndex(of: "/") {
+        let subfolderOffset = String(afterPrefix[afterPrefix.index(after: slashIndex)...])
+        if !subfolderOffset.isEmpty {
+          return (worktreePath as NSString).appendingPathComponent(subfolderOffset)
+        }
+      }
+      // Source is the worktree root itself — no subfolder offset
+      return worktreePath
+    }
+
+    return (worktreePath as NSString).appendingPathComponent(relativeToRepo)
   }
 
   private func insertSplitPane(_ newSession: ClaudeSession, at sourceId: String, direction: SplitDirection) {

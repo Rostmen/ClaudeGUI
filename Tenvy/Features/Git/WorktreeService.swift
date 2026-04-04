@@ -137,13 +137,21 @@ enum WorktreeService {
     }
   }
 
-  /// Finds the git working tree root (the directory containing `.git/`).
+  /// Finds the main git repository root (the directory containing a `.git/` **directory**).
+  /// Worktrees have a `.git` **file** (with a `gitdir:` pointer) — this method skips those
+  /// and keeps walking up so worktree paths are always resolved relative to the main repo.
   static func findRepoRoot(from path: String) -> String? {
     var current = path
+    let fm = FileManager.default
     while current != "/" {
       let candidate = (current as NSString).appendingPathComponent(".git")
-      if FileManager.default.fileExists(atPath: candidate) {
-        return current
+      var isDirectory: ObjCBool = false
+      if fm.fileExists(atPath: candidate, isDirectory: &isDirectory) {
+        if isDirectory.boolValue {
+          // Real repo root — .git is a directory
+          return current
+        }
+        // Worktree — .git is a file; keep walking up
       }
       current = (current as NSString).deletingLastPathComponent
     }
