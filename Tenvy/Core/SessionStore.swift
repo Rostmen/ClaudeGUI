@@ -44,6 +44,36 @@ final class SessionStore: Sendable {
     }
   }
 
+  /// Creates and inserts a session record with merged permissions.
+  /// Handles permission merging internally — callers don't need to know about settings.
+  func createSession(
+    from session: ClaudeSession,
+    isPlainTerminal: Bool = false,
+    branchName: String? = nil,
+    worktreePath: String? = nil,
+    forkSourceSessionId: String? = nil
+  ) {
+    let mergedPermissions: ClaudePermissionSettings? = isPlainTerminal
+      ? nil
+      : ClaudeSettingsService.mergeForNewSession(projectPath: session.projectPath)
+
+    let record = SessionRecord(
+      tenvySessionId: session.tenvySessionId,
+      workingDirectory: session.workingDirectory,
+      projectPath: session.projectPath,
+      title: session.title,
+      branchName: branchName,
+      worktreePath: worktreePath,
+      isPlainTerminal: isPlainTerminal,
+      isActive: true,
+      forkSourceSessionId: forkSourceSessionId,
+      createdAt: Date(),
+      lastModifiedAt: Date(),
+      permissionSettings: mergedPermissions.flatMap { SessionRecord.encode($0) }
+    )
+    try? insertSession(record)
+  }
+
   // MARK: - Claude Session ID Mapping
 
   /// Map a Claude session ID to a terminal ID (one-time per session).

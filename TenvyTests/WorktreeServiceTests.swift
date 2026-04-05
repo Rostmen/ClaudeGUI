@@ -24,11 +24,12 @@ import Foundation
 import Testing
 @testable import Tenvy
 
-/// Tests for `WorktreeService.findRepoRoot` and `defaultWorktreePath`.
+/// Tests for `GitService` — findRepoRoot, defaultWorktreePath, hasSubmodules, worktreeWorkingDirectory.
 struct WorktreeServiceTests {
 
+  private let gitService = GitService(settings: AppSettings.shared)
+
   /// Helper: creates a temporary directory tree and returns the root path.
-  /// Cleaned up automatically when the test finishes via `addTeardownBlock`.
   private func makeTempDir() throws -> String {
     let path = NSTemporaryDirectory() + "WorktreeServiceTests-\(UUID().uuidString)"
     try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
@@ -50,12 +51,12 @@ struct WorktreeServiceTests {
     try FileManager.default.createDirectory(atPath: gitDir, withIntermediateDirectories: true)
 
     // From the repo root itself
-    #expect(WorktreeService.findRepoRoot(from: tmp) == tmp)
+    #expect(gitService.findRepoRoot(from: tmp) == tmp)
 
     // From a subdirectory
     let sub = (tmp as NSString).appendingPathComponent("src/deep/nested")
     try FileManager.default.createDirectory(atPath: sub, withIntermediateDirectories: true)
-    #expect(WorktreeService.findRepoRoot(from: sub) == tmp)
+    #expect(gitService.findRepoRoot(from: sub) == tmp)
   }
 
   @Test func findRepoRoot_worktreeSkipsGitFile() throws {
@@ -74,7 +75,7 @@ struct WorktreeServiceTests {
     try "gitdir: \(mainGitDir)/worktrees/feature".write(toFile: worktreeGitFile, atomically: true, encoding: .utf8)
 
     // findRepoRoot from the worktree should return the main repo, not the worktree
-    #expect(WorktreeService.findRepoRoot(from: worktree) == mainRepo)
+    #expect(gitService.findRepoRoot(from: worktree) == mainRepo)
   }
 
   @Test func findRepoRoot_nestedWorktreeSkipsBothGitFiles() throws {
@@ -99,12 +100,12 @@ struct WorktreeServiceTests {
     try "gitdir: \(mainGitDir)/worktrees/fix-focus-2".write(toFile: wt2GitFile, atomically: true, encoding: .utf8)
 
     // From the nested worktree, should resolve all the way up to main repo
-    #expect(WorktreeService.findRepoRoot(from: wt2) == mainRepo)
+    #expect(gitService.findRepoRoot(from: wt2) == mainRepo)
 
     // From a subdirectory inside the nested worktree
     let deepDir = (wt2 as NSString).appendingPathComponent("src/views")
     try FileManager.default.createDirectory(atPath: deepDir, withIntermediateDirectories: true)
-    #expect(WorktreeService.findRepoRoot(from: deepDir) == mainRepo)
+    #expect(gitService.findRepoRoot(from: deepDir) == mainRepo)
   }
 
   @Test func findRepoRoot_noGitReturnsNil() throws {
@@ -114,20 +115,20 @@ struct WorktreeServiceTests {
     // No .git anywhere — should return nil
     let sub = (tmp as NSString).appendingPathComponent("a/b/c")
     try FileManager.default.createDirectory(atPath: sub, withIntermediateDirectories: true)
-    #expect(WorktreeService.findRepoRoot(from: sub) == nil)
+    #expect(gitService.findRepoRoot(from: sub) == nil)
   }
 
   // MARK: - defaultWorktreePath
 
   @Test func defaultWorktreePath_usesRepoRoot() throws {
     let repoRoot = "/Users/test/Projects/MyApp"
-    let result = WorktreeService.defaultWorktreePath(repoRoot: repoRoot, branchName: "fix-focus-2")
+    let result = gitService.defaultWorktreePath(repoRoot: repoRoot, branchName: "fix-focus-2")
     #expect(result == "/Users/test/Projects/MyApp/.claude/worktrees/fix-focus-2")
   }
 
   @Test func defaultWorktreePath_sanitizesSlashes() throws {
     let repoRoot = "/Users/test/Projects/MyApp"
-    let result = WorktreeService.defaultWorktreePath(repoRoot: repoRoot, branchName: "feature/auth/login")
+    let result = gitService.defaultWorktreePath(repoRoot: repoRoot, branchName: "feature/auth/login")
     #expect(result == "/Users/test/Projects/MyApp/.claude/worktrees/feature-auth-login")
   }
 
@@ -149,10 +150,10 @@ struct WorktreeServiceTests {
     try "gitdir: \(mainGitDir)/worktrees/fix-focus".write(toFile: gitFile, atomically: true, encoding: .utf8)
 
     // Simulate the split flow: find repo root from worktree, then build new worktree path
-    let repoRoot = WorktreeService.findRepoRoot(from: worktree)
+    let repoRoot = gitService.findRepoRoot(from: worktree)
     #expect(repoRoot == mainRepo)
 
-    let newPath = WorktreeService.defaultWorktreePath(repoRoot: repoRoot!, branchName: "fix-focus-2")
+    let newPath = gitService.defaultWorktreePath(repoRoot: repoRoot!, branchName: "fix-focus-2")
     #expect(newPath == (mainRepo as NSString).appendingPathComponent(".claude/worktrees/fix-focus-2"))
 
     // NOT nested inside the first worktree
@@ -161,51 +162,51 @@ struct WorktreeServiceTests {
 
   // MARK: - worktreeWorkingDirectory
 
-  @MainActor @Test func worktreeWorkingDirectory_regularSubfolder() {
+  @Test func worktreeWorkingDirectory_regularSubfolder() {
     // Source in a subfolder of the repo (not a worktree)
-    let result = ContentViewModel.worktreeWorkingDirectory(
+    let result = GitService.worktreeWorkingDirectory(
       worktreePath: "/repo/.claude/worktrees/new-feature",
-      repoRoot: "/repo",
+      sourceProjectPath: "/repo",
       sourceWorkingDirectory: "/repo/src/ios"
     )
     #expect(result == "/repo/.claude/worktrees/new-feature/src/ios")
   }
 
-  @MainActor @Test func worktreeWorkingDirectory_sourceIsRepoRoot() {
+  @Test func worktreeWorkingDirectory_sourceIsRepoRoot() {
     // Source is at the repo root — no offset
-    let result = ContentViewModel.worktreeWorkingDirectory(
+    let result = GitService.worktreeWorkingDirectory(
       worktreePath: "/repo/.claude/worktrees/new-feature",
-      repoRoot: "/repo",
+      sourceProjectPath: "/repo",
       sourceWorkingDirectory: "/repo"
     )
     #expect(result == "/repo/.claude/worktrees/new-feature")
   }
 
-  @MainActor @Test func worktreeWorkingDirectory_sourceIsWorktreeRoot() {
+  @Test func worktreeWorkingDirectory_sourceIsWorktreeRoot() {
     // Source is at a worktree root — no subfolder offset, just the new worktree path
-    let result = ContentViewModel.worktreeWorkingDirectory(
+    let result = GitService.worktreeWorkingDirectory(
       worktreePath: "/repo/.claude/worktrees/fix-focus-2",
-      repoRoot: "/repo",
+      sourceProjectPath: "/repo/.claude/worktrees/fix-focus",
       sourceWorkingDirectory: "/repo/.claude/worktrees/fix-focus"
     )
     #expect(result == "/repo/.claude/worktrees/fix-focus-2")
   }
 
-  @MainActor @Test func worktreeWorkingDirectory_sourceIsWorktreeSubfolder() {
+  @Test func worktreeWorkingDirectory_sourceIsWorktreeSubfolder() {
     // Source is in a subfolder of a worktree — preserve the subfolder offset
-    let result = ContentViewModel.worktreeWorkingDirectory(
+    let result = GitService.worktreeWorkingDirectory(
       worktreePath: "/repo/.claude/worktrees/fix-focus-2",
-      repoRoot: "/repo",
+      sourceProjectPath: "/repo/.claude/worktrees/fix-focus",
       sourceWorkingDirectory: "/repo/.claude/worktrees/fix-focus/src/views"
     )
     #expect(result == "/repo/.claude/worktrees/fix-focus-2/src/views")
   }
 
-  @MainActor @Test func worktreeWorkingDirectory_doesNotNestWorktreePaths() {
-    // THE BUG: splitting from a worktree must NOT nest the worktree path
-    let result = ContentViewModel.worktreeWorkingDirectory(
+  @Test func worktreeWorkingDirectory_doesNotNestWorktreePaths() {
+    // Splitting from a worktree must NOT nest the worktree path
+    let result = GitService.worktreeWorkingDirectory(
       worktreePath: "/repo/.claude/worktrees/fix-focus-2",
-      repoRoot: "/repo",
+      sourceProjectPath: "/repo/.claude/worktrees/fix-worktree-dialog-focus",
       sourceWorkingDirectory: "/repo/.claude/worktrees/fix-worktree-dialog-focus"
     )
     // Must NOT contain nested worktree paths
@@ -223,14 +224,14 @@ struct WorktreeServiceTests {
     try "[submodule \"lib\"]\n\tpath = lib\n\turl = https://example.com/lib.git\n"
       .write(toFile: gitmodulesPath, atomically: true, encoding: .utf8)
 
-    #expect(WorktreeService.hasSubmodules(repoRoot: tmp) == true)
+    #expect(gitService.hasSubmodules(repoRoot: tmp) == true)
   }
 
   @Test func hasSubmodules_returnsFalseWhenNoGitmodules() throws {
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
 
-    #expect(WorktreeService.hasSubmodules(repoRoot: tmp) == false)
+    #expect(gitService.hasSubmodules(repoRoot: tmp) == false)
   }
 
   @Test func hasSubmodules_returnsFalseWhenGitmodulesIsEmpty() throws {
@@ -240,14 +241,14 @@ struct WorktreeServiceTests {
     let gitmodulesPath = (tmp as NSString).appendingPathComponent(".gitmodules")
     try "".write(toFile: gitmodulesPath, atomically: true, encoding: .utf8)
 
-    #expect(WorktreeService.hasSubmodules(repoRoot: tmp) == false)
+    #expect(gitService.hasSubmodules(repoRoot: tmp) == false)
   }
 
-  @MainActor @Test func worktreeWorkingDirectory_sourceOutsideRepo() {
-    // Source is outside the repo — just return worktree path
-    let result = ContentViewModel.worktreeWorkingDirectory(
+  @Test func worktreeWorkingDirectory_sourceOutsideProject() {
+    // Source is outside the project — just return worktree path
+    let result = GitService.worktreeWorkingDirectory(
       worktreePath: "/repo/.claude/worktrees/new-feature",
-      repoRoot: "/repo",
+      sourceProjectPath: "/repo",
       sourceWorkingDirectory: "/other/project"
     )
     #expect(result == "/repo/.claude/worktrees/new-feature")

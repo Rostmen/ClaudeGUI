@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+import Dependencies
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -37,6 +38,7 @@ enum SessionListAction {
 }
 
 struct SessionListView: View {
+  @Dependency(\.gitService) var gitService
   var sessionManager: any SessionDiscovery
   @Binding var selectedSession: ClaudeSession?
   var onAction: (SessionListAction) -> Void = { _ in }
@@ -285,7 +287,7 @@ struct SessionListView: View {
   private func deleteSession(_ session: ClaudeSession, removeWorktree: Bool = false) {
     do {
       if removeWorktree {
-        try WorktreeService.removeWorktree(
+        try gitService.removeWorktree(
           repoPath: session.projectPath,
           worktreePath: session.workingDirectory
         )
