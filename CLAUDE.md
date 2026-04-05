@@ -306,6 +306,8 @@ SwiftUI destroys and recreates `NSViewRepresentable`-backed views when they move
 - `GhosttyTerminalView.makeNSView`: returns cached view if `existingHostView != nil`, skipping `setup()` (no new process).
 - `onHostViewCreated` callback: fires in `makeNSView` for fresh views, allowing callers to populate the cache.
 - Cache is evicted in `closeSplitPane(id:)` and `closeSplit()` before deactivating, so the Ghostty process terminates when the pane is explicitly closed.
+- **Container wrapper**: `makeNSView` returns `GhosttyHostViewContainer` (thin NSView wrapper), not `GhosttyHostView` directly. SwiftUI manages the container's lifecycle — when a split tree change destroys the old wrapper, only the container is removed. The actual `GhosttyHostView` survives in the ViewModel cache. This mirrors Ghostty's `SurfaceScrollView`/`SurfaceRepresentable` pattern.
+- **Cross-window transfer**: `handleDragToNewWindow` extracts the host view from the source cache, creates a new `ContentViewModel` with `preloadForTransfer()` (host view pre-loaded), then creates the new window via `NSWindow` + `NSHostingController` (not `NSApp.sendAction(newWindowForTab)`). The source split tree is modified AFTER the new window has the host view — no orphan gap.
 
 #### Pane Headers & Drag-to-Rearrange
 
@@ -319,7 +321,7 @@ Every pane (single or split) has a `PaneHeaderView` at the top: 30px height, ses
 
 **Title source**: Claude sessions use `session.title`; plain terminals use `GhosttyEmbedSurface.title` (auto-updates from terminal escape sequences via `@Published`).
 
-**Cross-window ready**: Pasteboard uses string-based `terminalId` (not object references). `Notification.paneDragEndedNoTarget` is posted when a drag ends outside any window, enabling future cross-window pane transfer.
+**Drag outside window**: When a drag ends outside all visible windows, `Notification.paneDragEndedNoTarget` fires. `ContentViewModel.handlePaneDragToNewWindow` handles it: solo sessions (no split) are a no-op; split panes are transferred to a new AppKit-created window via `handleDragToNewWindow` (see GhosttyHostView Cache above).
 
 #### File Drag & Drop
 

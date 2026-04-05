@@ -46,6 +46,11 @@ struct ContentView: View {
     _viewModel = State(initialValue: ContentViewModel(appModel: appModel))
   }
 
+  /// Creates a ContentView with a pre-configured ViewModel (for cross-window transfers).
+  init(viewModel: ContentViewModel) {
+    _viewModel = State(initialValue: viewModel)
+  }
+
   // Delegate prompt visibility to the ViewModel (which reads from appModel services)
   private var hookPromptVisible: Bool { viewModel.hookPromptVisible }
   private var notificationPromptVisible: Bool { viewModel.notificationPromptVisible }

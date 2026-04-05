@@ -35,30 +35,36 @@ struct PlainTerminalView: NSViewRepresentable {
   let onHostViewCreated: ((GhosttyHostView) -> Void)?
   @Environment(\.colorScheme) private var colorScheme
 
-  func makeNSView(context: Context) -> GhosttyHostView {
-    if let existing = existingHostView { return existing }
+  /// Returns a thin container NSView that wraps the GhosttyHostView.
+  /// See ClaudeSessionTerminalView.makeNSView for why.
+  func makeNSView(context: Context) -> GhosttyHostViewContainer {
+    let hostView: GhosttyHostView
+    if let existing = existingHostView {
+      hostView = existing
+    } else {
+      hostView = GhosttyHostView()
+      let launch = TerminalEnvironment.plainShellArgs(currentDirectory: workingDirectory, initScript: initScript)
 
-    let hostView = GhosttyHostView()
-    let launch = TerminalEnvironment.plainShellArgs(currentDirectory: workingDirectory, initScript: initScript)
+      hostView.setupSurface(launch: launch, workingDirectory: workingDirectory, onAction: onAction)
+      hostView.contextMenuProvider = { [weak hostView] in
+        guard let hostView else { return NSMenu() }
+        let target = PlainTerminalMenuTarget(
+          onAction: hostView.onAction,
+          onReset: { [weak hostView] in hostView?.resetTerminal() }
+        )
+        hostView.menuTarget = target
+        return Self.buildMenu(surfaceView: hostView.surfaceViewIfReady, target: target)
+      }
 
-    hostView.setupSurface(launch: launch, workingDirectory: workingDirectory, onAction: onAction)
-    hostView.contextMenuProvider = { [weak hostView] in
-      guard let hostView else { return NSMenu() }
-      let target = PlainTerminalMenuTarget(
-        onAction: hostView.onAction,
-        onReset: { [weak hostView] in hostView?.resetTerminal() }
-      )
-      hostView.menuTarget = target
-      return Self.buildMenu(surfaceView: hostView.surfaceViewIfReady, target: target)
+      if isSelected { hostView.pendingFocus = true }
+      onHostViewCreated?(hostView)
     }
 
-    if isSelected { hostView.pendingFocus = true }
-    onHostViewCreated?(hostView)
-    return hostView
+    return GhosttyHostViewContainer(hostView: hostView)
   }
 
-  func updateNSView(_ nsView: GhosttyHostView, context: Context) {
-    nsView.onAction = onAction
+  func updateNSView(_ container: GhosttyHostViewContainer, context: Context) {
+    container.hostView.onAction = onAction
 
     if context.coordinator.lastColorScheme != colorScheme {
       context.coordinator.lastColorScheme = colorScheme
@@ -71,16 +77,17 @@ struct PlainTerminalView: NSViewRepresentable {
     // Only grab focus on the transition from deselected → selected,
     // not on every re-render while selected (which steals focus from dialogs/dropdowns).
     if isSelected && !wasSelected {
-      if nsView.window != nil {
+      let hostView = container.hostView
+      if hostView.window != nil {
         DispatchQueue.main.async {
-          guard let surfaceView = nsView.surfaceViewIfReady, nsView.window != nil else { return }
-          let fr = nsView.window?.firstResponder as? NSView
+          guard let surfaceView = hostView.surfaceViewIfReady, hostView.window != nil else { return }
+          let fr = hostView.window?.firstResponder as? NSView
           if fr == nil || !(fr!.isDescendant(of: surfaceView)) {
-            nsView.makeFocused()
+            hostView.makeFocused()
           }
         }
       } else {
-        nsView.pendingFocus = true
+        hostView.pendingFocus = true
       }
     }
   }

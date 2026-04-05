@@ -24,6 +24,8 @@ import AppKit
 import Combine
 import Foundation
 import GhosttyEmbed
+import GRDBQuery
+import SwiftUI
 
 // MARK: - Worktree Split Types
 
@@ -443,6 +445,13 @@ final class ContentViewModel {
   private func handlePaneDragToNewWindow(terminalId: String) {
     // Find the session by terminalId
     guard let session = findSessionByTerminalId(terminalId) else { return }
+
+    // If this session is already alone in its window (no split), dragging outside is a no-op.
+    // The session is already in a dedicated window — nothing to detach from.
+    if !isInSplitMode && selectedSession?.id == session.id {
+      return
+    }
+
     handleDragToNewWindow(sessionId: session.id)
   }
 
@@ -457,18 +466,109 @@ final class ContentViewModel {
 
   /// Handle a session dragged to the "New Window" drop zone.
   /// Transfers the host view to a new window without restarting the process.
+  ///
+  /// Mirrors Ghostty's `ghosttySurfaceDragEndedNoTarget` pattern:
+  /// 1. Extract host view from source cache
+  /// 2. Create new window with pre-configured ViewModel (host view already loaded)
+  /// 3. THEN remove session from source split tree
+  /// This ensures the host view is owned by the new ViewModel before SwiftUI
+  /// destroys the old wrapper in the source window's re-render.
   func handleDragToNewWindow(sessionId: String) {
     guard let session = appModel.activatedSessions[sessionId] else { return }
 
-    // Release from current location (deposits host view on AppModel)
-    appModel.releaseSessionForTransfer(sessionId: sessionId)
+    // 1. Extract host view from source cache (without modifying split tree yet)
+    let hostView = ghosttyHostViews.removeValue(forKey: session.terminalId)
 
-    // The host view stays on AppModel's transfer store —
-    // the new window's ViewModel picks it up via ghosttyHostView(for:) auto-pickup.
+    // 2. Create new ViewModel pre-loaded with session and host view
+    let newVM = ContentViewModel(appModel: appModel)
+    newVM.preloadForTransfer(session: session, hostView: hostView, isPlainTerminal: isPlainTerminal(session.terminalId))
+
+    // 3. Create new window using AppKit (like Ghostty's TerminalController.newWindow)
+    let rootView = ContentView(viewModel: newVM)
+      .environment(appModel)
+      .databaseContext(.readOnly { AppDatabase.shared.databaseReader })
+    let hostingController = NSHostingController(rootView: rootView)
+    let window = NSWindow(
+      contentRect: .zero,
+      styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+      backing: .buffered,
+      defer: false
+    )
+    window.contentViewController = hostingController
+    window.titlebarAppearsTransparent = true
+    window.titleVisibility = .visible
+    window.isOpaque = false
+    window.backgroundColor = .clear
+    window.title = session.title
+
+    // Size to match source window
+    if let sourceFrame = currentWindow?.frame {
+      window.setFrame(sourceFrame, display: false)
+    } else {
+      window.setContentSize(NSSize(width: 800, height: 600))
+    }
+
+    window.makeKeyAndOrderFront(nil)
+
+    // 4. NOW remove from source split tree (safe — host view is in new ViewModel)
+    removePaneFromSource(sessionId: sessionId)
+  }
+
+  /// Pre-load a session and host view for a cross-window transfer.
+  /// Called on the destination ViewModel before the window is shown.
+  func preloadForTransfer(session: ClaudeSession, hostView: GhosttyHostView?, isPlainTerminal: Bool) {
+    selectedSession = session
     appModel.activateSession(session)
-    windowRegistry.pendingSessionForNewTab = session
-    currentWindow?.selectNextTab(nil)
-    NSApp.sendAction(#selector(NSWindow.newWindowForTab(_:)), to: nil, from: nil)
+    if let hostView {
+      ghosttyHostViews[session.terminalId] = hostView
+    }
+    if isPlainTerminal {
+      plainTerminalIds.insert(session.terminalId)
+      if let surface = hostView?.surface {
+        titleCancellables[session.terminalId] = surface.titlePublisher
+          .receive(on: DispatchQueue.main)
+          .sink { [weak self] newTitle in
+            self?.plainTerminalTitles[session.terminalId] = newTitle.isEmpty ? "Terminal" : newTitle
+          }
+      }
+    }
+  }
+
+  /// Remove a session from this window's split tree / selection after transfer.
+  private func removePaneFromSource(sessionId: String) {
+    if isInSplitMode && splitTree?.contains(sessionId: sessionId) == true {
+      let wasSelected = selectedSession?.id == sessionId
+      let wasPrimary = currentWindow?.sessionId == sessionId
+
+      if let newTree = splitTree?.removing(sessionId: sessionId) {
+        let remaining = newTree.allSessions
+        if remaining.count <= 1 {
+          splitTree = nil
+          if wasSelected { selectedSession = remaining.first ?? primarySession }
+        } else {
+          splitTree = newTree
+          if wasSelected { selectedSession = primarySession ?? remaining.first }
+        }
+      } else {
+        splitTree = nil
+        if wasSelected { selectedSession = nil }
+      }
+
+      if wasPrimary {
+        bindWindowToSession(splitTree?.allSessions.first ?? selectedSession)
+      }
+    } else {
+      selectedSession = nil
+      bindWindowToSession(nil)
+    }
+
+    // Close the now-empty window (unless it's the last visible one)
+    if selectedSession == nil && !isInSplitMode, let window = currentWindow {
+      let visibleWindows = NSApp.windows.filter { $0.isVisible && $0 != window }
+      if !visibleWindows.isEmpty {
+        window.close()
+      }
+    }
   }
 
   /// Create and select a new session

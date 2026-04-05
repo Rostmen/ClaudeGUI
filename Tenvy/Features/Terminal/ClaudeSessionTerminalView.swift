@@ -36,87 +36,96 @@ struct ClaudeSessionTerminalView: NSViewRepresentable {
   let onHostViewCreated: ((GhosttyHostView) -> Void)?
   @Environment(\.colorScheme) private var colorScheme
 
-  func makeNSView(context: Context) -> GhosttyHostView {
-    if let existing = existingHostView { return existing }
+  /// Returns a thin container NSView that wraps the GhosttyHostView.
+  /// SwiftUI manages the container — the GhosttyHostView is a child that can be
+  /// reparented to a different container during cross-window transfers without
+  /// SwiftUI destroying the running Ghostty process (mirrors Ghostty's own
+  /// SurfaceScrollView / SurfaceRepresentable pattern).
+  func makeNSView(context: Context) -> GhosttyHostViewContainer {
+    let hostView: GhosttyHostView
+    if let existing = existingHostView {
+      hostView = existing
+    } else {
+      hostView = GhosttyHostView()
+      let workingDirectory = session?.workingDirectory ?? NSHomeDirectory()
 
-    let hostView = GhosttyHostView()
-    let workingDirectory = session?.workingDirectory ?? NSHomeDirectory()
+      let claudePath = ClaudePathResolver.findClaudePath()
+      var args: [String] = []
+      if let forkId = forkSourceSessionId {
+        args = ["--resume", forkId, "--fork-session"]
+      } else if let session = session, !session.isNewSession {
+        args = ["--resume", session.id]
+      }
 
-    let claudePath = ClaudePathResolver.findClaudePath()
-    var args: [String] = []
-    if let forkId = forkSourceSessionId {
-      args = ["--resume", forkId, "--fork-session"]
-    } else if let session = session, !session.isNewSession {
-      args = ["--resume", session.id]
-    }
-
-    // Apply per-session permission settings as CLI flags and record the launch hash.
-    //
-    // CLI flags are ADDITIVE — they can't remove permissions already granted by
-    // ~/.claude/settings.json or project settings. To handle removals:
-    // - Compare per-session allow list against inherited (global+project) allow list
-    // - Tools removed by the user → pass as --disallowedTools (deny overrides allow)
-    // - Tools added by the user → pass as --allowedTools
-    // - Explicit deny list → also passed as --disallowedTools
-    if let terminalId = session?.terminalId,
-       let record = try? AppDatabase.shared.databaseReader.read({ db in
-         try SessionRecord.fetchOne(db, key: terminalId)
-       }),
-       let permSettings = record.decodedPermissionSettings {
-      // Store the hash of what we're launching with so the Inspector can detect changes
-      let newHash = permSettings.contentHash
-      if record.launchedPermissionsHash != newHash {
-        try? AppDatabase.shared.databaseWriter.write { db in
-          if var rec = try SessionRecord.fetchOne(db, key: terminalId) {
-            rec.launchedPermissionsHash = newHash
-            try rec.update(db)
+      // Apply per-session permission settings as CLI flags and record the launch hash.
+      //
+      // CLI flags are ADDITIVE — they can't remove permissions already granted by
+      // ~/.claude/settings.json or project settings. To handle removals:
+      // - Compare per-session allow list against inherited (global+project) allow list
+      // - Tools removed by the user → pass as --disallowedTools (deny overrides allow)
+      // - Tools added by the user → pass as --allowedTools
+      // - Explicit deny list → also passed as --disallowedTools
+      if let terminalId = session?.terminalId,
+         let record = try? AppDatabase.shared.databaseReader.read({ db in
+           try SessionRecord.fetchOne(db, key: terminalId)
+         }),
+         let permSettings = record.decodedPermissionSettings {
+        // Store the hash of what we're launching with so the Inspector can detect changes
+        let newHash = permSettings.contentHash
+        if record.launchedPermissionsHash != newHash {
+          try? AppDatabase.shared.databaseWriter.write { db in
+            if var rec = try SessionRecord.fetchOne(db, key: terminalId) {
+              rec.launchedPermissionsHash = newHash
+              try rec.update(db)
+            }
           }
+        }
+
+        args.append(contentsOf: ["--permission-mode", permSettings.permissionMode.rawValue])
+
+        // Compute what was inherited so we can detect removals
+        let inherited = ClaudeSettingsService.mergeForNewSession(
+          projectPath: session?.projectPath ?? ""
+        )
+
+        // Tools the user explicitly allows (pass as --allowedTools)
+        if !permSettings.permissions.allow.isEmpty {
+          args.append("--allowedTools")
+          args.append(permSettings.permissions.allow.joined(separator: " "))
+        }
+
+        // Tools to deny: explicit deny list + tools removed from inherited allow list.
+        // Deny rules override allow rules at any scope, so this effectively revokes
+        // permissions that global/project settings would otherwise grant.
+        let removedFromAllow = Set(inherited.permissions.allow)
+          .subtracting(permSettings.permissions.allow)
+        let allDenied = Set(permSettings.permissions.deny).union(removedFromAllow)
+        if !allDenied.isEmpty {
+          args.append("--disallowedTools")
+          args.append(allDenied.joined(separator: " "))
         }
       }
 
-      args.append(contentsOf: ["--permission-mode", permSettings.permissionMode.rawValue])
+      let launch = TerminalEnvironment.shellArgs(executable: claudePath, args: args, currentDirectory: session?.workingDirectory ?? NSHomeDirectory(), initScript: initScript)
 
-      // Compute what was inherited so we can detect removals
-      let inherited = ClaudeSettingsService.mergeForNewSession(
-        projectPath: session?.projectPath ?? ""
-      )
-
-      // Tools the user explicitly allows (pass as --allowedTools)
-      if !permSettings.permissions.allow.isEmpty {
-        args.append("--allowedTools")
-        args.append(permSettings.permissions.allow.joined(separator: " "))
+      hostView.setupSurface(launch: launch, workingDirectory: session?.workingDirectory ?? NSHomeDirectory(), terminalId: session?.terminalId, onAction: onAction)
+      hostView.contextMenuProvider = { [weak hostView] in
+        guard let hostView else { return NSMenu() }
+        let target = SessionMenuTarget(onAction: hostView.onAction)
+        hostView.menuTarget = target
+        return Self.buildMenu(surfaceView: hostView.surfaceViewIfReady, target: target)
       }
+      hostView.setupMonitoring(sessionId: session?.id, isNewSession: session?.isNewSession ?? false)
 
-      // Tools to deny: explicit deny list + tools removed from inherited allow list.
-      // Deny rules override allow rules at any scope, so this effectively revokes
-      // permissions that global/project settings would otherwise grant.
-      let removedFromAllow = Set(inherited.permissions.allow)
-        .subtracting(permSettings.permissions.allow)
-      let allDenied = Set(permSettings.permissions.deny).union(removedFromAllow)
-      if !allDenied.isEmpty {
-        args.append("--disallowedTools")
-        args.append(allDenied.joined(separator: " "))
-      }
+      if isSelected { hostView.pendingFocus = true }
+      onHostViewCreated?(hostView)
     }
 
-    let launch = TerminalEnvironment.shellArgs(executable: claudePath, args: args, currentDirectory: workingDirectory, initScript: initScript)
-
-    hostView.setupSurface(launch: launch, workingDirectory: workingDirectory, terminalId: session?.terminalId, onAction: onAction)
-    hostView.contextMenuProvider = { [weak hostView] in
-      guard let hostView else { return NSMenu() }
-      let target = SessionMenuTarget(onAction: hostView.onAction)
-      hostView.menuTarget = target
-      return Self.buildMenu(surfaceView: hostView.surfaceViewIfReady, target: target)
-    }
-    hostView.setupMonitoring(sessionId: session?.id, isNewSession: session?.isNewSession ?? false)
-
-    if isSelected { hostView.pendingFocus = true }
-    onHostViewCreated?(hostView)
-    return hostView
+    return GhosttyHostViewContainer(hostView: hostView)
   }
 
-  func updateNSView(_ nsView: GhosttyHostView, context: Context) {
-    nsView.onAction = onAction
+  func updateNSView(_ container: GhosttyHostViewContainer, context: Context) {
+    container.hostView.onAction = onAction
 
     if context.coordinator.lastColorScheme != colorScheme {
       context.coordinator.lastColorScheme = colorScheme
@@ -129,16 +138,17 @@ struct ClaudeSessionTerminalView: NSViewRepresentable {
     // Only grab focus on the transition from deselected → selected,
     // not on every re-render while selected (which steals focus from dialogs/dropdowns).
     if isSelected && !wasSelected {
-      if nsView.window != nil {
+      let hostView = container.hostView
+      if hostView.window != nil {
         DispatchQueue.main.async {
-          guard let surfaceView = nsView.surfaceViewIfReady, nsView.window != nil else { return }
-          let fr = nsView.window?.firstResponder as? NSView
+          guard let surfaceView = hostView.surfaceViewIfReady, hostView.window != nil else { return }
+          let fr = hostView.window?.firstResponder as? NSView
           if fr == nil || !(fr!.isDescendant(of: surfaceView)) {
-            nsView.makeFocused()
+            hostView.makeFocused()
           }
         }
       } else {
-        nsView.pendingFocus = true
+        hostView.pendingFocus = true
       }
     }
   }
