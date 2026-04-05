@@ -22,9 +22,9 @@
 
 import SwiftUI
 import GRDB
+import GRDBQuery
 
 /// Right-side inspector panel showing details about the focused session or terminal.
-/// Available only in DEBUG builds.
 struct InspectorPanelView: View {
 
   /// Actions emitted by the inspector for the parent to handle.
@@ -35,23 +35,38 @@ struct InspectorPanelView: View {
 
   let session: ClaudeSession
   let runtimeInfo: SessionRuntimeInfo
-  /// Incremented by the parent when the session is restarted (e.g. with new permissions).
-  /// Observed to reload the launched-with snapshot so the restart button disappears.
-  var restartGeneration: Int = 0
   var onAction: (Action) -> Void = { _ in }
 
   @Environment(AppModel.self) private var appModel
+
+  /// Reactively observes the session record in DB — permission hash changes
+  /// (e.g. after restart) are picked up automatically without generation counters.
+  @Query<SessionByTenvyIdRequest> private var sessionRecord: SessionRecord?
+
   @State private var availableBranches: [String] = []
   @State private var branchError: String?
   @State private var showBranchError = false
   @State private var sessionPermissions = ClaudePermissionSettings.empty
-  /// SHA-256 hash of the permissions when the session was last launched.
-  /// Read from DB; compared against `sessionPermissions.contentHash` to detect changes.
-  @State private var launchedPermissionsHash = ""
   @State private var permissionsLoaded = false
   @State private var showPermissionRestartWarning = false
   @State private var showRestartConfirmation = false
-  @State private var isPlainTerminal = false
+
+  init(session: ClaudeSession, runtimeInfo: SessionRuntimeInfo, onAction: @escaping (Action) -> Void = { _ in }) {
+    self.session = session
+    self.runtimeInfo = runtimeInfo
+    self.onAction = onAction
+    _sessionRecord = Query(SessionByTenvyIdRequest(tenvySessionId: session.tenvySessionId))
+  }
+
+  /// Whether this is a plain terminal (from DB record).
+  private var isPlainTerminal: Bool {
+    sessionRecord?.isPlainTerminal ?? false
+  }
+
+  /// SHA-256 hash of the permissions when the session was last launched.
+  private var launchedPermissionsHash: String {
+    sessionRecord?.launchedPermissionsHash ?? ""
+  }
 
   /// True when the current permissions differ from what the session launched with.
   private var permissionSettingsModified: Bool {
@@ -78,15 +93,9 @@ struct InspectorPanelView: View {
       loadBranches()
       loadPermissions()
     }
-    .onChange(of: restartGeneration) { _, _ in
-      // After restart, re-read the launched hash from DB.
-      // makeNSView() writes the hash when it launches with the current permissions,
-      // so the hash now matches sessionPermissions.contentHash → button disappears.
-      if let record = try? AppDatabase.shared.databaseReader.read({ db in
-        try SessionRecord.fetchOne(db, key: session.terminalId)
-      }) {
-        launchedPermissionsHash = record.launchedPermissionsHash ?? ""
-      }
+    .onChange(of: sessionRecord?.launchedPermissionsHash) { _, _ in
+      // DB record updated (e.g. after restart) — hide the restart warning
+      // since launchedPermissionsHash now matches the current permissions.
       showPermissionRestartWarning = false
     }
     .onChange(of: sessionPermissions) { _, newValue in
@@ -203,19 +212,10 @@ struct InspectorPanelView: View {
   private func loadPermissions() {
     permissionsLoaded = false
 
-    if let record = try? AppDatabase.shared.databaseReader.read({ db in
-      try SessionRecord.fetchOne(db, key: session.terminalId)
-    }) {
-      isPlainTerminal = record.isPlainTerminal
-      launchedPermissionsHash = record.launchedPermissionsHash ?? ""
-      if let stored = record.decodedPermissionSettings {
-        sessionPermissions = stored
-      } else {
-        sessionPermissions = ClaudeSettingsService.mergeForNewSession(projectPath: session.projectPath)
-      }
+    if let record = sessionRecord,
+       let stored = record.decodedPermissionSettings {
+      sessionPermissions = stored
     } else {
-      isPlainTerminal = false
-      launchedPermissionsHash = ""
       sessionPermissions = ClaudeSettingsService.mergeForNewSession(projectPath: session.projectPath)
     }
 
@@ -225,7 +225,7 @@ struct InspectorPanelView: View {
 
   private func savePermissions(_ settings: ClaudePermissionSettings) {
     try? appModel.sessionStore.updatePermissionSettings(
-      terminalId: session.terminalId,
+      tenvySessionId: session.tenvySessionId,
       settings: settings
     )
     if permissionSettingsModified {
@@ -235,9 +235,10 @@ struct InspectorPanelView: View {
 
   private func resetPermissions() {
     permissionsLoaded = false
-    try? appModel.sessionStore.resetPermissionSettings(terminalId: session.terminalId)
+    try? appModel.sessionStore.resetPermissionSettings(tenvySessionId: session.tenvySessionId)
     sessionPermissions = ClaudeSettingsService.mergeForNewSession(projectPath: session.projectPath)
-    launchedPermissionsHash = ""
+    // launchedPermissionsHash is now a computed property from sessionRecord (via @Query) —
+    // resetPermissionSettings clears it in DB, and the @Query observation picks up the change.
     showPermissionRestartWarning = false
     permissionsLoaded = true
   }
@@ -351,7 +352,6 @@ private struct InspectorPathRow: View {
   InspectorPanelView(
     session: session,
     runtimeInfo: info,
-    restartGeneration: 0,
     onAction: { action in print("Inspector action: \(action)") }
   )
   .frame(width: 260, height: 600)

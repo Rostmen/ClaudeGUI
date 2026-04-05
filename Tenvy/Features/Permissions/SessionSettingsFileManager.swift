@@ -25,7 +25,7 @@ import Foundation
 /// Manages per-session settings files written to Application Support.
 ///
 /// Each active Claude session with custom permissions gets a settings file at:
-/// `~/Library/Application Support/Tenvy/session-settings/<terminalId>.json`
+/// `~/Library/Application Support/Tenvy/session-settings/<tenvySessionId>.json`
 ///
 /// The file is passed to Claude CLI via `--settings` at launch and cleaned up
 /// when the session is deactivated.
@@ -40,11 +40,11 @@ struct SessionSettingsFileManager {
 
   /// Write a settings file for a session. Returns the file path string for the `--settings` flag.
   @discardableResult
-  static func writeSettingsFile(terminalId: String, settings: ClaudePermissionSettings) throws -> String {
+  static func writeSettingsFile(tenvySessionId: String, settings: ClaudePermissionSettings) throws -> String {
     let dir = baseDirectory
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
-    let fileURL = dir.appendingPathComponent("\(terminalId).json")
+    let fileURL = dir.appendingPathComponent("\(tenvySessionId).json")
 
     // Build the settings JSON that Claude CLI expects
     var settingsDict: [String: Any] = [:]
@@ -64,8 +64,8 @@ struct SessionSettingsFileManager {
   }
 
   /// Remove the settings file for a session.
-  static func removeSettingsFile(terminalId: String) {
-    let fileURL = baseDirectory.appendingPathComponent("\(terminalId).json")
+  static func removeSettingsFile(tenvySessionId: String) {
+    let fileURL = baseDirectory.appendingPathComponent("\(tenvySessionId).json")
     try? FileManager.default.removeItem(at: fileURL)
   }
 

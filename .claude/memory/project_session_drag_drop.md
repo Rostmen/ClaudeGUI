@@ -12,7 +12,7 @@ Pane headers (not sidebar) provide drag-and-drop for rearranging split panes and
 
 ### Drag Source: `PaneHeaderDragSourceNSView`
 
-AppKit `NSDraggingSource` covering the entire header bar. Encodes `terminalId` (String) on the pasteboard using `com.tenvy.paneId` UTType. Creates a 20%-scaled terminal snapshot as drag preview.
+AppKit `NSDraggingSource` covering the entire header bar. Encodes `tenvySessionId` (String) on the pasteboard using `com.tenvy.paneId` UTType. Creates a 20%-scaled terminal snapshot as drag preview.
 
 - Escape key cancels the drag
 - Open/closed hand cursor during hover/drag
@@ -39,7 +39,7 @@ Sessions move between windows without restarting the terminal process:
 
 ### Drag Outside Window
 
-`ContentViewModel` observes `paneDragEndedNoTarget` notification. When a pane header is dragged outside all windows, `handlePaneDragToNewWindow` finds the session by terminalId and calls `handleDragToNewWindow` to open it in a new tab.
+`ContentViewModel` observes `paneDragEndedNoTarget` notification. When a pane header is dragged outside all windows, `handlePaneDragToNewWindow` finds the session by tenvySessionId and calls `handleDragToNewWindow` to open it in a new tab.
 
 ### SessionListAction Enum
 

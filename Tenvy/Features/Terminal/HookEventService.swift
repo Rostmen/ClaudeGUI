@@ -33,15 +33,15 @@ struct HookEvent: Codable {
   let message: String?
   let toolInput: ToolInput?
   let timestamp: String
-  /// Tenvy terminal ID — enables reliable session ID mapping without heuristics.
-  /// Present when Claude was launched from Tenvy with `TENVY_TERMINAL_ID` set.
-  let terminalId: String?
+  /// Tenvy session ID — enables reliable session ID mapping without heuristics.
+  /// Present when Claude was launched from Tenvy with `TENVY_SESSION_ID` set.
+  let tenvySessionId: String?
 
   enum CodingKeys: String, CodingKey {
     case sessionId = "session_id"
     case event, state, cwd, tool, message, timestamp
     case toolInput = "tool_input"
-    case terminalId = "terminal_id"
+    case tenvySessionId = "terminal_id"
   }
 
   /// Parse timestamp to Date
@@ -121,7 +121,7 @@ final class HookEventService {
   /// Latest permission message per session (for permission prompts)
   private(set) var sessionMessages: [String: String] = [:]
 
-  /// Callback when a session state changes (sessionId, state, tool, message, eventTime, terminalId)
+  /// Callback when a session state changes (sessionId, state, tool, message, eventTime, tenvySessionId)
   var onStateChange: ((String, HookState, String?, String?, Date?, String?) -> Void)?
 
   init() {
@@ -285,8 +285,8 @@ final class HookEventService {
       sessionTimestamps[sessionId] = date
     }
 
-    // Notify callback with event timestamp, message, and terminal ID
-    onStateChange?(sessionId, state, event.tool, permissionMessage, eventDate, event.terminalId)
+    // Notify callback with event timestamp, message, and Tenvy session ID
+    onStateChange?(sessionId, state, event.tool, permissionMessage, eventDate, event.tenvySessionId)
   }
 
   /// Get the current hook state for a session

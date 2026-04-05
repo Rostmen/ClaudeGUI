@@ -65,16 +65,16 @@ struct ClaudeSessionTerminalView: NSViewRepresentable {
       // - Tools removed by the user → pass as --disallowedTools (deny overrides allow)
       // - Tools added by the user → pass as --allowedTools
       // - Explicit deny list → also passed as --disallowedTools
-      if let terminalId = session?.terminalId,
+      if let tenvySessionId = session?.tenvySessionId,
          let record = try? AppDatabase.shared.databaseReader.read({ db in
-           try SessionRecord.fetchOne(db, key: terminalId)
+           try SessionRecord.fetchOne(db, key: tenvySessionId)
          }),
          let permSettings = record.decodedPermissionSettings {
         // Store the hash of what we're launching with so the Inspector can detect changes
         let newHash = permSettings.contentHash
         if record.launchedPermissionsHash != newHash {
           try? AppDatabase.shared.databaseWriter.write { db in
-            if var rec = try SessionRecord.fetchOne(db, key: terminalId) {
+            if var rec = try SessionRecord.fetchOne(db, key: tenvySessionId) {
               rec.launchedPermissionsHash = newHash
               try rec.update(db)
             }
@@ -108,7 +108,7 @@ struct ClaudeSessionTerminalView: NSViewRepresentable {
 
       let launch = TerminalEnvironment.shellArgs(executable: claudePath, args: args, currentDirectory: session?.workingDirectory ?? NSHomeDirectory(), initScript: initScript)
 
-      hostView.setupSurface(launch: launch, workingDirectory: session?.workingDirectory ?? NSHomeDirectory(), terminalId: session?.terminalId, onAction: onAction)
+      hostView.setupSurface(launch: launch, workingDirectory: session?.workingDirectory ?? NSHomeDirectory(), tenvySessionId: session?.tenvySessionId, onAction: onAction)
       hostView.contextMenuProvider = { [weak hostView] in
         guard let hostView else { return NSMenu() }
         let target = SessionMenuTarget(onAction: hostView.onAction)

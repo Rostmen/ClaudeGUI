@@ -96,12 +96,12 @@ final class GhosttyHostView: NSView {
   // MARK: - Surface Setup
 
   /// Creates the Ghostty terminal surface with the given launch command.
-  /// - Parameter terminalId: Passed to `TerminalEnvironment.build()` to set `TENVY_TERMINAL_ID`.
+  /// - Parameter tenvySessionId: Passed to `TerminalEnvironment.build()` to set `TENVY_SESSION_ID`.
   ///   Pass nil for plain terminals (they don't need hook event mapping).
   func setupSurface(
     launch: (executable: String, args: [String]),
     workingDirectory: String,
-    terminalId: String? = nil,
+    tenvySessionId: String? = nil,
     onAction: @escaping (TerminalAction) -> Void
   ) {
     self.onAction = onAction
@@ -114,7 +114,7 @@ final class GhosttyHostView: NSView {
     launchScriptPath = scriptPath
     let command = "\(launch.executable) -l \(scriptPath)"
 
-    let envVars = TerminalEnvironment.build(terminalId: terminalId).reduce(into: [String: String]()) { dict, pair in
+    let envVars = TerminalEnvironment.build(tenvySessionId: tenvySessionId).reduce(into: [String: String]()) { dict, pair in
       let parts = pair.split(separator: "=", maxSplits: 1)
       if parts.count == 2 { dict[String(parts[0])] = String(parts[1]) }
     }

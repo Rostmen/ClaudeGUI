@@ -43,7 +43,7 @@ This sets `focused = false` on every new surface. Focus is granted only via `mak
 
 **Problem:** SwiftUI destroys+recreates `NSViewRepresentable`-backed views when they move to a different structural position in the view tree (e.g. single-pane → first split). This kills the Ghostty process.
 
-**Fix:** `ContentViewModel` holds a strong `@ObservationIgnored private var ghosttyHostViews: [String: GhosttyHostView]` cache keyed by `session.terminalId`.
+**Fix:** `ContentViewModel` holds a strong `@ObservationIgnored private var ghosttyHostViews: [String: GhosttyHostView]` cache keyed by `session.tenvySessionId`.
 
 - `GhosttyTerminalView` takes `existingHostView: GhosttyHostView?` and `onHostViewCreated: ((GhosttyHostView) -> Void)?`.
 - `makeNSView` returns the cached view unchanged if `existingHostView != nil` (skips `setup()`, process never restarts).
@@ -55,7 +55,7 @@ This sets `focused = false` on every new surface. Focus is granted only via `mak
 
 Every pane has a `PaneHeaderView` (always visible, single or split mode): 30px height, title left, IDE button + close button right. Files are in `Tenvy/Features/Terminal/PaneHeader/` folder (split from the original monolithic file).
 
-**Drag**: `PaneHeaderDragSourceNSView` (in `PaneHeaderDragSource.swift`, AppKit NSDraggingSource) encodes `terminalId` on pasteboard as `com.tenvy.paneId` UTType. 20%-scaled terminal snapshot as drag image. Follows Ghostty's `SurfaceDragSourceView` pattern. Trailing inset is dynamic — expands when IDE button is present to pass through clicks to SwiftUI.
+**Drag**: `PaneHeaderDragSourceNSView` (in `PaneHeaderDragSource.swift`, AppKit NSDraggingSource) encodes `tenvySessionId` on pasteboard as `com.tenvy.paneId` UTType. 20%-scaled terminal snapshot as drag image. Follows Ghostty's `SurfaceDragSourceView` pattern. Trailing inset is dynamic — expands when IDE button is present to pass through clicks to SwiftUI.
 
 **Drop**: `PaneDropDelegate` (SwiftUI DropDelegate) on each `PaneLeafView`. `PaneDropZone` (ported from Ghostty's `TerminalSplitDropZone`) determines split direction via triangular edge detection.
 
@@ -63,4 +63,4 @@ Every pane has a `PaneHeaderView` (always visible, single or split mode): 30px h
 
 **Title**: Claude sessions → `session.title`; plain terminals → `GhosttyEmbedSurface.title` (auto-updates from escape sequences).
 
-**Cross-window**: Pasteboard uses string terminalId. `Notification.paneDragEndedNoTarget` posted when drag ends outside windows — ready for future cross-window transfer.
+**Cross-window**: Pasteboard uses string tenvySessionId. `Notification.paneDragEndedNoTarget` posted when drag ends outside windows — ready for future cross-window transfer.

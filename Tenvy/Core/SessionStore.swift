@@ -49,9 +49,9 @@ final class SessionStore: Sendable {
   /// Map a Claude session ID to a terminal ID (one-time per session).
   /// Skips the write if the mapping is already set — avoids triggering
   /// GRDB @Query observers on every hook event.
-  func mapClaudeSessionId(terminalId: String, claudeSessionId: String) throws {
+  func mapClaudeSessionId(tenvySessionId: String, claudeSessionId: String) throws {
     try writer.write { db in
-      if var record = try SessionRecord.fetchOne(db, key: terminalId) {
+      if var record = try SessionRecord.fetchOne(db, key: tenvySessionId) {
         guard record.claudeSessionId != claudeSessionId else { return }
         record.claudeSessionId = claudeSessionId
         record.lastModifiedAt = Date()
@@ -63,9 +63,9 @@ final class SessionStore: Sendable {
   // MARK: - Lifecycle
 
   /// Mark a session as inactive. Called when the terminal is closed.
-  func deactivateSession(terminalId: String) throws {
+  func deactivateSession(tenvySessionId: String) throws {
     try writer.write { db in
-      if var record = try SessionRecord.fetchOne(db, key: terminalId) {
+      if var record = try SessionRecord.fetchOne(db, key: tenvySessionId) {
         record.isActive = false
         record.hookState = nil
         record.currentTool = nil
@@ -76,9 +76,9 @@ final class SessionStore: Sendable {
   }
 
   /// Delete a session record entirely.
-  func deleteSession(terminalId: String) throws {
+  func deleteSession(tenvySessionId: String) throws {
     try writer.write { db in
-      _ = try SessionRecord.deleteOne(db, key: terminalId)
+      _ = try SessionRecord.deleteOne(db, key: tenvySessionId)
     }
   }
 
@@ -86,7 +86,7 @@ final class SessionStore: Sendable {
 
   /// Upsert session metadata discovered from a `.jsonl` file.
   /// Called by SessionManager after scanning Claude's session files.
-  /// Does NOT overwrite `terminalId` if a record already exists for this Claude session ID.
+  /// Does NOT overwrite `tenvySessionId` if a record already exists for this Claude session ID.
   func upsertFromSessionFile(
     claudeSessionId: String,
     title: String,
@@ -104,16 +104,16 @@ final class SessionStore: Sendable {
         guard existing.title != title
                 || existing.sessionFilePath != filePath
                 || existing.lastModifiedAt != lastModified else { return }
-        // Update only discoverable fields — don't touch terminalId or paths
+        // Update only discoverable fields — don't touch tenvySessionId or paths
         existing.title = title
         existing.sessionFilePath = filePath
         existing.lastModifiedAt = lastModified
         try existing.update(db)
       } else {
         // New session discovered from file (not created in app) —
-        // use claudeSessionId as terminalId since there's no Tenvy terminal for it
+        // use claudeSessionId as tenvySessionId since there's no Tenvy terminal for it
         let record = SessionRecord(
-          terminalId: claudeSessionId,
+          tenvySessionId: claudeSessionId,
           claudeSessionId: claudeSessionId,
           workingDirectory: workingDirectory,
           projectPath: projectPath,
@@ -132,9 +132,9 @@ final class SessionStore: Sendable {
   // MARK: - Title Updates
 
   /// Update the title for a session. Called after renaming.
-  func updateTitle(terminalId: String, title: String) throws {
+  func updateTitle(tenvySessionId: String, title: String) throws {
     try writer.write { db in
-      if var record = try SessionRecord.fetchOne(db, key: terminalId) {
+      if var record = try SessionRecord.fetchOne(db, key: tenvySessionId) {
         record.title = title
         record.lastModifiedAt = Date()
         try record.update(db)
@@ -145,9 +145,9 @@ final class SessionStore: Sendable {
   // MARK: - Git Branch
 
   /// Update the git branch for a session.
-  func updateBranch(terminalId: String, branchName: String?) throws {
+  func updateBranch(tenvySessionId: String, branchName: String?) throws {
     try writer.write { db in
-      if var record = try SessionRecord.fetchOne(db, key: terminalId) {
+      if var record = try SessionRecord.fetchOne(db, key: tenvySessionId) {
         record.branchName = branchName
         record.lastModifiedAt = Date()
         try record.update(db)
@@ -158,9 +158,9 @@ final class SessionStore: Sendable {
   // MARK: - Permission Settings
 
   /// Update permission settings for a session.
-  func updatePermissionSettings(terminalId: String, settings: ClaudePermissionSettings) throws {
+  func updatePermissionSettings(tenvySessionId: String, settings: ClaudePermissionSettings) throws {
     try writer.write { db in
-      if var record = try SessionRecord.fetchOne(db, key: terminalId) {
+      if var record = try SessionRecord.fetchOne(db, key: tenvySessionId) {
         record.permissionSettings = SessionRecord.encode(settings)
         record.lastModifiedAt = Date()
         try record.update(db)
@@ -169,9 +169,9 @@ final class SessionStore: Sendable {
   }
 
   /// Reset permission settings to nil (re-inherit from global + project on next launch).
-  func resetPermissionSettings(terminalId: String) throws {
+  func resetPermissionSettings(tenvySessionId: String) throws {
     try writer.write { db in
-      if var record = try SessionRecord.fetchOne(db, key: terminalId) {
+      if var record = try SessionRecord.fetchOne(db, key: tenvySessionId) {
         record.permissionSettings = nil
         record.launchedPermissionsHash = nil
         record.lastModifiedAt = Date()
@@ -181,9 +181,9 @@ final class SessionStore: Sendable {
   }
 
   /// Update the launched permissions hash after a session starts or restarts.
-  func updateLaunchedPermissionsHash(terminalId: String, hash: String) throws {
+  func updateLaunchedPermissionsHash(tenvySessionId: String, hash: String) throws {
     try writer.write { db in
-      if var record = try SessionRecord.fetchOne(db, key: terminalId) {
+      if var record = try SessionRecord.fetchOne(db, key: tenvySessionId) {
         record.launchedPermissionsHash = hash
         record.lastModifiedAt = Date()
         try record.update(db)

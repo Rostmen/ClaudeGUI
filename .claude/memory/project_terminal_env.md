@@ -12,7 +12,7 @@ zsh -l -c '<init-script>; exec /path/to/claude [args]'
 
 **Shell Init Script**: Configurable in Settings → Shell Init Script using CodeEditor (bash syntax highlighting). Default: `[ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc" 2>/dev/null;`. Stored in `AppSettings.shellInitScript` (UserDefaults key `settings.shellInitScript`).
 
-**Per-split override**: The unified NewSessionDialogView has a "Shell Init Script" tab allowing per-session init script customization. Overrides are stored in `ContentViewModel.splitInitScripts` (keyed by terminalId) and consumed on first terminal launch.
+**Per-split override**: The unified NewSessionDialogView has a "Shell Init Script" tab allowing per-session init script customization. Overrides are stored in `ContentViewModel.splitInitScripts` (keyed by tenvySessionId) and consumed on first terminal launch.
 
 **`TerminalEnvironment.shellArgs()` and `.plainShellArgs()`**: Both accept optional `initScript:` parameter. Falls back to global `AppSettings.shared.shellInitScript` when nil.
 

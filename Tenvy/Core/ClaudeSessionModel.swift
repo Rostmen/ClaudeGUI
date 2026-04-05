@@ -53,10 +53,10 @@ final class ClaudeSessionModel: Identifiable {
 
   // MARK: - Identifiable
 
-  /// Stable identifier for SwiftUI — uses `terminalId` so list selection and view
+  /// Stable identifier for SwiftUI — uses `tenvySessionId` so list selection and view
   /// identity survive the temp-to-real session ID sync (the ID that changes is
-  /// `session.id`; `terminalId` is invariant across the sync).
-  var id: String { session.terminalId }
+  /// `session.id`; `tenvySessionId` is invariant across the sync).
+  var id: String { session.tenvySessionId }
 
   // MARK: - Forwarded session properties
 
@@ -92,7 +92,7 @@ final class ClaudeSessionModel: Identifiable {
 
   /// Replace the underlying `ClaudeSession` value.
   /// Called during the temp-to-real ID sync when Claude creates the actual JSONL file.
-  /// The `terminalId` (and therefore this object's `id`) stays the same, so SwiftUI
+  /// The `tenvySessionId` (and therefore this object's `id`) stays the same, so SwiftUI
   /// does not recreate any views that hold a reference to this model.
   func updateSession(_ newSession: ClaudeSession) {
     session = newSession

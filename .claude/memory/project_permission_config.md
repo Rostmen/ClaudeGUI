@@ -14,7 +14,7 @@ Two-level permission management for Claude Code sessions.
 
 **Change detection**: Uses SHA-256 hash (`ClaudePermissionSettings.contentHash` via CryptoKit, sorted-keys JSON encoding). Inspector compares `sessionPermissions.contentHash` against `launchedPermissionsHash` from DB. Restart button appears only when hashes differ; reverting changes hides it.
 
-**Restart flow**: Confirmation dialog first. Then `ContentViewModel.restartSessionWithNewPermissions()` kills process, evicts GhosttyHostView cache, bumps `terminalViewGenerations` counter. The counter change updates `.id()` on the terminal view, forcing SwiftUI to destroy and recreate the NSViewRepresentable (triggering fresh `makeNSView`). Inspector observes `restartGeneration` and re-reads hash from DB.
+**Restart flow**: Confirmation dialog first. Then `ContentViewModel.restartSessionWithNewPermissions()` kills process, evicts GhosttyHostView cache, and assigns a new `ghosttyInstanceId` on `SessionRuntimeInfo`. The instance ID change updates `.id()` on the terminal view, forcing SwiftUI to destroy and recreate the NSViewRepresentable (triggering fresh `makeNSView`). Inspector re-reads hash from DB after restart.
 
 **Shared UI**: `PermissionEditorView` takes `Binding<ClaudePermissionSettings>`. Used in both Settings (global, writes to file) and Inspector (per-session, writes to DB). Includes mode picker, preset toggles, allow/deny/ask rule lists, raw JSON editor sheet.
 

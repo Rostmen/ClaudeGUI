@@ -13,10 +13,10 @@ enum PaneHeaderAction {
 ///
 /// Displays the session/terminal title on the left and a close button on the right.
 /// The entire header is draggable — initiating an AppKit drag session with the
-/// pane's `terminalId` on the pasteboard for drop-to-split rearrangement.
+/// pane's `tenvySessionId` on the pasteboard for drop-to-split rearrangement.
 struct PaneHeaderView: View {
   let title: String
-  let terminalId: String
+  let tenvySessionId: String
   var isSelected: Bool = false
   var isFileDropTarget: Bool = false
   var runtimeInfo: SessionRuntimeInfo?
@@ -78,7 +78,7 @@ struct PaneHeaderView: View {
     ZStack {
       // Drag source covers the full header
       PaneHeaderDragSourceView(
-        terminalId: terminalId,
+        tenvySessionId: tenvySessionId,
         snapshotProvider: snapshotProvider,
         hasIDEButton: ideResult?.primary != nil
       )
@@ -144,7 +144,7 @@ struct PaneHeaderView: View {
   VStack(spacing: 0) {
     PaneHeaderView(
       title: "claude --resume abc123",
-      terminalId: "test",
+      tenvySessionId: "test",
       snapshotProvider: { nil },
       onAction: { _ in }
     )

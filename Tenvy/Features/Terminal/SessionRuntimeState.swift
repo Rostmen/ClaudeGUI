@@ -34,6 +34,11 @@ final class SessionRuntimeInfo {
   var pid: pid_t = 0      // Claude process PID (for display)
   var shellPid: pid_t = 0 // Shell process PID (parent, for termination)
 
+  /// Ephemeral Ghostty terminal instance ID. Changes every time the terminal surface is
+  /// (re)created — used as SwiftUI view identity (`.id(ghosttyInstanceId)`) so that
+  /// permission restarts force a new `makeNSView` call without generation counters.
+  var ghosttyInstanceId: String = UUID().uuidString
+
   // Hook-based state tracking
   var hookState: HookState?       // Current state from hooks (more accurate than CPU)
   var currentTool: String?        // Currently executing tool (if any)
@@ -106,6 +111,7 @@ final class SessionRuntimeInfo {
     activatedAt = nil
     hasUserInteracted = false
     gitBranch = nil
+    ghosttyInstanceId = UUID().uuidString
   }
 }
 

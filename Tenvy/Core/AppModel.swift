@@ -89,13 +89,13 @@ final class AppModel {
   }
 
   /// Deposit a host view for cross-window transfer (source calls this).
-  func depositForTransfer(terminalId: String, hostView: GhosttyHostView) {
-    hostViewTransfers[terminalId] = hostView
+  func depositForTransfer(tenvySessionId: String, hostView: GhosttyHostView) {
+    hostViewTransfers[tenvySessionId] = hostView
   }
 
   /// Pick up a transferred host view (destination calls this). Removes from store.
-  func pickupTransfer(terminalId: String) -> GhosttyHostView? {
-    hostViewTransfers.removeValue(forKey: terminalId)
+  func pickupTransfer(tenvySessionId: String) -> GhosttyHostView? {
+    hostViewTransfers.removeValue(forKey: tenvySessionId)
   }
 
   /// Ask whichever ViewModel owns this session to release it for transfer.
@@ -122,17 +122,17 @@ final class AppModel {
   }
 
   /// Notify all ViewModels about a hook-event-driven session sync.
-  /// Called when a hook event arrives with both `terminalId` and `claudeSessionId`.
-  func syncSessionFromHookEvent(terminalId: String, claudeSessionId: String) {
+  /// Called when a hook event arrives with both `tenvySessionId` and `claudeSessionId`.
+  func syncSessionFromHookEvent(tenvySessionId: String, claudeSessionId: String) {
     registeredViewModels.removeAll { $0.value == nil }
     for ref in registeredViewModels {
-      ref.value?.syncSessionFromHookEvent(terminalId: terminalId, claudeSessionId: claudeSessionId)
+      ref.value?.syncSessionFromHookEvent(tenvySessionId: tenvySessionId, claudeSessionId: claudeSessionId)
     }
   }
 
   // MARK: - Session models (observable list of facades)
 
-  /// Stable `ClaudeSessionModel` instances keyed by `terminalId` — allows the
+  /// Stable `ClaudeSessionModel` instances keyed by `tenvySessionId` — allows the
   /// computed `sessionModels` to return the same object for the same session
   /// across re-evaluations, preserving SwiftUI view identity.
   private var sessionModelCache: [String: ClaudeSessionModel] = [:]
@@ -143,18 +143,18 @@ final class AppModel {
   var sessionModels: [ClaudeSessionModel] {
     let current = sessionDiscovery.sessions
     // Evict stale cache entries for sessions that no longer exist
-    let currentTerminalIds = Set(current.map { $0.terminalId })
-    for key in sessionModelCache.keys where !currentTerminalIds.contains(key) {
+    let currentTenvyIds = Set(current.map { $0.tenvySessionId })
+    for key in sessionModelCache.keys where !currentTenvyIds.contains(key) {
       sessionModelCache.removeValue(forKey: key)
     }
     return current.map { session in
-      if let cached = sessionModelCache[session.terminalId] {
+      if let cached = sessionModelCache[session.tenvySessionId] {
         // Refresh immutable facts (title, lastModified, etc.) without recreating the object
         cached.updateSession(session)
         return cached
       }
       let model = ClaudeSessionModel(session: session, runtime: runtimeRegistry.info(for: session.id))
-      sessionModelCache[session.terminalId] = model
+      sessionModelCache[session.tenvySessionId] = model
       return model
     }
   }
@@ -244,12 +244,12 @@ final class AppModel {
   /// Remove a session from the activated set (terminal closed or session terminated).
   /// Also resets the runtime info so the sidebar no longer shows stale CPU/MEM/PID data.
   func deactivateSession(_ sessionId: String) {
-    // Find the terminalId for DB update — check activated sessions first
-    let terminalId = activatedSessions[sessionId]?.terminalId ?? sessionId
-    try? sessionStore.deactivateSession(terminalId: terminalId)
+    // Find the tenvySessionId for DB update — check activated sessions first
+    let tenvySessionId = activatedSessions[sessionId]?.tenvySessionId ?? sessionId
+    try? sessionStore.deactivateSession(tenvySessionId: tenvySessionId)
 
     // Clean up per-session settings file
-    SessionSettingsFileManager.removeSettingsFile(terminalId: terminalId)
+    SessionSettingsFileManager.removeSettingsFile(tenvySessionId: tenvySessionId)
 
     activatedSessions.removeValue(forKey: sessionId)
     runtimeRegistry.info(for: sessionId).reset()
@@ -311,26 +311,26 @@ final class AppModel {
   }
 
   private func wireCallbacks() {
-    hookMonitor.onStateChange = { [weak self] sessionId, hookState, tool, message, eventTime, terminalId in
+    hookMonitor.onStateChange = { [weak self] sessionId, hookState, tool, message, eventTime, tenvySessionId in
       Task { @MainActor in
         guard let self else { return }
 
         // Sync FIRST: swap temp UUID → real Claude session ID if needed.
         // This ensures runtimeRegistry and notifications use the correct ID.
-        if let terminalId {
-          self.syncSessionFromHookEvent(terminalId: terminalId, claudeSessionId: sessionId)
+        if let tenvySessionId {
+          self.syncSessionFromHookEvent(tenvySessionId: tenvySessionId, claudeSessionId: sessionId)
         }
 
         // Now update in-memory runtime state — after sync, session.id matches sessionId
         self.runtimeRegistry.updateHookState(for: sessionId, state: hookState, tool: tool, eventTime: eventTime)
         self.hookSetup.receivedHookEvent(for: sessionId)
 
-        // Map claudeSessionId → terminalId in DB (one-time per session).
+        // Map claudeSessionId → tenvySessionId in DB (one-time per session).
         // Hook state is kept in-memory only (runtimeRegistry) — writing it to DB
         // on every event caused a cascade of @Query refetches that saturated I/O.
-        if let terminalId {
+        if let tenvySessionId {
           try? self.sessionStore.mapClaudeSessionId(
-            terminalId: terminalId,
+            tenvySessionId: tenvySessionId,
             claudeSessionId: sessionId
           )
         }
