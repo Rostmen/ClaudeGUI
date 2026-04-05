@@ -297,3 +297,35 @@ final class GhosttyHostView: NSView {
     }
   }
 }
+
+// MARK: - GhosttyHostViewContainer
+
+/// Thin wrapper NSView returned by NSViewRepresentable's makeNSView.
+///
+/// SwiftUI manages this container's lifecycle (add/removeFromSuperview). The actual
+/// GhosttyHostView lives as a child and can be reparented to a different container
+/// during cross-window transfers — SwiftUI destroys the old container but the
+/// GhosttyHostView (and its running Ghostty process) survives in the ViewModel cache.
+///
+/// This mirrors Ghostty's own SurfaceScrollView / SurfaceRepresentable pattern where
+/// the surface view is never directly managed by SwiftUI.
+final class GhosttyHostViewContainer: NSView {
+  let hostView: GhosttyHostView
+
+  init(hostView: GhosttyHostView) {
+    self.hostView = hostView
+    super.init(frame: .zero)
+    hostView.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(hostView)
+    NSLayoutConstraint.activate([
+      hostView.leadingAnchor.constraint(equalTo: leadingAnchor),
+      hostView.trailingAnchor.constraint(equalTo: trailingAnchor),
+      hostView.topAnchor.constraint(equalTo: topAnchor),
+      hostView.bottomAnchor.constraint(equalTo: bottomAnchor),
+    ])
+  }
+
+  required init?(coder: NSCoder) { fatalError() }
+
+  override var isFlipped: Bool { true }
+}
