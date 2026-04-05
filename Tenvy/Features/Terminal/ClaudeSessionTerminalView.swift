@@ -64,10 +64,13 @@ struct ClaudeSessionTerminalView: NSViewRepresentable {
        }),
        let permSettings = record.decodedPermissionSettings {
       // Store the hash of what we're launching with so the Inspector can detect changes
-      try? AppDatabase.shared.databaseWriter.write { db in
-        if var rec = try SessionRecord.fetchOne(db, key: terminalId) {
-          rec.launchedPermissionsHash = permSettings.contentHash
-          try rec.update(db)
+      let newHash = permSettings.contentHash
+      if record.launchedPermissionsHash != newHash {
+        try? AppDatabase.shared.databaseWriter.write { db in
+          if var rec = try SessionRecord.fetchOne(db, key: terminalId) {
+            rec.launchedPermissionsHash = newHash
+            try rec.update(db)
+          }
         }
       }
 
