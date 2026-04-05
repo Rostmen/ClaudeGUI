@@ -107,7 +107,13 @@ struct AppDatabase {
     }
 
     migrator.registerMigration("v3_renameTerminalIdToTenvySessionId") { db in
-      try db.execute(sql: "ALTER TABLE sessionRecord RENAME COLUMN terminalId TO tenvySessionId")
+      // v1 was updated in-place to use tenvySessionId directly.
+      // Only rename if the old column still exists (pre-v3 databases).
+      let columns = try Row.fetchAll(db, sql: "PRAGMA table_info(sessionRecord)")
+      let hasTerminalId = columns.contains { $0["name"] as String == "terminalId" }
+      if hasTerminalId {
+        try db.execute(sql: "ALTER TABLE sessionRecord RENAME COLUMN terminalId TO tenvySessionId")
+      }
     }
 
     return migrator
