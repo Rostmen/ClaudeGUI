@@ -40,9 +40,9 @@ struct ClaudeSession: Identifiable, Hashable {
   let filePath: URL?
   var isNewSession: Bool = false
 
-  /// Stable identifier for terminal view identity - persists through session sync
-  /// This prevents SwiftUI from recreating the terminal when session ID changes
-  let terminalId: String
+  /// Stable Tenvy session identifier — persists through session sync.
+  /// Prevents SwiftUI from recreating the terminal when Claude session ID changes.
+  let tenvySessionId: String
 
   init(
     id: String,
@@ -52,7 +52,7 @@ struct ClaudeSession: Identifiable, Hashable {
     lastModified: Date,
     filePath: URL?,
     isNewSession: Bool = false,
-    terminalId: String? = nil
+    tenvySessionId: String? = nil
   ) {
     self.id = id
     self.title = title
@@ -61,7 +61,7 @@ struct ClaudeSession: Identifiable, Hashable {
     self.lastModified = lastModified
     self.filePath = filePath
     self.isNewSession = isNewSession
-    self.terminalId = terminalId ?? id
+    self.tenvySessionId = tenvySessionId ?? id
   }
 
   var displayPath: String {

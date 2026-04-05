@@ -12,7 +12,7 @@ A unified modal dialog that replaces the old `WorktreeSplitView` and `NoGitSplit
 
 1. **"+" button** (new session): `SessionListView` → folder picker → `ContentViewModel.createNewSession(_:)` → sets `pendingSplit` with `isNewSessionFlow: true`
 2. **Context menu split**: `TerminalAction.splitRequested` → `ContentViewModel.handleSplitRequested(direction:)` → sets `pendingSplit` with `isNewSessionFlow: false`
-3. **Plain terminal split**: Same as #2, but detected via `isPlainTerminal(terminalId)` → sets `isPlainTerminalSplit: true`, skips git entirely
+3. **Plain terminal split**: Same as #2, but detected via `isPlainTerminal(tenvySessionId)` → sets `isPlainTerminalSplit: true`, skips git entirely
 
 ## Data Models
 

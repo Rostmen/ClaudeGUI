@@ -27,10 +27,10 @@ import GRDB
 /// This is the source of truth for session identity, paths, and hook state.
 /// Views observe these records via `@Query`; writes go through `SessionStore`.
 struct SessionRecord: Codable, FetchableRecord, PersistableRecord, Identifiable {
-  var id: String { terminalId }
+  var id: String { tenvySessionId }
 
-  /// Stable terminal identifier — primary key, set at creation, never changes.
-  let terminalId: String
+  /// Stable Tenvy session identifier — primary key, generated at creation, never changes.
+  let tenvySessionId: String
 
   /// Claude CLI's own session ID. Set when the first hook event arrives
   /// carrying both `session_id` and `terminal_id`, providing instant reliable mapping.
@@ -134,14 +134,14 @@ struct ActiveSessionsRequest: ValueObservationQueryable {
   }
 }
 
-/// Fetches a single session record by terminal ID.
-struct SessionByTerminalIdRequest: ValueObservationQueryable {
+/// Fetches a single session record by Tenvy session ID.
+struct SessionByTenvyIdRequest: ValueObservationQueryable {
   static var defaultValue: SessionRecord? { nil }
 
-  let terminalId: String
+  let tenvySessionId: String
 
   func fetch(_ db: Database) throws -> SessionRecord? {
-    try SessionRecord.fetchOne(db, key: terminalId)
+    try SessionRecord.fetchOne(db, key: tenvySessionId)
   }
 }
 

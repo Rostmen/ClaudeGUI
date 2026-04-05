@@ -79,7 +79,7 @@ final class HookInstallationService {
   }
 
   /// Ensure hooks are installed and up-to-date.
-  /// Installs if missing, upgrades if the script lacks `TENVY_TERMINAL_ID` support.
+  /// Installs if missing, upgrades if the script lacks `TENVY_SESSION_ID` support.
   func checkInstallationStatus() {
     let scriptExists = FileManager.default.fileExists(atPath: hookScriptPath.path)
     let hooks = loadHooks()
@@ -100,7 +100,7 @@ final class HookInstallationService {
     // Check if installed script has terminal_id support
     var scriptUpToDate = false
     if scriptExists, let content = try? String(contentsOf: hookScriptPath, encoding: .utf8) {
-      scriptUpToDate = content.contains("TENVY_TERMINAL_ID")
+      scriptUpToDate = content.contains("TENVY_SESSION_ID")
     }
 
     let needsInstall = !scriptExists || !settingsConfigured || !scriptUpToDate
@@ -354,7 +354,7 @@ final class HookInstallationService {
     TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
     NOTIFICATION_TYPE=$(echo "$INPUT" | jq -r '.notification_type // empty')
     # Terminal ID from Tenvy — enables reliable session ID mapping
-    TERMINAL_ID="${TENVY_TERMINAL_ID:-}"
+    TERMINAL_ID="${TENVY_SESSION_ID:-}"
 
     # Skip if no session ID
     if [ -z "$SESSION_ID" ]; then

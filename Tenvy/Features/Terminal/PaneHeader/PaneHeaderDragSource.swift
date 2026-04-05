@@ -18,20 +18,20 @@ extension NSPasteboard.PasteboardType {
 
 /// SwiftUI wrapper for the AppKit drag source that covers the entire header.
 struct PaneHeaderDragSourceView: NSViewRepresentable {
-  let terminalId: String
+  let tenvySessionId: String
   let snapshotProvider: () -> NSImage?
   var hasIDEButton: Bool = false
 
   func makeNSView(context: Context) -> PaneHeaderDragSourceNSView {
     let view = PaneHeaderDragSourceNSView()
-    view.terminalId = terminalId
+    view.tenvySessionId = tenvySessionId
     view.snapshotProvider = snapshotProvider
     view.hasIDEButton = hasIDEButton
     return view
   }
 
   func updateNSView(_ nsView: PaneHeaderDragSourceNSView, context: Context) {
-    nsView.terminalId = terminalId
+    nsView.tenvySessionId = tenvySessionId
     nsView.snapshotProvider = snapshotProvider
     let changed = nsView.hasIDEButton != hasIDEButton
     nsView.hasIDEButton = hasIDEButton
@@ -52,7 +52,7 @@ struct PaneHeaderDragSourceView: NSViewRepresentable {
 final class PaneHeaderDragSourceNSView: NSView, NSDraggingSource {
   private static let previewScale: CGFloat = 0.2
 
-  var terminalId: String = ""
+  var tenvySessionId: String = ""
   var snapshotProvider: (() -> NSImage?)?
   var hasIDEButton: Bool = false
 
@@ -114,9 +114,9 @@ final class PaneHeaderDragSourceNSView: NSView, NSDraggingSource {
   override func mouseDragged(with event: NSEvent) {
     guard !isTracking else { return }
 
-    // Write terminalId to pasteboard
+    // Write tenvySessionId to pasteboard
     let pasteboardItem = NSPasteboardItem()
-    pasteboardItem.setString(terminalId, forType: .tenvyPaneId)
+    pasteboardItem.setString(tenvySessionId, forType: .tenvyPaneId)
 
     let item = NSDraggingItem(pasteboardWriter: pasteboardItem)
 
@@ -200,7 +200,7 @@ final class PaneHeaderDragSourceNSView: NSView, NSDraggingSource {
           name: .paneDragEndedNoTarget,
           object: nil,
           userInfo: [
-            Notification.paneDragTerminalIdKey: terminalId,
+            Notification.paneDragTenvySessionIdKey: tenvySessionId,
             Notification.paneDragEndedPointKey: screenPoint,
           ]
         )
@@ -219,6 +219,6 @@ extension Notification.Name {
 }
 
 extension Notification {
-  static let paneDragTerminalIdKey = "terminalId"
+  static let paneDragTenvySessionIdKey = "tenvySessionId"
   static let paneDragEndedPointKey = "endedAtPoint"
 }

@@ -253,7 +253,7 @@ class SessionManager {
 
   func deleteSession(_ session: ClaudeSession) throws {
     // Remove from persistent DB
-    try? sessionStore?.deleteSession(terminalId: session.terminalId)
+    try? sessionStore?.deleteSession(tenvySessionId: session.tenvySessionId)
 
     guard let filePath = session.filePath else {
       // New session without a file - just remove from list
@@ -314,7 +314,7 @@ class SessionManager {
     }
 
     // Update in persistent DB
-    try? sessionStore?.updateTitle(terminalId: session.terminalId, title: newTitle)
+    try? sessionStore?.updateTitle(tenvySessionId: session.tenvySessionId, title: newTitle)
   }
 }
 

@@ -99,7 +99,6 @@ struct ContentView: View {
         InspectorPanelView(
           session: session,
           runtimeInfo: viewModel.runtimeState.info(for: session.id),
-          restartGeneration: viewModel.terminalViewGenerations[session.terminalId, default: 0],
           onAction: { action in
             viewModel.handleInspectorAction(action, for: session)
           }
@@ -313,14 +312,14 @@ private struct DetailView<Key: PreferenceKey>: View where Key.Value == CGRect {
         // from reaching GhosttyHostView. Use SwiftUI .onDrop as fallback,
         // applied after .allowsHitTesting() to avoid being blocked.
         PaneLeafView(session: session, viewModel: viewModel, isSplitPane: false)
-          .id(session.terminalId)
+          .id(session.tenvySessionId)
           .opacity(viewModel.isTerminalVisible ? 1 : 0)
           .allowsHitTesting(viewModel.isTerminalVisible)
           .onDrop(of: [.fileURL], isTargeted: $isSinglePaneDropTargeted) { providers in
-            viewModel.handleSinglePaneFileDrop(providers: providers, terminalId: session.terminalId)
+            viewModel.handleSinglePaneFileDrop(providers: providers, tenvySessionId: session.tenvySessionId)
           }
           .onChange(of: isSinglePaneDropTargeted) { _, targeted in
-            viewModel.fileDropTargetTerminalId = targeted ? session.terminalId : nil
+            viewModel.fileDropTargetTerminalId = targeted ? session.tenvySessionId : nil
           }
           .background(terminalFrameReader(visible: viewModel.isTerminalVisible))
           .padding(16)
@@ -405,28 +404,28 @@ private struct PaneLeafView: View {
   var isSplitPane: Bool = false
 
   /// DB-backed session record — provides hookState from the persistent store.
-  @Query<SessionByTerminalIdRequest> private var sessionRecord: SessionRecord?
+  @Query<SessionByTenvyIdRequest> private var sessionRecord: SessionRecord?
   @State private var dropZone: PaneDropZone?
 
   init(session: ClaudeSession, viewModel: ContentViewModel, isSplitPane: Bool = false) {
     self.session = session
     self.viewModel = viewModel
     self.isSplitPane = isSplitPane
-    _sessionRecord = Query(SessionByTerminalIdRequest(terminalId: session.terminalId))
+    _sessionRecord = Query(SessionByTenvyIdRequest(tenvySessionId: session.tenvySessionId))
   }
 
   private var isClaudeSession: Bool {
-    !viewModel.isPlainTerminal(session.terminalId)
+    !viewModel.isPlainTerminal(session.tenvySessionId)
   }
 
   private var isFileDropTargeted: Bool {
-    viewModel.fileDropTargetTerminalId == session.terminalId
+    viewModel.fileDropTargetTerminalId == session.tenvySessionId
   }
 
   /// Reactive title: prefers DB record, falls back to session manager, then session struct.
   private var paneTitle: String {
-    if viewModel.isPlainTerminal(session.terminalId) {
-      return viewModel.plainTerminalTitles[session.terminalId] ?? "Terminal"
+    if viewModel.isPlainTerminal(session.tenvySessionId) {
+      return viewModel.plainTerminalTitles[session.tenvySessionId] ?? "Terminal"
     }
     if let dbTitle = sessionRecord?.title, dbTitle != "New Session" {
       return dbTitle
@@ -442,7 +441,7 @@ private struct PaneLeafView: View {
       VStack(spacing: 0) {
         PaneHeaderView(
           title: paneTitle,
-          terminalId: session.terminalId,
+          tenvySessionId: session.tenvySessionId,
           isSelected: viewModel.selectedSession?.id == session.id,
           isFileDropTarget: isFileDropTargeted,
           runtimeInfo: viewModel.runtimeState.info(for: session.id),
@@ -451,12 +450,12 @@ private struct PaneLeafView: View {
           ideResult: isClaudeSession ? viewModel.ideDetectionResult(for: session) : nil,
           projectPath: isClaudeSession ? (session.workingDirectory.isEmpty ? session.projectPath : session.workingDirectory) : nil,
           snapshotProvider: { [weak viewModel] in
-            viewModel?.ghosttyHostView(for: session.terminalId)?.snapshotImage
+            viewModel?.ghosttyHostView(for: session.tenvySessionId)?.snapshotImage
           },
           onAction: { action in
             switch action {
             case .closeRequested:
-              viewModel.closePaneByTerminalId(session.terminalId)
+              viewModel.closePaneByTerminalId(session.tenvySessionId)
             }
           }
         )
@@ -471,7 +470,7 @@ private struct PaneLeafView: View {
         }
       }
       .onDrop(of: [.tenvyPaneId], delegate: PaneDropDelegate(
-        destinationTerminalId: session.terminalId,
+        destinationTerminalId: session.tenvySessionId,
         dropZone: $dropZone,
         viewSize: geometry.size,
         headerHeight: 30,
@@ -483,14 +482,14 @@ private struct PaneLeafView: View {
   private func handleAction(_ action: TerminalAction) {
     switch action {
     case .fileDragEntered:
-      viewModel.fileDropTargetTerminalId = session.terminalId
+      viewModel.fileDropTargetTerminalId = session.tenvySessionId
     case .fileDragExited:
-      if viewModel.fileDropTargetTerminalId == session.terminalId {
+      if viewModel.fileDropTargetTerminalId == session.tenvySessionId {
         viewModel.fileDropTargetTerminalId = nil
       }
     case .fileDropped:
       viewModel.fileDropTargetTerminalId = nil
-      viewModel.focusPane(terminalId: session.terminalId)
+      viewModel.focusPane(tenvySessionId: session.tenvySessionId)
     default:
       if isSplitPane {
         viewModel.handleSplitTerminalAction(action, for: session)
@@ -502,31 +501,31 @@ private struct PaneLeafView: View {
 
   @ViewBuilder
   private var terminalView: some View {
-    if viewModel.isPlainTerminal(session.terminalId) {
+    if viewModel.isPlainTerminal(session.tenvySessionId) {
       PlainTerminalView(
         workingDirectory: session.workingDirectory,
         isSelected: viewModel.selectedSession?.id == session.id,
-        initScript: viewModel.initScript(for: session.terminalId),
+        initScript: viewModel.initScript(for: session.tenvySessionId),
         onAction: { action in
           handleAction(action)
         },
-        existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
-        onHostViewCreated: { viewModel.cacheGhosttyHostView($0, terminalId: session.terminalId) }
+        existingHostView: viewModel.ghosttyHostView(for: session.tenvySessionId),
+        onHostViewCreated: { viewModel.cacheGhosttyHostView($0, tenvySessionId: session.tenvySessionId) }
       )
-      .id(viewModel.terminalViewId(for: session.terminalId))
+      .id(viewModel.runtimeState.info(for: session.id).ghosttyInstanceId)
     } else {
       ClaudeSessionTerminalView(
         session: session,
         isSelected: viewModel.selectedSession?.id == session.id,
-        forkSourceSessionId: viewModel.forkSourceSessionId(for: session.terminalId),
-        initScript: viewModel.initScript(for: session.terminalId),
+        forkSourceSessionId: viewModel.forkSourceSessionId(for: session.tenvySessionId),
+        initScript: viewModel.initScript(for: session.tenvySessionId),
         onAction: { action in
           handleAction(action)
         },
-        existingHostView: viewModel.ghosttyHostView(for: session.terminalId),
-        onHostViewCreated: { viewModel.cacheGhosttyHostView($0, terminalId: session.terminalId) }
+        existingHostView: viewModel.ghosttyHostView(for: session.tenvySessionId),
+        onHostViewCreated: { viewModel.cacheGhosttyHostView($0, tenvySessionId: session.tenvySessionId) }
       )
-      .id(viewModel.terminalViewId(for: session.terminalId))
+      .id(viewModel.runtimeState.info(for: session.id).ghosttyInstanceId)
     }
   }
 }

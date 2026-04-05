@@ -66,7 +66,7 @@ struct WorktreeSplitFormData {
 
   /// Pre-generated unique session ID. Used in custom worktree paths
   /// so the path includes a unique identifier before the session is created.
-  let uniqueSessionId: String = UUID().uuidString
+  let tenvySessionId: String = UUID().uuidString
 
   /// Whether to run `git init` (only relevant when hasGitRepo == false)
   var initGit: Bool = false
@@ -102,10 +102,6 @@ final class ContentViewModel {
   @ObservationIgnored
   private var ghosttyHostViews: [String: GhosttyHostView] = [:]
 
-  /// Generation counter per terminal — incremented on restart to force SwiftUI to
-  /// destroy and recreate the NSViewRepresentable (triggering a fresh `makeNSView`).
-  private(set) var terminalViewGenerations: [String: Int] = [:]
-
   /// Currently selected diff file (for diff viewer)
   var selectedDiffFile: GitChangedFile?
 
@@ -140,7 +136,7 @@ final class ContentViewModel {
   var sessionToRename: ClaudeSession?
   var renameText: String = ""
 
-  /// Maps terminalId → source session ID for fork launches.
+  /// Maps tenvySessionId → source session ID for fork launches.
   @ObservationIgnored
   private var pendingForkSessions: [String: String] = [:]
 
@@ -156,7 +152,7 @@ final class ContentViewModel {
   @ObservationIgnored
   private var titleCancellables: [String: AnyCancellable] = [:]
 
-  /// Per-terminal init script overrides (keyed by terminalId). Consumed on first access.
+  /// Per-terminal init script overrides (keyed by tenvySessionId). Consumed on first access.
   @ObservationIgnored
   private var splitInitScripts: [String: String] = [:]
 
@@ -181,9 +177,9 @@ final class ContentViewModel {
       queue: .main
     ) { [weak self] notification in
       guard let self,
-            let terminalId = notification.userInfo?[Notification.paneDragTerminalIdKey] as? String,
-            self.ownsTerminal(terminalId) else { return }
-      self.handlePaneDragToNewWindow(terminalId: terminalId)
+            let tenvySessionId = notification.userInfo?[Notification.paneDragTenvySessionIdKey] as? String,
+            self.ownsTerminal(tenvySessionId) else { return }
+      self.handlePaneDragToNewWindow(tenvySessionId: tenvySessionId)
     }
   }
 
@@ -195,34 +191,26 @@ final class ContentViewModel {
 
   // MARK: - GhosttyHostView Cache
 
-  /// Returns the cached GhosttyHostView for the given terminal identity, if any.
-  /// Returns a stable view identity string for the terminal. Includes a generation
-  /// counter that increments on restart, forcing SwiftUI to recreate the NSViewRepresentable.
-  func terminalViewId(for terminalId: String) -> String {
-    let gen = terminalViewGenerations[terminalId, default: 0]
-    return gen == 0 ? terminalId : "\(terminalId)-\(gen)"
-  }
-
   /// Also checks AppModel's transfer store for cross-window moves.
-  func ghosttyHostView(for terminalId: String) -> GhosttyHostView? {
-    if let view = ghosttyHostViews[terminalId] { return view }
+  func ghosttyHostView(for tenvySessionId: String) -> GhosttyHostView? {
+    if let view = ghosttyHostViews[tenvySessionId] { return view }
     // Auto-pickup from cross-window transfer
-    if let view = appModel.pickupTransfer(terminalId: terminalId) {
-      ghosttyHostViews[terminalId] = view
+    if let view = appModel.pickupTransfer(tenvySessionId: tenvySessionId) {
+      ghosttyHostViews[tenvySessionId] = view
       return view
     }
     return nil
   }
 
   /// Stores a newly created GhosttyHostView so it survives view-tree restructuring.
-  func cacheGhosttyHostView(_ view: GhosttyHostView, terminalId: String) {
-    ghosttyHostViews[terminalId] = view
+  func cacheGhosttyHostView(_ view: GhosttyHostView, tenvySessionId: String) {
+    ghosttyHostViews[tenvySessionId] = view
     // Subscribe to surface title changes for plain terminals
-    if isPlainTerminal(terminalId), let surface = view.surface {
-      titleCancellables[terminalId] = surface.titlePublisher
+    if isPlainTerminal(tenvySessionId), let surface = view.surface {
+      titleCancellables[tenvySessionId] = surface.titlePublisher
         .receive(on: DispatchQueue.main)
         .sink { [weak self] newTitle in
-          self?.plainTerminalTitles[terminalId] = newTitle.isEmpty ? "Terminal" : newTitle
+          self?.plainTerminalTitles[tenvySessionId] = newTitle.isEmpty ? "Terminal" : newTitle
         }
     }
   }
@@ -232,10 +220,10 @@ final class ContentViewModel {
   /// (so Ghostty's C layer stops accessing it), but the host view is kept alive until
   /// the next run-loop tick so `ghostty_surface_free` completes before the `SurfaceView`
   /// deallocates — otherwise the C-layer userdata pointer dangles (BAD_ACCESS).
-  func evictGhosttyHostView(terminalId: String) {
-    guard let hostView = ghosttyHostViews.removeValue(forKey: terminalId) else { return }
-    titleCancellables.removeValue(forKey: terminalId)
-    plainTerminalTitles.removeValue(forKey: terminalId)
+  func evictGhosttyHostView(tenvySessionId: String) {
+    guard let hostView = ghosttyHostViews.removeValue(forKey: tenvySessionId) else { return }
+    titleCancellables.removeValue(forKey: tenvySessionId)
+    plainTerminalTitles.removeValue(forKey: tenvySessionId)
     hostView.close()
     DispatchQueue.main.async { [hostView] in _ = hostView }
   }
@@ -330,7 +318,7 @@ final class ContentViewModel {
     }
 
     // Open in this window (no session yet)
-    // Use activated session if available (preserves terminalId for synced sessions)
+    // Use activated session if available (preserves tenvySessionId for synced sessions)
     let sessionToSelect = appModel.activatedSessions[session.id] ?? session
     clearDetailSelection()
     setSelectedSession(sessionToSelect)
@@ -354,9 +342,9 @@ final class ContentViewModel {
 
   // MARK: - Drag & Drop Transfer
 
-  /// Whether this ViewModel owns a terminal with the given terminalId.
-  func ownsTerminal(_ terminalId: String) -> Bool {
-    ghosttyHostViews[terminalId] != nil
+  /// Whether this ViewModel owns a terminal with the given tenvySessionId.
+  func ownsTerminal(_ tenvySessionId: String) -> Bool {
+    ghosttyHostViews[tenvySessionId] != nil
   }
 
   /// Whether this ViewModel owns the given session (for cross-window transfer).
@@ -381,8 +369,8 @@ final class ContentViewModel {
     guard let session else { return }
 
     // Extract host view WITHOUT closing — deposit for the destination to pick up
-    if let hostView = ghosttyHostViews.removeValue(forKey: session.terminalId) {
-      appModel.depositForTransfer(terminalId: session.terminalId, hostView: hostView)
+    if let hostView = ghosttyHostViews.removeValue(forKey: session.tenvySessionId) {
+      appModel.depositForTransfer(tenvySessionId: session.tenvySessionId, hostView: hostView)
     }
 
     // Remove from this window's structure (without deactivating — session stays alive)
@@ -426,14 +414,14 @@ final class ContentViewModel {
   /// Receive a transferred session and insert it alongside an existing session.
   /// Called directly (same window) or via AppModel (cross-window).
   func receiveTransferredSession(_ session: ClaudeSession, alongside targetSessionId: String, direction: SplitDirection = .right) {
-    if let hostView = appModel.pickupTransfer(terminalId: session.terminalId) {
-      ghosttyHostViews[session.terminalId] = hostView
+    if let hostView = appModel.pickupTransfer(tenvySessionId: session.tenvySessionId) {
+      ghosttyHostViews[session.tenvySessionId] = hostView
       // Re-subscribe to title updates for plain terminals
-      if plainTerminalIds.contains(session.terminalId), let surface = hostView.surface {
-        titleCancellables[session.terminalId] = surface.titlePublisher
+      if plainTerminalIds.contains(session.tenvySessionId), let surface = hostView.surface {
+        titleCancellables[session.tenvySessionId] = surface.titlePublisher
           .receive(on: DispatchQueue.main)
           .sink { [weak self] newTitle in
-            self?.plainTerminalTitles[session.terminalId] = newTitle.isEmpty ? "Terminal" : newTitle
+            self?.plainTerminalTitles[session.tenvySessionId] = newTitle.isEmpty ? "Terminal" : newTitle
           }
       }
     }
@@ -442,9 +430,9 @@ final class ContentViewModel {
   }
 
   /// Handle a pane header dragged outside any window — open in a new window.
-  private func handlePaneDragToNewWindow(terminalId: String) {
-    // Find the session by terminalId
-    guard let session = findSessionByTerminalId(terminalId) else { return }
+  private func handlePaneDragToNewWindow(tenvySessionId: String) {
+    // Find the session by tenvySessionId
+    guard let session = findSessionByTerminalId(tenvySessionId) else { return }
 
     // If this session is already alone in its window (no split), dragging outside is a no-op.
     // The session is already in a dedicated window — nothing to detach from.
@@ -455,13 +443,13 @@ final class ContentViewModel {
     handleDragToNewWindow(sessionId: session.id)
   }
 
-  /// Find a session by terminalId, searching local state and activated sessions.
-  private func findSessionByTerminalId(_ terminalId: String) -> ClaudeSession? {
-    if let tree = splitTree, let s = tree.allSessions.first(where: { $0.terminalId == terminalId }) {
+  /// Find a session by tenvySessionId, searching local state and activated sessions.
+  private func findSessionByTerminalId(_ tenvySessionId: String) -> ClaudeSession? {
+    if let tree = splitTree, let s = tree.allSessions.first(where: { $0.tenvySessionId == tenvySessionId }) {
       return s
     }
-    if selectedSession?.terminalId == terminalId { return selectedSession }
-    return appModel.activatedSessions.values.first(where: { $0.terminalId == terminalId })
+    if selectedSession?.tenvySessionId == tenvySessionId { return selectedSession }
+    return appModel.activatedSessions.values.first(where: { $0.tenvySessionId == tenvySessionId })
   }
 
   /// Handle a session dragged to the "New Window" drop zone.
@@ -477,11 +465,11 @@ final class ContentViewModel {
     guard let session = appModel.activatedSessions[sessionId] else { return }
 
     // 1. Extract host view from source cache (without modifying split tree yet)
-    let hostView = ghosttyHostViews.removeValue(forKey: session.terminalId)
+    let hostView = ghosttyHostViews.removeValue(forKey: session.tenvySessionId)
 
     // 2. Create new ViewModel pre-loaded with session and host view
     let newVM = ContentViewModel(appModel: appModel)
-    newVM.preloadForTransfer(session: session, hostView: hostView, isPlainTerminal: isPlainTerminal(session.terminalId))
+    newVM.preloadForTransfer(session: session, hostView: hostView, isPlainTerminal: isPlainTerminal(session.tenvySessionId))
 
     // 3. Create new window using AppKit (like Ghostty's TerminalController.newWindow)
     let rootView = ContentView(viewModel: newVM)
@@ -520,15 +508,15 @@ final class ContentViewModel {
     selectedSession = session
     appModel.activateSession(session)
     if let hostView {
-      ghosttyHostViews[session.terminalId] = hostView
+      ghosttyHostViews[session.tenvySessionId] = hostView
     }
     if isPlainTerminal {
-      plainTerminalIds.insert(session.terminalId)
+      plainTerminalIds.insert(session.tenvySessionId)
       if let surface = hostView?.surface {
-        titleCancellables[session.terminalId] = surface.titlePublisher
+        titleCancellables[session.tenvySessionId] = surface.titlePublisher
           .receive(on: DispatchQueue.main)
           .sink { [weak self] newTitle in
-            self?.plainTerminalTitles[session.terminalId] = newTitle.isEmpty ? "Terminal" : newTitle
+            self?.plainTerminalTitles[session.tenvySessionId] = newTitle.isEmpty ? "Terminal" : newTitle
           }
       }
     }
@@ -606,7 +594,7 @@ final class ContentViewModel {
         hasSubmodules: WorktreeService.hasSubmodules(repoRoot: repoRoot)
       )
       worktreeSplitForm = form
-      worktreeSplitForm?.worktreePath = WorktreeService.defaultWorktreePath(repoRoot: repoRoot, branchName: defaultBranchName, sessionId: form.uniqueSessionId)
+      worktreeSplitForm?.worktreePath = WorktreeService.defaultWorktreePath(repoRoot: repoRoot, branchName: defaultBranchName, sessionId: form.tenvySessionId)
       return
     }
 
@@ -636,7 +624,7 @@ final class ContentViewModel {
       hasSubmodules: false
     )
     worktreeSplitForm = form2
-    worktreeSplitForm?.worktreePath = WorktreeService.defaultWorktreePath(repoRoot: workDir, branchName: defaultBranchName, sessionId: form2.uniqueSessionId)
+    worktreeSplitForm?.worktreePath = WorktreeService.defaultWorktreePath(repoRoot: workDir, branchName: defaultBranchName, sessionId: form2.tenvySessionId)
   }
 
   /// Activates a new session in the current window or a new tab.
@@ -666,7 +654,7 @@ final class ContentViewModel {
     guard let focused = selectedSession ?? primarySession else { return }
 
     // Plain terminal splits skip the git dialog — just show shell init script
-    if isPlainTerminal(focused.terminalId) {
+    if isPlainTerminal(focused.tenvySessionId) {
       pendingSplit = PendingSplitRequest(
         direction: direction,
         sourceSession: focused,
@@ -717,7 +705,7 @@ final class ContentViewModel {
         hasSubmodules: WorktreeService.hasSubmodules(repoRoot: repoRoot)
       )
       worktreeSplitForm = splitForm
-      worktreeSplitForm?.worktreePath = WorktreeService.defaultWorktreePath(repoRoot: repoRoot, branchName: defaultBranchName, sessionId: splitForm.uniqueSessionId)
+      worktreeSplitForm?.worktreePath = WorktreeService.defaultWorktreePath(repoRoot: repoRoot, branchName: defaultBranchName, sessionId: splitForm.tenvySessionId)
     } else {
       // No git repo — still populate form for the unified dialog
       let workDir = focused.workingDirectory
@@ -738,7 +726,7 @@ final class ContentViewModel {
         hasSubmodules: false
       )
       worktreeSplitForm = splitForm2
-      worktreeSplitForm?.worktreePath = WorktreeService.defaultWorktreePath(repoRoot: workDir, branchName: defaultBranchName, sessionId: splitForm2.uniqueSessionId)
+      worktreeSplitForm?.worktreePath = WorktreeService.defaultWorktreePath(repoRoot: workDir, branchName: defaultBranchName, sessionId: splitForm2.tenvySessionId)
     }
   }
 
@@ -757,7 +745,7 @@ final class ContentViewModel {
     if !hasGitRepo && !form.initGit {
       let session = pending.sourceSession
       insertSessionRecord(session: session)
-      splitInitScripts[session.terminalId] = form.initScript
+      splitInitScripts[session.tenvySessionId] = form.initScript
       dismissSplitDialog()
       if pending.isNewSessionFlow {
         activateNewSession(session)
@@ -769,7 +757,7 @@ final class ContentViewModel {
     if hasGitRepo && !needsBranch && !needsWorktree {
       let session = pending.sourceSession
       insertSessionRecord(session: session, branchName: form.baseBranch)
-      splitInitScripts[session.terminalId] = form.initScript
+      splitInitScripts[session.tenvySessionId] = form.initScript
       dismissSplitDialog()
       if pending.isNewSessionFlow {
         activateNewSession(session)
@@ -791,7 +779,7 @@ final class ContentViewModel {
           isCreatingWorktree = false
           let session = pending.sourceSession
           insertSessionRecord(session: session)
-          splitInitScripts[session.terminalId] = form.initScript
+          splitInitScripts[session.tenvySessionId] = form.initScript
           dismissSplitDialog()
           if pending.isNewSessionFlow {
             activateNewSession(session)
@@ -847,10 +835,10 @@ final class ContentViewModel {
             lastModified: Date(),
             filePath: nil,
             isNewSession: true,
-            terminalId: form.uniqueSessionId
+            tenvySessionId: form.tenvySessionId
           )
           insertSessionRecord(session: newSession, branchName: form.newBranchName, worktreePath: form.worktreePath)
-          splitInitScripts[newSession.terminalId] = form.initScript
+          splitInitScripts[newSession.tenvySessionId] = form.initScript
           dismissSplitDialog()
           activateNewSession(newSession)
         } else {
@@ -862,7 +850,7 @@ final class ContentViewModel {
             forkSession: form.forkSession,
             sourceSession: pending.sourceSession,
             initScript: form.initScript,
-            terminalId: form.uniqueSessionId
+            tenvySessionId: form.tenvySessionId
           )
           dismissSplitDialog()
         }
@@ -897,7 +885,7 @@ final class ContentViewModel {
         isCreatingWorktree = false
         let session = pending.sourceSession
         insertSessionRecord(session: session, branchName: form.newBranchName)
-        splitInitScripts[session.terminalId] = form.initScript
+        splitInitScripts[session.tenvySessionId] = form.initScript
         dismissSplitDialog()
         if pending.isNewSessionFlow {
           activateNewSession(session)
@@ -928,9 +916,9 @@ final class ContentViewModel {
           isNewSession: true
         )
         insertSessionRecord(session: newSession, isPlainTerminal: true)
-        plainTerminalIds.insert(newSession.terminalId)
+        plainTerminalIds.insert(newSession.tenvySessionId)
         if let initScript {
-          splitInitScripts[newSession.terminalId] = initScript
+          splitInitScripts[newSession.tenvySessionId] = initScript
         }
         dismissSplitDialog()
         activateNewSession(newSession)
@@ -939,7 +927,7 @@ final class ContentViewModel {
         let session = pending.sourceSession
         insertSessionRecord(session: session)
         if let initScript {
-          splitInitScripts[session.terminalId] = initScript
+          splitInitScripts[session.tenvySessionId] = initScript
         }
         dismissSplitDialog()
         activateNewSession(session)
@@ -958,9 +946,9 @@ final class ContentViewModel {
       isNewSession: true
     )
     insertSessionRecord(session: newSession, isPlainTerminal: true)
-    plainTerminalIds.insert(newSession.terminalId)
+    plainTerminalIds.insert(newSession.tenvySessionId)
     if let initScript {
-      splitInitScripts[newSession.terminalId] = initScript
+      splitInitScripts[newSession.tenvySessionId] = initScript
     }
     appModel.activateSession(newSession)
     insertSplitPane(newSession, at: pending.sourceSession.id, direction: pending.direction)
@@ -973,19 +961,19 @@ final class ContentViewModel {
   }
 
   /// Whether a given terminal should launch as a plain shell (no claude).
-  func isPlainTerminal(_ terminalId: String) -> Bool {
-    plainTerminalIds.contains(terminalId)
+  func isPlainTerminal(_ tenvySessionId: String) -> Bool {
+    plainTerminalIds.contains(tenvySessionId)
   }
 
 
   /// Returns and consumes the source session ID for fork, if applicable.
-  func forkSourceSessionId(for terminalId: String) -> String? {
-    pendingForkSessions.removeValue(forKey: terminalId)
+  func forkSourceSessionId(for tenvySessionId: String) -> String? {
+    pendingForkSessions.removeValue(forKey: tenvySessionId)
   }
 
   /// Returns and consumes the per-split init script override, if any.
-  func initScript(for terminalId: String) -> String? {
-    splitInitScripts.removeValue(forKey: terminalId)
+  func initScript(for tenvySessionId: String) -> String? {
+    splitInitScripts.removeValue(forKey: tenvySessionId)
   }
 
   // MARK: - Worktree Split Helpers
@@ -998,7 +986,7 @@ final class ContentViewModel {
     forkSession: Bool,
     sourceSession: ClaudeSession,
     initScript: String? = nil,
-    terminalId: String? = nil
+    tenvySessionId: String? = nil
   ) {
     let newSession = ClaudeSession(
       id: UUID().uuidString,
@@ -1008,7 +996,7 @@ final class ContentViewModel {
       lastModified: Date(),
       filePath: nil,
       isNewSession: !forkSession,
-      terminalId: terminalId
+      tenvySessionId: tenvySessionId
     )
     insertSessionRecord(
       session: newSession,
@@ -1017,10 +1005,10 @@ final class ContentViewModel {
       forkSourceSessionId: forkSession ? sourceSession.id : nil
     )
     if forkSession {
-      pendingForkSessions[newSession.terminalId] = sourceSession.id
+      pendingForkSessions[newSession.tenvySessionId] = sourceSession.id
     }
     if let initScript {
-      splitInitScripts[newSession.terminalId] = initScript
+      splitInitScripts[newSession.tenvySessionId] = initScript
     }
     appModel.activateSession(newSession)
     insertSplitPane(newSession, at: sourceSession.id, direction: direction)
@@ -1041,7 +1029,7 @@ final class ContentViewModel {
       : ClaudeSettingsService.mergeForNewSession(projectPath: session.projectPath)
 
     let record = SessionRecord(
-      terminalId: session.terminalId,
+      tenvySessionId: session.tenvySessionId,
       workingDirectory: session.workingDirectory,
       projectPath: session.projectPath,
       title: session.title,
@@ -1135,8 +1123,8 @@ final class ContentViewModel {
   /// Close a specific split pane by session ID.
   func closeSplitPane(id: String) {
     // Evict cached host view so its process terminates.
-    if let terminalId = splitTree?.allSessions.first(where: { $0.id == id })?.terminalId {
-      evictGhosttyHostView(terminalId: terminalId)
+    if let tenvySessionId = splitTree?.allSessions.first(where: { $0.id == id })?.tenvySessionId {
+      evictGhosttyHostView(tenvySessionId: tenvySessionId)
     }
     appModel.deactivateSession(id)
     appModel.terminalInput.unregister(sessionId: id)
@@ -1181,10 +1169,10 @@ final class ContentViewModel {
     } else {
       return
     }
-    guard let destSession = localSessions.first(where: { $0.terminalId == destinationTerminalId }) else { return }
+    guard let destSession = localSessions.first(where: { $0.tenvySessionId == destinationTerminalId }) else { return }
 
     // Check if source is in this window
-    if let sourceSession = localSessions.first(where: { $0.terminalId == sourceTerminalId }) {
+    if let sourceSession = localSessions.first(where: { $0.tenvySessionId == sourceTerminalId }) {
       // Same-window move within split tree
       guard let tree = splitTree else { return }
       guard let newTree = tree.moving(sessionId: sourceSession.id, toDestination: destSession.id, direction: direction) else {
@@ -1201,7 +1189,7 @@ final class ContentViewModel {
       }
     } else {
       // Cross-window: source is in another window
-      guard let sourceSession = appModel.activatedSessions.values.first(where: { $0.terminalId == sourceTerminalId }) else { return }
+      guard let sourceSession = appModel.activatedSessions.values.first(where: { $0.tenvySessionId == sourceTerminalId }) else { return }
 
       // Release from source window (deposits host view on AppModel)
       appModel.releaseSessionForTransfer(sessionId: sourceSession.id)
@@ -1211,12 +1199,12 @@ final class ContentViewModel {
     }
   }
 
-  /// Close a pane identified by terminalId (called from the pane header close button).
-  func closePaneByTerminalId(_ terminalId: String) {
+  /// Close a pane identified by tenvySessionId (called from the pane header close button).
+  func closePaneByTerminalId(_ tenvySessionId: String) {
     let session: ClaudeSession?
     if let tree = splitTree {
-      session = tree.allSessions.first(where: { $0.terminalId == terminalId })
-    } else if selectedSession?.terminalId == terminalId {
+      session = tree.allSessions.first(where: { $0.tenvySessionId == tenvySessionId })
+    } else if selectedSession?.tenvySessionId == tenvySessionId {
       session = selectedSession
     } else {
       session = nil
@@ -1230,7 +1218,7 @@ final class ContentViewModel {
     let primary = primarySession
     if let tree = splitTree {
       for session in tree.allSessions where session.id != primary?.id {
-        evictGhosttyHostView(terminalId: session.terminalId)
+        evictGhosttyHostView(tenvySessionId: session.tenvySessionId)
         appModel.deactivateSession(session.id)
         appModel.terminalInput.unregister(sessionId: session.id)
       }
@@ -1278,10 +1266,10 @@ final class ContentViewModel {
     }
 
     // Evict the cached host view and bump the generation counter.
-    // The generation change updates the `.id()` on the terminal view, forcing SwiftUI
+    // Evict the cached host view and reset runtime info. The `reset()` call regenerates
+    // `ghosttyInstanceId`, which changes the `.id()` on the terminal view, forcing SwiftUI
     // to destroy the old NSViewRepresentable and create a fresh one (calling `makeNSView`).
-    evictGhosttyHostView(terminalId: session.terminalId)
-    terminalViewGenerations[session.terminalId, default: 0] += 1
+    evictGhosttyHostView(tenvySessionId: session.tenvySessionId)
     runtimeInfo.reset()
   }
 
@@ -1322,9 +1310,9 @@ final class ContentViewModel {
       sessionToRename = nil
       return
     }
-    if isPlainTerminal(session.terminalId) {
+    if isPlainTerminal(session.tenvySessionId) {
       // Plain terminal: set the Ghostty surface title directly
-      ghosttyHostViews[session.terminalId]?.surface?.rename(to: renameText)
+      ghosttyHostViews[session.tenvySessionId]?.surface?.rename(to: renameText)
     } else {
       // Claude session: update the JSONL file on disk
       do {
@@ -1344,18 +1332,18 @@ final class ContentViewModel {
   var fileDropTargetTerminalId: String?
 
   /// Focuses the pane with the given terminal ID — used when files are dropped on a non-focused pane.
-  func focusPane(terminalId: String) {
-    guard let session = findSessionByTerminalId(terminalId),
-          selectedSession?.terminalId != terminalId else { return }
+  func focusPane(tenvySessionId: String) {
+    guard let session = findSessionByTerminalId(tenvySessionId),
+          selectedSession?.tenvySessionId != tenvySessionId else { return }
     selectedSession = session
-    ghosttyHostView(for: terminalId)?.makeFocused()
+    ghosttyHostView(for: tenvySessionId)?.makeFocused()
   }
 
   /// Handles file drop in single-pane mode (SwiftUI fallback).
   /// GhosttyHostView's AppKit drag handler doesn't fire in single-pane because
   /// SwiftUI's hosting layer intercepts drags before they reach child NSViews.
-  func handleSinglePaneFileDrop(providers: [NSItemProvider], terminalId: String) -> Bool {
-    guard let hostView = ghosttyHostView(for: terminalId) else { return false }
+  func handleSinglePaneFileDrop(providers: [NSItemProvider], tenvySessionId: String) -> Bool {
+    guard let hostView = ghosttyHostView(for: tenvySessionId) else { return false }
 
     let group = DispatchGroup()
     var urls: [URL] = []
@@ -1395,7 +1383,7 @@ final class ContentViewModel {
   /// For active Claude sessions, shows a confirmation alert before terminating.
   /// For plain terminals or split panes, closes directly.
   private func handleCloseRequested(for session: ClaudeSession) {
-    let isPlain = isPlainTerminal(session.terminalId)
+    let isPlain = isPlainTerminal(session.tenvySessionId)
     let runtimeInfo = runtimeState.info(for: session.id)
     let isActive = !isPlain && runtimeInfo.state != .inactive
 
@@ -1423,7 +1411,7 @@ final class ContentViewModel {
       closeSplitPane(id: session.id)
     } else {
       // Single terminal — deactivate and clear selection
-      evictGhosttyHostView(terminalId: session.terminalId)
+      evictGhosttyHostView(tenvySessionId: session.tenvySessionId)
       appModel.deactivateSession(session.id)
       appModel.terminalInput.unregister(sessionId: session.id)
       runtimeInfo.reset()
@@ -1444,15 +1432,15 @@ final class ContentViewModel {
   }
 
   /// Hook-event-driven session sync — replaces the old heuristic matching.
-  /// Called by AppModel when a hook event arrives with both `terminalId` and `claudeSessionId`.
-  /// Finds the session with the matching `terminalId` (which uses a temp UUID as its `id`)
+  /// Called by AppModel when a hook event arrives with both `tenvySessionId` and `claudeSessionId`.
+  /// Finds the session with the matching `tenvySessionId` (which uses a temp UUID as its `id`)
   /// and swaps its `id` to the real Claude session ID. The terminal continues running
-  /// without interruption because `terminalId` (SwiftUI view identity) stays the same.
-  func syncSessionFromHookEvent(terminalId: String, claudeSessionId: String) {
+  /// without interruption because `tenvySessionId` (SwiftUI view identity) stays the same.
+  func syncSessionFromHookEvent(tenvySessionId: String, claudeSessionId: String) {
     // Skip plain terminals — they don't have Claude sessions
-    guard !isPlainTerminal(terminalId) else { return }
+    guard !isPlainTerminal(tenvySessionId) else { return }
 
-    // Find the session with this terminalId — check selected, split tree, or primary
+    // Find the session with this tenvySessionId — check selected, split tree, or primary
     let allSessions: [ClaudeSession] = {
       var sessions = [ClaudeSession]()
       if let sel = selectedSession { sessions.append(sel) }
@@ -1460,11 +1448,11 @@ final class ContentViewModel {
       return sessions
     }()
 
-    guard let current = allSessions.first(where: { $0.terminalId == terminalId }),
+    guard let current = allSessions.first(where: { $0.tenvySessionId == tenvySessionId }),
           current.isNewSession,
           current.id != claudeSessionId else { return }
 
-    // Create synced session with Claude's real ID but same terminalId
+    // Create synced session with Claude's real ID but same tenvySessionId
     let synced = ClaudeSession(
       id: claudeSessionId,
       title: current.title,
@@ -1473,7 +1461,7 @@ final class ContentViewModel {
       lastModified: Date(),
       filePath: current.filePath,
       isNewSession: false,
-      terminalId: current.terminalId
+      tenvySessionId: current.tenvySessionId
     )
 
     // Transfer runtime state (CPU/PID) from temp ID to real ID

@@ -81,7 +81,7 @@ struct AppDatabase {
 
     migrator.registerMigration("v1_createSessionRecord") { db in
       try db.create(table: "sessionRecord") { t in
-        t.primaryKey("terminalId", .text)
+        t.primaryKey("tenvySessionId", .text)
         t.column("claudeSessionId", .text)
         t.column("workingDirectory", .text).notNull()
         t.column("projectPath", .text).notNull()
@@ -104,6 +104,10 @@ struct AppDatabase {
         t.add(column: "permissionSettings", .text)
         t.add(column: "launchedPermissionsHash", .text)
       }
+    }
+
+    migrator.registerMigration("v3_renameTerminalIdToTenvySessionId") { db in
+      try db.execute(sql: "ALTER TABLE sessionRecord RENAME COLUMN terminalId TO tenvySessionId")
     }
 
     return migrator

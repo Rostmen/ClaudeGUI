@@ -22,7 +22,7 @@ Fork session: `claude --resume <session-id> --fork-session` — creates new sess
 
 ## GhosttyHostView Cache
 
-SwiftUI destroys NSViewRepresentable views when they move in the view tree (e.g., single → split). `ContentViewModel` holds `[String: GhosttyHostView]` cache keyed by `terminalId`. Cached views bypass `setup()` — process survives restructuring.
+SwiftUI destroys NSViewRepresentable views when they move in the view tree (e.g., single → split). `ContentViewModel` holds `[String: GhosttyHostView]` cache keyed by `tenvySessionId`. Cached views bypass `setup()` — process survives restructuring.
 
 ## Preview Infrastructure
 

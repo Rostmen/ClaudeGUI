@@ -206,9 +206,9 @@ Sessions are stored in a local SQLite database at `~/Library/Application Support
 
 **Architecture**: `SessionStore` is the sole service that writes to the DB. Views never write directly — they observe via GRDBQuery's `@Query` property wrapper and emit actions to ViewModels/services.
 
-**Session ID mapping**: When Claude is launched from Tenvy, the `TENVY_TERMINAL_ID` env var is set to the session's `terminalId`. The hook script includes this in JSONL events as `terminal_id`. When the first hook event arrives with both `session_id` (Claude's) and `terminal_id` (ours), `SessionStore.updateHookState()` writes the mapping to DB — instant, reliable sync with no heuristic matching.
+**Session ID mapping**: When Claude is launched from Tenvy, the `TENVY_SESSION_ID` env var is set to the session's `tenvySessionId`. The hook script includes this in JSONL events as `terminal_id`. When the first hook event arrives with both `session_id` (Claude's) and `terminal_id` (ours), `SessionStore.mapClaudeSessionId()` writes the mapping to DB — instant, reliable sync with no heuristic matching.
 
-**What's in the DB**: Session identity (`terminalId`, `claudeSessionId`), paths (`workingDirectory`, `projectPath`), display state (`title`, `hookState`, `currentTool`), metadata (`branchName`, `worktreePath`, `isPlainTerminal`, `isActive`).
+**What's in the DB**: Session identity (`tenvySessionId`, `claudeSessionId`), paths (`workingDirectory`, `projectPath`), display state (`title`, `hookState`, `currentTool`), metadata (`branchName`, `worktreePath`, `isPlainTerminal`, `isActive`).
 
 **What stays in-memory**: CPU/memory/PID metrics (`SessionRuntimeInfo`) — changes every 500ms, meaningless after restart.
 
@@ -234,7 +234,7 @@ Registered events and their state mappings:
 
 **Key**: `PermissionRequest` is the correct hook for actual permission dialogs. `Notification` is a generic event that fires for multiple types — always check `notification_type`.
 
-**Terminal ID mapping**: Each hook event includes `terminal_id` (from `TENVY_TERMINAL_ID` env var). This enables instant, reliable mapping of Claude's `session_id` to Tenvy's `terminalId` — no heuristic matching needed. Events from sessions not launched by Tenvy have `terminal_id: null`.
+**Session ID mapping**: Each hook event includes `terminal_id` (from `TENVY_SESSION_ID` env var). This enables instant, reliable mapping of Claude's `session_id` to Tenvy's `tenvySessionId` — no heuristic matching needed. Events from sessions not launched by Tenvy have `terminal_id: null`.
 
 ### Notifications
 
@@ -300,7 +300,7 @@ Ghostty's `SurfaceView` defaults `focused = true`. This breaks `performKeyEquiva
 
 #### GhosttyHostView Cache (process survival across split transitions)
 
-SwiftUI destroys and recreates `NSViewRepresentable`-backed views when they move to a different structural position in the view tree (e.g. single-pane → split). This kills the Ghostty process. Fix: `ContentViewModel` holds a strong `[String: GhosttyHostView]` cache keyed by `session.terminalId`.
+SwiftUI destroys and recreates `NSViewRepresentable`-backed views when they move to a different structural position in the view tree (e.g. single-pane → split). This kills the Ghostty process. Fix: `ContentViewModel` holds a strong `[String: GhosttyHostView]` cache keyed by `session.tenvySessionId`.
 
 - `@ObservationIgnored private var ghosttyHostViews: [String: GhosttyHostView]` — strong refs, invisible to SwiftUI observation.
 - `GhosttyTerminalView.makeNSView`: returns cached view if `existingHostView != nil`, skipping `setup()` (no new process).
@@ -313,7 +313,7 @@ SwiftUI destroys and recreates `NSViewRepresentable`-backed views when they move
 
 Every pane (single or split) has a `PaneHeaderView` at the top: 30px height, session title left-aligned, close button right-aligned. The header is the drag source for rearranging panes.
 
-**Drag source**: `PaneHeaderDragSourceNSView` (AppKit `NSDraggingSource`) — follows Ghostty's `SurfaceDragSourceView` pattern. Encodes the pane's `terminalId` (String) on the pasteboard using custom type `com.tenvy.paneId` (registered as `UTType` in `Info.plist`). Creates a 20%-scaled terminal snapshot as the drag preview image. Escape key cancels the drag.
+**Drag source**: `PaneHeaderDragSourceNSView` (AppKit `NSDraggingSource`) — follows Ghostty's `SurfaceDragSourceView` pattern. Encodes the pane's `tenvySessionId` (String) on the pasteboard using custom type `com.tenvy.paneId` (registered as `UTType` in `Info.plist`). Creates a 20%-scaled terminal snapshot as the drag preview image. Escape key cancels the drag.
 
 **Drop target**: `PaneDropDelegate` (SwiftUI `DropDelegate`) on each `PaneLeafView`. Uses `PaneDropZone` (ported from Ghostty's `TerminalSplitDropZone`) for triangular edge detection — the cursor's nearest edge determines the split direction (top/bottom/left/right). A colored overlay shows where the split will appear.
 
@@ -359,7 +359,7 @@ Two-level permission management: global (App Settings) and per-session (Inspecto
 
 **Launch integration**: `ClaudeSessionTerminalView.makeNSView()` reads permission settings from DB and passes `--permission-mode`, `--allowedTools`, and `--disallowedTools` CLI flags. CLI flags are additive, so tools the user removed from the inherited allow list are automatically passed as `--disallowedTools` (deny overrides allow in Claude Code). The launched-with state is recorded as a SHA-256 hash in `SessionRecord.launchedPermissionsHash`.
 
-**Live changes**: Per-session permission edits are saved to DB immediately but don't take effect on the running CLI until restart. Inspector shows a warning on first edit and a "Restart with New Permissions" button when `sessionPermissions.contentHash != launchedPermissionsHash`. Restart shows a confirmation dialog, then kills the process, evicts the cached GhosttyHostView, and bumps `terminalViewGenerations` to force SwiftUI to recreate the terminal (triggering a fresh `makeNSView`).
+**Live changes**: Per-session permission edits are saved to DB immediately but don't take effect on the running CLI until restart. Inspector shows a warning on first edit and a "Restart with New Permissions" button when `sessionPermissions.contentHash != launchedPermissionsHash`. Restart shows a confirmation dialog, then kills the process, evicts the cached GhosttyHostView, and resets `SessionRuntimeInfo` (which regenerates `ghosttyInstanceId`, changing the view's `.id()` to force SwiftUI to recreate the terminal via a fresh `makeNSView`). The Inspector observes the session record reactively via `@Query` — when the launched permissions hash updates in DB after restart, the restart button disappears automatically.
 
 **Shared UI**: `PermissionEditorView` is used by both Settings (global) and Inspector (per-session). Takes `Binding<ClaudePermissionSettings>`. Includes mode picker, preset toggles, allow/deny/ask rule lists, and raw JSON editor sheet.
 

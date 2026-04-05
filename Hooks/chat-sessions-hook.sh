@@ -22,7 +22,7 @@ NOTIFICATION_MESSAGE=$(echo "$INPUT" | jq -r '.message // empty')
 TOOL_INPUT=$(echo "$INPUT" | jq -c '.tool_input // null')
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 # Terminal ID from Tenvy — enables reliable session ID mapping
-TERMINAL_ID="${TENVY_TERMINAL_ID:-}"
+TERMINAL_ID="${TENVY_SESSION_ID:-}"
 
 # Skip if no session ID
 if [ -z "$SESSION_ID" ]; then
