@@ -27,7 +27,9 @@ import Testing
 /// Tests for `GitService` — findRepoRoot, defaultWorktreePath, hasSubmodules, worktreeWorkingDirectory.
 struct WorktreeServiceTests {
 
-  private let gitService = GitService(settings: TestAppSettings.make())
+  private func makeGitService() -> GitService {
+    GitService(settings: TestAppSettings.make())
+  }
 
   /// Helper: creates a temporary directory tree and returns the root path.
   private func makeTempDir() throws -> String {
@@ -43,6 +45,7 @@ struct WorktreeServiceTests {
   // MARK: - findRepoRoot
 
   @Test func findRepoRoot_realRepo() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
 
@@ -60,6 +63,7 @@ struct WorktreeServiceTests {
   }
 
   @Test func findRepoRoot_worktreeSkipsGitFile() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
 
@@ -79,6 +83,7 @@ struct WorktreeServiceTests {
   }
 
   @Test func findRepoRoot_nestedWorktreeSkipsBothGitFiles() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
 
@@ -109,6 +114,7 @@ struct WorktreeServiceTests {
   }
 
   @Test func findRepoRoot_noGitReturnsNil() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
 
@@ -121,12 +127,14 @@ struct WorktreeServiceTests {
   // MARK: - defaultWorktreePath
 
   @Test func defaultWorktreePath_usesRepoRoot() throws {
+    let gitService = makeGitService()
     let repoRoot = "/Users/test/Projects/MyApp"
     let result = gitService.defaultWorktreePath(repoRoot: repoRoot, branchName: "fix-focus-2")
     #expect(result == "/Users/test/Projects/MyApp/.claude/worktrees/fix-focus-2")
   }
 
   @Test func defaultWorktreePath_sanitizesSlashes() throws {
+    let gitService = makeGitService()
     let repoRoot = "/Users/test/Projects/MyApp"
     let result = gitService.defaultWorktreePath(repoRoot: repoRoot, branchName: "feature/auth/login")
     #expect(result == "/Users/test/Projects/MyApp/.claude/worktrees/feature-auth-login")
@@ -135,6 +143,7 @@ struct WorktreeServiceTests {
   // MARK: - Integration: findRepoRoot + defaultWorktreePath
 
   @Test func worktreePathFromWorktreeResolvesToMainRepo() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
 
@@ -217,6 +226,7 @@ struct WorktreeServiceTests {
   // MARK: - hasSubmodules
 
   @Test func hasSubmodules_returnsTrueWhenGitmodulesExists() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
 
@@ -228,6 +238,7 @@ struct WorktreeServiceTests {
   }
 
   @Test func hasSubmodules_returnsFalseWhenNoGitmodules() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
 
@@ -235,6 +246,7 @@ struct WorktreeServiceTests {
   }
 
   @Test func hasSubmodules_returnsFalseWhenGitmodulesIsEmpty() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
 

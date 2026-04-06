@@ -8,7 +8,9 @@ import Testing
 
 struct GitServiceHasSubmodulesTests {
 
-  private let gitService = GitService(settings: TestAppSettings.make())
+  private func makeGitService() -> GitService {
+    GitService(settings: TestAppSettings.make())
+  }
 
   private func makeTempDir() throws -> String {
     let path = NSTemporaryDirectory() + "GitServiceHasSubmodules-\(UUID().uuidString)"
@@ -22,6 +24,7 @@ struct GitServiceHasSubmodulesTests {
 
   @Test("returns true when .gitmodules exists and is non-empty")
   func nonEmptyGitmodules() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
 
@@ -34,6 +37,7 @@ struct GitServiceHasSubmodulesTests {
 
   @Test("returns false when .gitmodules does not exist")
   func noGitmodules() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
 
@@ -42,6 +46,7 @@ struct GitServiceHasSubmodulesTests {
 
   @Test("returns false when .gitmodules is empty")
   func emptyGitmodules() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
 

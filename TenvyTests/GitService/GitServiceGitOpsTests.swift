@@ -10,7 +10,9 @@ import Testing
 /// These create real temporary git repos.
 struct GitServiceGitOpsTests {
 
-  private let gitService = GitService(settings: TestAppSettings.make())
+  private func makeGitService() -> GitService {
+    GitService(settings: TestAppSettings.make())
+  }
 
   private func makeTempDir() throws -> String {
     let path = NSTemporaryDirectory() + "GitServiceGitOps-\(UUID().uuidString)"
@@ -23,7 +25,7 @@ struct GitServiceGitOpsTests {
   }
 
   /// Creates a real git repo at path via gitService.initGitRepo.
-  private func createRealRepo(at path: String) throws {
+  private func createRealRepo(at path: String, using gitService: GitService) throws {
     try gitService.initGitRepo(at: path)
   }
 
@@ -31,6 +33,7 @@ struct GitServiceGitOpsTests {
 
   @Test("initializes a git repo with .git directory and initial commit")
   func initCreatesRepo() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
 
@@ -46,9 +49,10 @@ struct GitServiceGitOpsTests {
 
   @Test("creates and checks out a new branch")
   func createBranchWorks() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
-    try createRealRepo(at: tmp)
+    try createRealRepo(at: tmp, using: gitService)
 
     try gitService.createBranch(repoPath: tmp, newBranch: "feature-x", baseBranch: "main")
 
@@ -57,9 +61,10 @@ struct GitServiceGitOpsTests {
 
   @Test("throws on duplicate branch name")
   func createBranchDuplicate() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
-    try createRealRepo(at: tmp)
+    try createRealRepo(at: tmp, using: gitService)
 
     #expect(throws: GitService.GitError.self) {
       try gitService.createBranch(repoPath: tmp, newBranch: "main", baseBranch: "main")
@@ -70,9 +75,10 @@ struct GitServiceGitOpsTests {
 
   @Test("creates a worktree with a new branch")
   func createWorktreeWorks() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
-    try createRealRepo(at: tmp)
+    try createRealRepo(at: tmp, using: gitService)
 
     let worktreePath = (tmp as NSString).appendingPathComponent("worktrees/feature")
     try gitService.createWorktree(
@@ -94,9 +100,10 @@ struct GitServiceGitOpsTests {
 
   @Test("throws when destination already exists")
   func createWorktreeDestinationExists() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
-    try createRealRepo(at: tmp)
+    try createRealRepo(at: tmp, using: gitService)
 
     let worktreePath = (tmp as NSString).appendingPathComponent("existing")
     try FileManager.default.createDirectory(atPath: worktreePath, withIntermediateDirectories: true)
@@ -117,9 +124,10 @@ struct GitServiceGitOpsTests {
 
   @Test("removes a worktree")
   func removeWorktreeWorks() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
-    try createRealRepo(at: tmp)
+    try createRealRepo(at: tmp, using: gitService)
 
     let worktreePath = (tmp as NSString).appendingPathComponent("worktrees/to-remove")
     try gitService.createWorktree(

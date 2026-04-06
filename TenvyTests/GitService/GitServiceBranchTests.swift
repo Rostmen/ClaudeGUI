@@ -8,7 +8,9 @@ import Testing
 
 struct GitServiceBranchTests {
 
-  private let gitService = GitService(settings: TestAppSettings.make())
+  private func makeGitService() -> GitService {
+    GitService(settings: TestAppSettings.make())
+  }
 
   private func makeTempDir() throws -> String {
     let path = NSTemporaryDirectory() + "GitServiceBranch-\(UUID().uuidString)"
@@ -44,6 +46,7 @@ struct GitServiceBranchTests {
 
   @Test("returns branch name from HEAD ref")
   func currentBranchFromRef() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
     try createGitDir(at: tmp, branch: "feature/auth")
@@ -53,6 +56,7 @@ struct GitServiceBranchTests {
 
   @Test("returns short SHA for detached HEAD")
   func currentBranchDetachedHead() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
     let gitDir = (tmp as NSString).appendingPathComponent(".git")
@@ -67,6 +71,7 @@ struct GitServiceBranchTests {
 
   @Test("returns nil when no .git exists")
   func currentBranchNoGit() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
 
@@ -75,6 +80,7 @@ struct GitServiceBranchTests {
 
   @Test("reads branch from subdirectory")
   func currentBranchFromSubdir() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
     try createGitDir(at: tmp, branch: "develop")
@@ -88,6 +94,7 @@ struct GitServiceBranchTests {
 
   @Test("lists loose branch refs")
   func listLooseBranches() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
     try createGitDir(at: tmp, branch: "main")
@@ -105,6 +112,7 @@ struct GitServiceBranchTests {
 
   @Test("lists branches from packed-refs")
   func listPackedBranches() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
     try createGitDir(at: tmp, branch: "main")
@@ -129,6 +137,7 @@ struct GitServiceBranchTests {
 
   @Test("returns empty for non-git directory")
   func listBranchesNoGit() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
 
@@ -137,6 +146,7 @@ struct GitServiceBranchTests {
 
   @Test("returns sorted branches")
   func listBranchesSorted() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
     try createGitDir(at: tmp, branch: "main")
@@ -153,6 +163,7 @@ struct GitServiceBranchTests {
 
   @Test("finds .git directory")
   func findGitDirDirectory() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
     try createGitDir(at: tmp)
@@ -163,6 +174,7 @@ struct GitServiceBranchTests {
 
   @Test("follows .git file (worktree) to gitdir pointer")
   func findGitDirWorktreeFile() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
 
@@ -186,6 +198,7 @@ struct GitServiceBranchTests {
 
   @Test("returns nil when no .git exists")
   func findGitDirNone() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
 
@@ -196,6 +209,7 @@ struct GitServiceBranchTests {
 
   @Test("lists branches checked out in worktrees")
   func worktreeBranchesFromWorktreeHeads() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
     try createGitDir(at: tmp, branch: "main")
@@ -222,6 +236,7 @@ struct GitServiceBranchTests {
 
   @Test("returns empty when no worktrees directory")
   func worktreeBranchesEmpty() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
     try createGitDir(at: tmp)
@@ -233,6 +248,7 @@ struct GitServiceBranchTests {
 
   @Test("checks out an existing branch successfully")
   func checkoutBranchSuccess() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
     try gitService.initGitRepo(at: tmp)
@@ -250,6 +266,7 @@ struct GitServiceBranchTests {
 
   @Test("returns error for nonexistent branch")
   func checkoutBranchNonexistent() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
     try gitService.initGitRepo(at: tmp)

@@ -8,7 +8,9 @@ import Testing
 
 struct GitServiceFindRepoRootTests {
 
-  private let gitService = GitService(settings: TestAppSettings.make())
+  private func makeGitService() -> GitService {
+    GitService(settings: TestAppSettings.make())
+  }
 
   private func makeTempDir() throws -> String {
     let path = NSTemporaryDirectory() + "GitServiceFindRepoRoot-\(UUID().uuidString)"
@@ -22,6 +24,7 @@ struct GitServiceFindRepoRootTests {
 
   @Test("finds repo root from the root itself")
   func fromRepoRoot() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
 
@@ -34,6 +37,7 @@ struct GitServiceFindRepoRootTests {
 
   @Test("finds repo root from a nested subdirectory")
   func fromNestedSubdirectory() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
 
@@ -49,6 +53,7 @@ struct GitServiceFindRepoRootTests {
 
   @Test("returns nil when no .git exists")
   func noGitDir() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
 
@@ -60,6 +65,7 @@ struct GitServiceFindRepoRootTests {
 
   @Test("skips .git file (worktree) and finds real repo root")
   func skipsWorktreeGitFile() throws {
+    let gitService = makeGitService()
     let tmp = try makeTempDir()
     defer { cleanup(tmp) }
 
@@ -81,6 +87,7 @@ struct GitServiceFindRepoRootTests {
 
   @Test("returns nil for nonexistent path")
   func nonexistentPath() {
+    let gitService = makeGitService()
     #expect(gitService.findRepoRoot(from: "/nonexistent/path/\(UUID().uuidString)") == nil)
   }
 }
