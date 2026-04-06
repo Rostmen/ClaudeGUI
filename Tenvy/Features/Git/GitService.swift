@@ -188,7 +188,9 @@ struct GitService {
   // MARK: - Repo Inspection
 
   /// Finds the main git repository root (the directory containing a `.git/` **directory**).
-  /// Worktrees have a `.git` **file** — this method skips those and walks up to the real repo.
+  /// When a `.git` **file** is found (worktree), follows the `gitdir:` pointer and resolves
+  /// `commondir` to find the actual repo root — even when the worktree is in a completely
+  /// different directory tree from the main repo.
   func findRepoRoot(from path: String) -> String? {
     var current = path
     while current != "/" {
@@ -196,11 +198,52 @@ struct GitService {
       var isDirectory: ObjCBool = false
       if fileManager.fileExists(atPath: candidate, isDirectory: &isDirectory) {
         if isDirectory.boolValue {
+          // Real repo root — .git is a directory
           return current
+        }
+        // Worktree — .git is a file with gitdir: pointer
+        // Follow it to find the main repo
+        if let repoRoot = resolveWorktreeToRepoRoot(gitFilePath: candidate, worktreeDir: current) {
+          return repoRoot
         }
       }
       current = (current as NSString).deletingLastPathComponent
     }
+    return nil
+  }
+
+  /// Follows a worktree's `.git` file → `gitdir:` → `commondir` to find the main repo root.
+  private func resolveWorktreeToRepoRoot(gitFilePath: String, worktreeDir: String) -> String? {
+    guard let content = try? String(contentsOfFile: gitFilePath, encoding: .utf8)
+      .trimmingCharacters(in: .whitespacesAndNewlines),
+      content.hasPrefix("gitdir: ") else { return nil }
+
+    let gitdir = String(content.dropFirst("gitdir: ".count))
+    let resolvedGitDir = gitdir.hasPrefix("/")
+      ? gitdir
+      : (worktreeDir as NSString).appendingPathComponent(gitdir)
+
+    // Read commondir to find the main .git directory
+    let commondirPath = (resolvedGitDir as NSString).appendingPathComponent("commondir")
+    if let commondir = try? String(contentsOfFile: commondirPath, encoding: .utf8)
+      .trimmingCharacters(in: .whitespacesAndNewlines) {
+      let mainGitDir = commondir.hasPrefix("/")
+        ? commondir
+        : (resolvedGitDir as NSString).appendingPathComponent(commondir)
+      // The repo root is the parent of the .git directory
+      let normalized = (mainGitDir as NSString).standardizingPath
+      return (normalized as NSString).deletingLastPathComponent
+    }
+
+    // No commondir — the gitdir itself might be under the main .git
+    // e.g. /repo/.git/worktrees/name → repo root is parent of .git
+    let normalized = (resolvedGitDir as NSString).standardizingPath
+    // Walk up from gitdir looking for the .git directory boundary
+    // Pattern: <repo>/.git/worktrees/<name> → <repo>
+    if let gitRange = normalized.range(of: "/.git/") {
+      return String(normalized[normalized.startIndex..<gitRange.lowerBound])
+    }
+
     return nil
   }
 

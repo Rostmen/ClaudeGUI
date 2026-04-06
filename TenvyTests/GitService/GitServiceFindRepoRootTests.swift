@@ -85,6 +85,37 @@ struct GitServiceFindRepoRootTests {
     #expect(gitService.findRepoRoot(from: worktree) == mainRepo)
   }
 
+  @Test("follows gitdir pointer when worktree is outside repo tree")
+  func followsGitdirOutsideRepoTree() throws {
+    let gitService = makeGitService()
+    let tmp = try makeTempDir()
+    defer { cleanup(tmp) }
+
+    // Main repo at <tmp>/repos/MyApp
+    let mainRepo = (tmp as NSString).appendingPathComponent("repos/MyApp")
+    let mainGitDir = (mainRepo as NSString).appendingPathComponent(".git")
+    try FileManager.default.createDirectory(atPath: mainGitDir, withIntermediateDirectories: true)
+
+    // Worktree git dir inside main .git
+    let worktreeGitDir = (mainGitDir as NSString).appendingPathComponent("worktrees/feature-branch")
+    try FileManager.default.createDirectory(atPath: worktreeGitDir, withIntermediateDirectories: true)
+    // commondir points back to main .git
+    try "../.."
+      .write(toFile: (worktreeGitDir as NSString).appendingPathComponent("commondir"),
+             atomically: true, encoding: .utf8)
+
+    // Worktree checkout in a COMPLETELY DIFFERENT directory tree
+    let worktreeCheckout = (tmp as NSString).appendingPathComponent("worktrees/MyApp-feature")
+    try FileManager.default.createDirectory(atPath: worktreeCheckout, withIntermediateDirectories: true)
+    // .git file points to the worktree git dir
+    try "gitdir: \(worktreeGitDir)"
+      .write(toFile: (worktreeCheckout as NSString).appendingPathComponent(".git"),
+             atomically: true, encoding: .utf8)
+
+    // findRepoRoot should follow gitdir → commondir → main repo
+    #expect(gitService.findRepoRoot(from: worktreeCheckout) == mainRepo)
+  }
+
   @Test("returns nil for nonexistent path")
   func nonexistentPath() {
     let gitService = makeGitService()
