@@ -8,7 +8,7 @@ import Testing
 
 struct GitServiceHasSubmodulesTests {
 
-  private let gitService = GitService(settings: AppSettings.shared)
+  private let gitService = GitService(settings: TestAppSettings.make())
 
   private func makeTempDir() throws -> String {
     let path = NSTemporaryDirectory() + "GitServiceHasSubmodules-\(UUID().uuidString)"

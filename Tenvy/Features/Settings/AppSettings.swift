@@ -62,44 +62,52 @@ enum WorktreeLocation: String, CaseIterable {
 
 // MARK: - AppSettings
 
-/// App-wide settings stored in UserDefaults
+/// App-wide settings with injected dependencies for testability.
 @Observable
 final class AppSettings {
   static let shared = AppSettings()
 
+  // MARK: - Dependencies
+
+  let defaults: UserDefaults
+  let keychainService: KeychainServiceProtocol
+  let themeSync: ThemeSyncing
+  let notificationCenter: NotificationCenter
+
+  // MARK: - Settings Properties
+
   /// Enable git changes feature
   var gitChangesEnabled: Bool {
-    didSet { UserDefaults.standard.set(gitChangesEnabled, forKey: "settings.gitChangesEnabled") }
+    didSet { defaults.set(gitChangesEnabled, forKey: "settings.gitChangesEnabled") }
   }
 
   /// User has dismissed the hook installation prompt permanently
   var hookPromptDismissed: Bool {
-    didSet { UserDefaults.standard.set(hookPromptDismissed, forKey: "settings.hookPromptDismissed") }
+    didSet { defaults.set(hookPromptDismissed, forKey: "settings.hookPromptDismissed") }
   }
 
   /// User has dismissed the notification permission prompt permanently
   var notificationPromptDismissed: Bool {
-    didSet { UserDefaults.standard.set(notificationPromptDismissed, forKey: "settings.notificationPromptDismissed") }
+    didSet { defaults.set(notificationPromptDismissed, forKey: "settings.notificationPromptDismissed") }
   }
 
   /// The last app version whose release notes were shown to the user
   var lastSeenVersion: String {
-    didSet { UserDefaults.standard.set(lastSeenVersion, forKey: "settings.lastSeenVersion") }
+    didSet { defaults.set(lastSeenVersion, forKey: "settings.lastSeenVersion") }
   }
 
-  private static let envVarsKeychainAccount = "environmentVariables"
+  static let envVarsKeychainAccount = "environmentVariables"
 
   /// Custom environment variables injected into every terminal session (stored in Keychain)
   var customEnvironmentVariables: [String: String] {
     didSet {
-      KeychainService.save(customEnvironmentVariables, account: Self.envVarsKeychainAccount)
+      keychainService.save(customEnvironmentVariables, account: Self.envVarsKeychainAccount)
     }
   }
 
   /// Shell init script executed before launching claude or a plain terminal.
-  /// Runs inside `zsh -l -c '...; exec <command>'`.
   var shellInitScript: String {
-    didSet { UserDefaults.standard.set(shellInitScript, forKey: "settings.shellInitScript") }
+    didSet { defaults.set(shellInitScript, forKey: "settings.shellInitScript") }
   }
 
   /// The default shell init script that sources ~/.zshrc.
@@ -107,61 +115,75 @@ final class AppSettings {
 
   /// Where worktrees are created: relative to project (.claude/worktrees) or a custom folder
   var worktreeLocation: WorktreeLocation {
-    didSet { UserDefaults.standard.set(worktreeLocation.rawValue, forKey: "settings.worktreeLocation") }
+    didSet { defaults.set(worktreeLocation.rawValue, forKey: "settings.worktreeLocation") }
   }
 
   /// Custom root folder for worktrees (used when worktreeLocation == .custom)
   var customWorktreeRoot: String {
-    didSet { UserDefaults.standard.set(customWorktreeRoot, forKey: "settings.customWorktreeRoot") }
+    didSet { defaults.set(customWorktreeRoot, forKey: "settings.customWorktreeRoot") }
   }
 
   /// Appearance mode (System / Light / Dark)
   var appearanceMode: AppearanceMode {
     didSet {
-      UserDefaults.standard.set(appearanceMode.rawValue, forKey: "settings.appearanceMode")
-      ClaudeThemeSync.apply(appearanceMode)
-      NotificationCenter.default.post(name: .appearanceModeDidChange, object: nil)
+      defaults.set(appearanceMode.rawValue, forKey: "settings.appearanceMode")
+      themeSync.apply(appearanceMode)
+      notificationCenter.post(name: .appearanceModeDidChange, object: nil)
     }
   }
 
-  private init() {
+  // MARK: - Init
+
+  init(
+    defaults: UserDefaults = .standard,
+    keychainService: KeychainServiceProtocol = KeychainService(),
+    themeSync: ThemeSyncing = ClaudeThemeSync(),
+    notificationCenter: NotificationCenter = .default
+  ) {
+    self.defaults = defaults
+    self.keychainService = keychainService
+    self.themeSync = themeSync
+    self.notificationCenter = notificationCenter
+
     // Load initial values from UserDefaults
-    self.gitChangesEnabled = UserDefaults.standard.object(forKey: "settings.gitChangesEnabled") as? Bool ?? false
-    self.hookPromptDismissed = UserDefaults.standard.object(forKey: "settings.hookPromptDismissed") as? Bool ?? false
-    self.notificationPromptDismissed = UserDefaults.standard.object(forKey: "settings.notificationPromptDismissed") as? Bool ?? false
-    self.lastSeenVersion = UserDefaults.standard.object(forKey: "settings.lastSeenVersion") as? String ?? ""
+    self.gitChangesEnabled = defaults.object(forKey: "settings.gitChangesEnabled") as? Bool ?? false
+    self.hookPromptDismissed = defaults.object(forKey: "settings.hookPromptDismissed") as? Bool ?? false
+    self.notificationPromptDismissed = defaults.object(forKey: "settings.notificationPromptDismissed") as? Bool ?? false
+    self.lastSeenVersion = defaults.object(forKey: "settings.lastSeenVersion") as? String ?? ""
+
     // Load env vars from Keychain, with one-time migration from UserDefaults
-    if let vars = KeychainService.load([String: String].self, account: Self.envVarsKeychainAccount) {
+    if let vars = keychainService.load([String: String].self, account: Self.envVarsKeychainAccount) {
       self.customEnvironmentVariables = vars
-    } else if let data = UserDefaults.standard.data(forKey: "settings.customEnvironmentVariables"),
+    } else if let data = defaults.data(forKey: "settings.customEnvironmentVariables"),
               let vars = try? JSONDecoder().decode([String: String].self, from: data) {
       // Migrate from UserDefaults to Keychain
       self.customEnvironmentVariables = vars
-      _ = KeychainService.save(vars, account: Self.envVarsKeychainAccount)
-      UserDefaults.standard.removeObject(forKey: "settings.customEnvironmentVariables")
+      keychainService.save(vars, account: Self.envVarsKeychainAccount)
+      defaults.removeObject(forKey: "settings.customEnvironmentVariables")
     } else {
       self.customEnvironmentVariables = [:]
     }
+
     // Migration: convert old sourceZshrc bool to shellInitScript string
-    if let existingScript = UserDefaults.standard.string(forKey: "settings.shellInitScript") {
+    if let existingScript = defaults.string(forKey: "settings.shellInitScript") {
       self.shellInitScript = existingScript
-    } else if let oldSourceZshrc = UserDefaults.standard.object(forKey: "settings.sourceZshrc") as? Bool {
+    } else if let oldSourceZshrc = defaults.object(forKey: "settings.sourceZshrc") as? Bool {
       self.shellInitScript = oldSourceZshrc ? AppSettings.defaultShellInitScript : ""
     } else {
       self.shellInitScript = AppSettings.defaultShellInitScript
     }
 
     // Load worktree location setting
-    if let rawValue = UserDefaults.standard.string(forKey: "settings.worktreeLocation"),
+    if let rawValue = defaults.string(forKey: "settings.worktreeLocation"),
        let location = WorktreeLocation(rawValue: rawValue) {
       self.worktreeLocation = location
     } else {
       self.worktreeLocation = .defaultClaude
     }
-    self.customWorktreeRoot = UserDefaults.standard.string(forKey: "settings.customWorktreeRoot") ?? ""
+    self.customWorktreeRoot = defaults.string(forKey: "settings.customWorktreeRoot") ?? ""
 
     // Load appearance mode, defaulting to System
-    if let rawValue = UserDefaults.standard.object(forKey: "settings.appearanceMode") as? String,
+    if let rawValue = defaults.object(forKey: "settings.appearanceMode") as? String,
        let mode = AppearanceMode(rawValue: rawValue) {
       self.appearanceMode = mode
     } else {
@@ -169,7 +191,7 @@ final class AppSettings {
     }
 
     // Sync Claude CLI theme on launch
-    ClaudeThemeSync.apply(self.appearanceMode)
+    themeSync.apply(self.appearanceMode)
   }
 }
 

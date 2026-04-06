@@ -8,7 +8,7 @@ import Testing
 
 struct GitServiceFindRepoRootTests {
 
-  private let gitService = GitService(settings: AppSettings.shared)
+  private let gitService = GitService(settings: TestAppSettings.make())
 
   private func makeTempDir() throws -> String {
     let path = NSTemporaryDirectory() + "GitServiceFindRepoRoot-\(UUID().uuidString)"
@@ -79,12 +79,8 @@ struct GitServiceFindRepoRootTests {
     #expect(gitService.findRepoRoot(from: worktree) == mainRepo)
   }
 
-  @Test("uses injected fileManager for filesystem checks")
-  func usesInjectedFileManager() {
-    // Custom fileManager that always returns false for fileExists
-    // This verifies DI works — findRepoRoot should return nil
-    let service = GitService(settings: AppSettings.shared, fileManager: .default)
-    // With default FileManager on a random non-existent path
-    #expect(service.findRepoRoot(from: "/nonexistent/path/\(UUID().uuidString)") == nil)
+  @Test("returns nil for nonexistent path")
+  func nonexistentPath() {
+    #expect(gitService.findRepoRoot(from: "/nonexistent/path/\(UUID().uuidString)") == nil)
   }
 }

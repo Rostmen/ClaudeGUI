@@ -27,7 +27,7 @@ import Testing
 /// Tests for `GitService` — findRepoRoot, defaultWorktreePath, hasSubmodules, worktreeWorkingDirectory.
 struct WorktreeServiceTests {
 
-  private let gitService = GitService(settings: AppSettings.shared)
+  private let gitService = GitService(settings: TestAppSettings.make())
 
   /// Helper: creates a temporary directory tree and returns the root path.
   private func makeTempDir() throws -> String {
