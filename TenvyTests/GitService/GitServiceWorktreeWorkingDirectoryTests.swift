@@ -8,83 +8,75 @@ import Testing
 
 struct GitServiceWorktreeWorkingDirectoryTests {
 
-  @Test("returns worktreePath when source equals project path")
-  func sourceEqualsProjectPath() {
+  @Test("returns worktreePath when project is at git root")
+  func projectAtGitRoot() {
     let result = GitService.worktreeWorkingDirectory(
-      worktreePath: "/new/worktree",
-      sourceProjectPath: "/repo",
-      sourceWorkingDirectory: "/repo"
+      worktreePath: "/worktrees/session-a",
+      gitRoot: "/repo",
+      projectPath: "/repo"
     )
-    #expect(result == "/new/worktree")
+    #expect(result == "/worktrees/session-a")
   }
 
-  @Test("preserves subfolder offset from regular project")
-  func subfolderFromRegularProject() {
+  @Test("preserves subfolder when project is in a subdirectory of git root")
+  func projectInSubfolder() {
     let result = GitService.worktreeWorkingDirectory(
-      worktreePath: "/new/worktree",
-      sourceProjectPath: "/repo",
-      sourceWorkingDirectory: "/repo/src/ios"
+      worktreePath: "/worktrees/session-a",
+      gitRoot: "/repo",
+      projectPath: "/repo/ios"
     )
-    #expect(result == "/new/worktree/src/ios")
+    #expect(result == "/worktrees/session-a/ios")
   }
 
   @Test("preserves deep subfolder offset")
   func deepSubfolder() {
     let result = GitService.worktreeWorkingDirectory(
       worktreePath: "/worktrees/session-b",
-      sourceProjectPath: "/repo",
-      sourceWorkingDirectory: "/repo/packages/frontend/src/components"
+      gitRoot: "/repo",
+      projectPath: "/repo/packages/frontend/src"
     )
-    #expect(result == "/worktrees/session-b/packages/frontend/src/components")
+    #expect(result == "/worktrees/session-b/packages/frontend/src")
   }
 
-  @Test("preserves subfolder offset when splitting from default-location worktree")
-  func subfolderFromDefaultWorktree() {
-    let result = GitService.worktreeWorkingDirectory(
-      worktreePath: "/repo/.claude/worktrees/session-b",
-      sourceProjectPath: "/repo/.claude/worktrees/session-a",
-      sourceWorkingDirectory: "/repo/.claude/worktrees/session-a/src/ios"
-    )
-    #expect(result == "/repo/.claude/worktrees/session-b/src/ios")
-  }
-
-  @Test("preserves subfolder offset when splitting from custom-location worktree")
-  func subfolderFromCustomWorktree() {
-    let result = GitService.worktreeWorkingDirectory(
-      worktreePath: "/Users/dev/worktrees/session-b",
-      sourceProjectPath: "/Users/dev/worktrees/session-a",
-      sourceWorkingDirectory: "/Users/dev/worktrees/session-a/src/ios"
-    )
-    #expect(result == "/Users/dev/worktrees/session-b/src/ios")
-  }
-
-  @Test("returns worktreePath when source is at worktree root")
-  func sourceAtWorktreeRoot() {
+  @Test("worktree-to-worktree split preserves project subfolder")
+  func worktreeToWorktreeSplit() {
+    // Source is a worktree, but projectPath stays as the original project path.
+    // gitRoot is always the main repo root.
     let result = GitService.worktreeWorkingDirectory(
       worktreePath: "/worktrees/session-b",
-      sourceProjectPath: "/worktrees/session-a",
-      sourceWorkingDirectory: "/worktrees/session-a"
+      gitRoot: "/repo",
+      projectPath: "/repo/ios"
     )
-    #expect(result == "/worktrees/session-b")
+    #expect(result == "/worktrees/session-b/ios")
   }
 
-  @Test("returns worktreePath when source is outside project path")
-  func sourceOutsideProjectPath() {
+  @Test("returns worktreePath when project path is outside git root")
+  func projectOutsideGitRoot() {
     let result = GitService.worktreeWorkingDirectory(
-      worktreePath: "/new/worktree",
-      sourceProjectPath: "/repo",
-      sourceWorkingDirectory: "/completely/different/path"
+      worktreePath: "/worktrees/session-a",
+      gitRoot: "/repo",
+      projectPath: "/completely/different/path"
     )
-    #expect(result == "/new/worktree")
+    #expect(result == "/worktrees/session-a")
   }
 
-  @Test("handles path normalization with trailing slashes")
+  @Test("handles path normalization")
   func pathNormalization() {
     let result = GitService.worktreeWorkingDirectory(
-      worktreePath: "/new/worktree",
-      sourceProjectPath: "/repo/",
-      sourceWorkingDirectory: "/repo/src"
+      worktreePath: "/worktrees/session-a",
+      gitRoot: "/repo/",
+      projectPath: "/repo/src"
     )
-    #expect(result == "/new/worktree/src")
+    #expect(result == "/worktrees/session-a/src")
+  }
+
+  @Test("works with custom worktree location")
+  func customWorktreeLocation() {
+    let result = GitService.worktreeWorkingDirectory(
+      worktreePath: "/Users/dev/worktrees/MyApp-abc123/feature-x",
+      gitRoot: "/Users/dev/Projects/MyApp",
+      projectPath: "/Users/dev/Projects/MyApp/packages/ios"
+    )
+    #expect(result == "/Users/dev/worktrees/MyApp-abc123/feature-x/packages/ios")
   }
 }

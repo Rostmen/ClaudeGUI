@@ -164,22 +164,30 @@ struct GitService {
     }
   }
 
-  /// Computes the working directory for a new worktree session, preserving any subfolder offset.
-  /// Pure path math — no dependencies needed.
+  /// Computes the working directory for a new worktree session, preserving the project subfolder.
+  ///
+  /// If the original project is in a subfolder of the git root (e.g. `<gitRoot>/ios`),
+  /// the new worktree session should `cd` to `<worktreePath>/ios`.
+  ///
+  /// - Parameters:
+  ///   - worktreePath: Destination worktree root path
+  ///   - gitRoot: The git repository root
+  ///   - projectPath: The original project path (may be a subfolder of gitRoot)
+  /// - Returns: `worktreePath` with the project subfolder appended, or `worktreePath` as-is
   static func worktreeWorkingDirectory(
     worktreePath: String,
-    sourceProjectPath: String,
-    sourceWorkingDirectory: String
+    gitRoot: String,
+    projectPath: String
   ) -> String {
-    let normalizedSource = (sourceWorkingDirectory as NSString).standardizingPath
-    let normalizedProject = (sourceProjectPath as NSString).standardizingPath
+    let normalizedProject = (projectPath as NSString).standardizingPath
+    let normalizedRoot = (gitRoot as NSString).standardizingPath
 
-    guard normalizedSource.hasPrefix(normalizedProject),
-          normalizedSource.count > normalizedProject.count else {
+    guard normalizedProject.hasPrefix(normalizedRoot),
+          normalizedProject.count > normalizedRoot.count else {
       return worktreePath
     }
 
-    let subfolderOffset = String(normalizedSource.dropFirst(normalizedProject.count + 1))
+    let subfolderOffset = String(normalizedProject.dropFirst(normalizedRoot.count + 1))
     guard !subfolderOffset.isEmpty else { return worktreePath }
 
     return (worktreePath as NSString).appendingPathComponent(subfolderOffset)

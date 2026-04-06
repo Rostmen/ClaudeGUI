@@ -169,60 +169,6 @@ struct WorktreeServiceTests {
     #expect(!newPath.contains("fix-focus/.claude/worktrees"))
   }
 
-  // MARK: - worktreeWorkingDirectory
-
-  @Test func worktreeWorkingDirectory_regularSubfolder() {
-    // Source in a subfolder of the repo (not a worktree)
-    let result = GitService.worktreeWorkingDirectory(
-      worktreePath: "/repo/.claude/worktrees/new-feature",
-      sourceProjectPath: "/repo",
-      sourceWorkingDirectory: "/repo/src/ios"
-    )
-    #expect(result == "/repo/.claude/worktrees/new-feature/src/ios")
-  }
-
-  @Test func worktreeWorkingDirectory_sourceIsRepoRoot() {
-    // Source is at the repo root — no offset
-    let result = GitService.worktreeWorkingDirectory(
-      worktreePath: "/repo/.claude/worktrees/new-feature",
-      sourceProjectPath: "/repo",
-      sourceWorkingDirectory: "/repo"
-    )
-    #expect(result == "/repo/.claude/worktrees/new-feature")
-  }
-
-  @Test func worktreeWorkingDirectory_sourceIsWorktreeRoot() {
-    // Source is at a worktree root — no subfolder offset, just the new worktree path
-    let result = GitService.worktreeWorkingDirectory(
-      worktreePath: "/repo/.claude/worktrees/fix-focus-2",
-      sourceProjectPath: "/repo/.claude/worktrees/fix-focus",
-      sourceWorkingDirectory: "/repo/.claude/worktrees/fix-focus"
-    )
-    #expect(result == "/repo/.claude/worktrees/fix-focus-2")
-  }
-
-  @Test func worktreeWorkingDirectory_sourceIsWorktreeSubfolder() {
-    // Source is in a subfolder of a worktree — preserve the subfolder offset
-    let result = GitService.worktreeWorkingDirectory(
-      worktreePath: "/repo/.claude/worktrees/fix-focus-2",
-      sourceProjectPath: "/repo/.claude/worktrees/fix-focus",
-      sourceWorkingDirectory: "/repo/.claude/worktrees/fix-focus/src/views"
-    )
-    #expect(result == "/repo/.claude/worktrees/fix-focus-2/src/views")
-  }
-
-  @Test func worktreeWorkingDirectory_doesNotNestWorktreePaths() {
-    // Splitting from a worktree must NOT nest the worktree path
-    let result = GitService.worktreeWorkingDirectory(
-      worktreePath: "/repo/.claude/worktrees/fix-focus-2",
-      sourceProjectPath: "/repo/.claude/worktrees/fix-worktree-dialog-focus",
-      sourceWorkingDirectory: "/repo/.claude/worktrees/fix-worktree-dialog-focus"
-    )
-    // Must NOT contain nested worktree paths
-    #expect(!result.contains("fix-worktree-dialog-focus/.claude/worktrees"))
-    #expect(result == "/repo/.claude/worktrees/fix-focus-2")
-  }
-
   // MARK: - hasSubmodules
 
   @Test func hasSubmodules_returnsTrueWhenGitmodulesExists() throws {
@@ -256,13 +202,4 @@ struct WorktreeServiceTests {
     #expect(gitService.hasSubmodules(repoRoot: tmp) == false)
   }
 
-  @Test func worktreeWorkingDirectory_sourceOutsideProject() {
-    // Source is outside the project — just return worktree path
-    let result = GitService.worktreeWorkingDirectory(
-      worktreePath: "/repo/.claude/worktrees/new-feature",
-      sourceProjectPath: "/repo",
-      sourceWorkingDirectory: "/other/project"
-    )
-    #expect(result == "/repo/.claude/worktrees/new-feature")
-  }
 }

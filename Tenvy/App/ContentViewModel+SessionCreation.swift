@@ -182,15 +182,15 @@ extension ContentViewModel {
 
         let sessionWorkDir = GitService.worktreeWorkingDirectory(
           worktreePath: form.worktreePath,
-          sourceProjectPath: pending.sourceSession.projectPath,
-          sourceWorkingDirectory: pending.sourceSession.workingDirectory
+          gitRoot: form.repoRoot,
+          projectPath: pending.sourceSession.projectPath
         )
 
         if pending.isNewSessionFlow {
           let newSession = ClaudeSession(
             id: UUID().uuidString,
             title: "New Session",
-            projectPath: form.worktreePath,
+            projectPath: pending.sourceSession.projectPath,
             workingDirectory: sessionWorkDir,
             lastModified: Date(),
             filePath: nil,
@@ -332,7 +332,7 @@ extension ContentViewModel {
     let newSession = ClaudeSession(
       id: UUID().uuidString,
       title: "New Session",
-      projectPath: worktreePath,
+      projectPath: sourceSession.projectPath,
       workingDirectory: workingDirectory,
       lastModified: Date(),
       filePath: nil,
