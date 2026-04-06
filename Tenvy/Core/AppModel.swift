@@ -68,6 +68,10 @@ final class AppModel {
 
   let sessionStore: SessionStore
 
+  // MARK: - Git service
+
+  let gitService: GitService
+
   // MARK: - Host View Transfer (cross-window session moves)
 
   /// Temporary store for GhosttyHostViews being transferred between windows.
@@ -195,7 +199,8 @@ final class AppModel {
     windowRegistry: any WindowRegistering,
     terminalInput: any TerminalInput,
     runtimeRegistry: SessionRuntimeRegistry,
-    sessionStore: SessionStore
+    sessionStore: SessionStore,
+    gitService: GitService = GitService(settings: AppSettings.shared)
   ) {
     self.sessionDiscovery = sessionDiscovery
     self.hookMonitor = hookMonitor
@@ -206,6 +211,7 @@ final class AppModel {
     self.terminalInput = terminalInput
     self.runtimeRegistry = runtimeRegistry
     self.sessionStore = sessionStore
+    self.gitService = gitService
 
     // Inject session store into discovery service for DB upserts
     if let manager = sessionDiscovery as? SessionManager {
@@ -295,7 +301,7 @@ final class AppModel {
   func refreshGitBranches() {
     for session in sessionDiscovery.sessions {
       let info = runtimeRegistry.info(for: session.id)
-      let branch = GitBranchService.currentBranch(at: session.workingDirectory)
+      let branch = gitService.currentBranch(at: session.workingDirectory)
       if info.gitBranch != branch {
         info.gitBranch = branch
       }
@@ -303,7 +309,7 @@ final class AppModel {
     // Also refresh for activated sessions not yet in sessionManager
     for (sessionId, session) in activatedSessions {
       let info = runtimeRegistry.info(for: sessionId)
-      let branch = GitBranchService.currentBranch(at: session.workingDirectory)
+      let branch = gitService.currentBranch(at: session.workingDirectory)
       if info.gitBranch != branch {
         info.gitBranch = branch
       }

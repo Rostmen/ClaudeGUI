@@ -22,16 +22,23 @@
 
 import AppKit
 
+/// Abstraction for theme syncing — injectable for testing.
+protocol ThemeSyncing {
+  func apply(_ mode: AppearanceMode)
+}
+
 /// Writes the `theme` key to `~/.claude.json` so Claude CLI output colors
 /// match Tenvy's current appearance setting.
-enum ClaudeThemeSync {
-  private static let claudeJsonURL = URL(
-    fileURLWithPath: NSHomeDirectory() + "/.claude.json"
-  )
+struct ClaudeThemeSync: ThemeSyncing {
+  private let claudeJsonURL: URL
+
+  init(claudeJsonURL: URL = URL(fileURLWithPath: NSHomeDirectory() + "/.claude.json")) {
+    self.claudeJsonURL = claudeJsonURL
+  }
 
   /// Resolves the effective theme string ("dark" or "light") for a given mode,
   /// falling back to the current system appearance for System mode.
-  static func apply(_ mode: AppearanceMode) {
+  func apply(_ mode: AppearanceMode) {
     let theme: String
     switch mode {
     case .dark:   theme = "dark"
@@ -43,7 +50,12 @@ enum ClaudeThemeSync {
     writeTheme(theme)
   }
 
-  private static func writeTheme(_ theme: String) {
+  /// Static convenience for callers that don't hold an instance (e.g. ContentView).
+  static func apply(_ mode: AppearanceMode) {
+    ClaudeThemeSync().apply(mode)
+  }
+
+  private func writeTheme(_ theme: String) {
     do {
       var json: [String: Any]
       if let data = try? Data(contentsOf: claudeJsonURL),

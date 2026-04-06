@@ -27,62 +27,6 @@ import GhosttyEmbed
 import GRDBQuery
 import SwiftUI
 
-// MARK: - Worktree Split Types
-
-/// Holds pending split request info while the dialog is shown.
-struct PendingSplitRequest {
-  let direction: SplitDirection
-  let sourceSession: ClaudeSession
-  let hasGitRepo: Bool
-  /// When true, the dialog creates a new standalone session (not a split pane).
-  let isNewSessionFlow: Bool
-  /// When true, the source is a plain terminal — only show shell init script options.
-  let isPlainTerminalSplit: Bool
-
-  init(direction: SplitDirection, sourceSession: ClaudeSession, hasGitRepo: Bool, isNewSessionFlow: Bool = false, isPlainTerminalSplit: Bool = false) {
-    self.direction = direction
-    self.sourceSession = sourceSession
-    self.hasGitRepo = hasGitRepo
-    self.isNewSessionFlow = isNewSessionFlow
-    self.isPlainTerminalSplit = isPlainTerminalSplit
-  }
-}
-
-/// Form data for the worktree creation dialog.
-struct WorktreeSplitFormData {
-  var baseBranch: String
-  var newBranchName: String
-  var worktreePath: String
-  var forkSession: Bool = false
-  var initSubmodules: Bool = true
-  var symlinkBuildArtifacts: Bool = true
-  var availableBranches: [String]
-  let sourceSessionId: String
-  let sourceIsNewSession: Bool
-  let repoRoot: String
-  /// Whether the repo has .gitmodules (submodule options only shown when true)
-  let hasSubmodules: Bool
-  var initScript: String = AppSettings.shared.shellInitScript
-
-  /// Pre-generated unique session ID. Used in custom worktree paths
-  /// so the path includes a unique identifier before the session is created.
-  let tenvySessionId: String = UUID().uuidString
-
-  /// Whether to run `git init` (only relevant when hasGitRepo == false)
-  var initGit: Bool = false
-
-  /// Whether to create a new branch (in new-session + git flow, or after git init)
-  var createBranch: Bool = false
-
-  /// Which git mode is active: branch-only or worktree
-  var gitMode: GitMode = .worktree
-
-  enum GitMode: String, CaseIterable {
-    case branch = "Branch"
-    case worktree = "Worktree"
-  }
-}
-
 /// ViewModel for ContentView managing session selection and window coordination
 @MainActor
 @Observable
@@ -90,17 +34,19 @@ final class ContentViewModel {
   // MARK: - State
 
   /// Currently selected session for this window (reflects focused pane in split mode)
-  private(set) var selectedSession: ClaudeSession?
+  /// Currently selected session — set internally by extensions.
+  var selectedSession: ClaudeSession?
 
   /// The split-pane tree for this window. `nil` when not in split mode.
-  private(set) var splitTree: PaneSplitTree?
+  /// The split-pane tree — set internally by extensions.
+  var splitTree: PaneSplitTree?
 
   /// Keeps GhosttyHostViews alive across SwiftUI view-tree restructuring (e.g. split transitions).
   /// SwiftUI destroys then recreates NSViewRepresentable wrappers when they move to a different
   /// structural position, which would kill the Ghostty process.  Holding a strong reference here
   /// prevents dealloc until the session is explicitly closed.
   @ObservationIgnored
-  private var ghosttyHostViews: [String: GhosttyHostView] = [:]
+  var ghosttyHostViews: [String: GhosttyHostView] = [:]
 
   /// Currently selected diff file (for diff viewer)
   var selectedDiffFile: GitChangedFile?
@@ -128,6 +74,10 @@ final class ContentViewModel {
   /// Whether the right-side inspector panel is visible.
   var showInspectorPanel = false
 
+  /// Terminal ID currently being hovered with a file drag (drives header highlight).
+  /// Set by AppKit drag callbacks (split mode) or SwiftUI isTargeted (single-pane).
+  var fileDropTargetTerminalId: String?
+
   /// Cache: projectPath → IDEDetectionResult to avoid re-scanning on focus changes.
   @ObservationIgnored
   private var ideDetectionCache: [String: IDEDetectionResult] = [:]
@@ -138,11 +88,11 @@ final class ContentViewModel {
 
   /// Maps tenvySessionId → source session ID for fork launches.
   @ObservationIgnored
-  private var pendingForkSessions: [String: String] = [:]
+  var pendingForkSessions: [String: String] = [:]
 
   /// Terminal IDs that should launch a plain shell instead of claude.
   @ObservationIgnored
-  private var plainTerminalIds: Set<String> = []
+  var plainTerminalIds: Set<String> = []
 
   /// Observable titles for plain terminals (updated by Ghostty surface title publisher).
   /// Claude sessions read titles from `sessionDiscovery.sessions` instead.
@@ -150,11 +100,11 @@ final class ContentViewModel {
 
   /// Combine subscriptions for Ghostty surface title updates.
   @ObservationIgnored
-  private var titleCancellables: [String: AnyCancellable] = [:]
+  var titleCancellables: [String: AnyCancellable] = [:]
 
   /// Per-terminal init script overrides (keyed by tenvySessionId). Consumed on first access.
   @ObservationIgnored
-  private var splitInitScripts: [String: String] = [:]
+  var splitInitScripts: [String: String] = [:]
 
   /// Observer for pane drag-ended-outside-window notifications.
   @ObservationIgnored
@@ -163,7 +113,7 @@ final class ContentViewModel {
   // MARK: - Dependencies
 
   let appModel: AppModel
-  private var windowRegistry: any WindowRegistering { appModel.windowRegistry }
+  var windowRegistry: any WindowRegistering { appModel.windowRegistry }
   var sessionDiscovery: any SessionDiscovery { appModel.sessionDiscovery }
   var runtimeState: SessionRuntimeRegistry { appModel.runtimeRegistry }
 
@@ -206,13 +156,20 @@ final class ContentViewModel {
   func cacheGhosttyHostView(_ view: GhosttyHostView, tenvySessionId: String) {
     ghosttyHostViews[tenvySessionId] = view
     // Subscribe to surface title changes for plain terminals
-    if isPlainTerminal(tenvySessionId), let surface = view.surface {
-      titleCancellables[tenvySessionId] = surface.titlePublisher
-        .receive(on: DispatchQueue.main)
-        .sink { [weak self] newTitle in
-          self?.plainTerminalTitles[tenvySessionId] = newTitle.isEmpty ? "Terminal" : newTitle
-        }
+    if isPlainTerminal(tenvySessionId) {
+      subscribePlainTerminalTitle(tenvySessionId: tenvySessionId, surface: view.surface)
     }
+  }
+
+  /// Subscribes to Ghostty surface title changes for plain terminals.
+  /// Shared by cacheGhosttyHostView, receiveTransferredSession, and preloadForTransfer.
+  func subscribePlainTerminalTitle(tenvySessionId: String, surface: GhosttyEmbedSurface?) {
+    guard let surface else { return }
+    titleCancellables[tenvySessionId] = surface.titlePublisher
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] newTitle in
+        self?.plainTerminalTitles[tenvySessionId] = newTitle.isEmpty ? "Terminal" : newTitle
+      }
   }
 
   /// Removes the cached view, allowing it to deallocate and terminate its process.
@@ -340,768 +297,9 @@ final class ContentViewModel {
     handleDragToNewWindow(sessionId: session.id)
   }
 
-  // MARK: - Drag & Drop Transfer
-
-  /// Whether this ViewModel owns a terminal with the given tenvySessionId.
-  func ownsTerminal(_ tenvySessionId: String) -> Bool {
-    ghosttyHostViews[tenvySessionId] != nil
-  }
-
-  /// Whether this ViewModel owns the given session (for cross-window transfer).
-  func ownsSession(_ sessionId: String) -> Bool {
-    if selectedSession?.id == sessionId { return true }
-    if splitTree?.contains(sessionId: sessionId) == true { return true }
-    return false
-  }
-
-  /// Release a session for transfer to another window.
-  /// Extracts the host view (without closing it), deposits on AppModel,
-  /// and removes the session from this window's split tree / selection.
-  func prepareForTransfer(sessionId: String) {
-    let session: ClaudeSession?
-    if let s = splitTree?.allSessions.first(where: { $0.id == sessionId }) {
-      session = s
-    } else if selectedSession?.id == sessionId {
-      session = selectedSession
-    } else {
-      return
-    }
-    guard let session else { return }
-
-    // Extract host view WITHOUT closing — deposit for the destination to pick up
-    if let hostView = ghosttyHostViews.removeValue(forKey: session.tenvySessionId) {
-      appModel.depositForTransfer(tenvySessionId: session.tenvySessionId, hostView: hostView)
-    }
-
-    // Remove from this window's structure (without deactivating — session stays alive)
-    if isInSplitMode && splitTree?.contains(sessionId: sessionId) == true {
-      let wasSelected = selectedSession?.id == sessionId
-      let wasPrimary = currentWindow?.sessionId == sessionId
-
-      if let newTree = splitTree?.removing(sessionId: sessionId) {
-        let remaining = newTree.allSessions
-        if remaining.count <= 1 {
-          splitTree = nil
-          if wasSelected { selectedSession = remaining.first ?? primarySession }
-        } else {
-          splitTree = newTree
-          if wasSelected { selectedSession = primarySession ?? remaining.first }
-        }
-      } else {
-        splitTree = nil
-        if wasSelected { selectedSession = nil }
-      }
-
-      // Re-register window if the primary was removed
-      if wasPrimary {
-        bindWindowToSession(splitTree?.allSessions.first ?? selectedSession)
-      }
-    } else {
-      // Single session — clear this window
-      selectedSession = nil
-      bindWindowToSession(nil)
-    }
-
-    // Close the now-empty window (unless it's the last visible one)
-    if selectedSession == nil && !isInSplitMode, let window = currentWindow {
-      let visibleWindows = NSApp.windows.filter { $0.isVisible && $0 != window }
-      if !visibleWindows.isEmpty {
-        window.close()
-      }
-    }
-  }
-
-  /// Receive a transferred session and insert it alongside an existing session.
-  /// Called directly (same window) or via AppModel (cross-window).
-  func receiveTransferredSession(_ session: ClaudeSession, alongside targetSessionId: String, direction: SplitDirection = .right) {
-    if let hostView = appModel.pickupTransfer(tenvySessionId: session.tenvySessionId) {
-      ghosttyHostViews[session.tenvySessionId] = hostView
-      // Re-subscribe to title updates for plain terminals
-      if plainTerminalIds.contains(session.tenvySessionId), let surface = hostView.surface {
-        titleCancellables[session.tenvySessionId] = surface.titlePublisher
-          .receive(on: DispatchQueue.main)
-          .sink { [weak self] newTitle in
-            self?.plainTerminalTitles[session.tenvySessionId] = newTitle.isEmpty ? "Terminal" : newTitle
-          }
-      }
-    }
-    appModel.activateSession(session)
-    insertSplitPane(session, at: targetSessionId, direction: direction)
-  }
-
-  /// Handle a pane header dragged outside any window — open in a new window.
-  private func handlePaneDragToNewWindow(tenvySessionId: String) {
-    // Find the session by tenvySessionId
-    guard let session = findSessionByTerminalId(tenvySessionId) else { return }
-
-    // If this session is already alone in its window (no split), dragging outside is a no-op.
-    // The session is already in a dedicated window — nothing to detach from.
-    if !isInSplitMode && selectedSession?.id == session.id {
-      return
-    }
-
-    handleDragToNewWindow(sessionId: session.id)
-  }
-
-  /// Find a session by tenvySessionId, searching local state and activated sessions.
-  private func findSessionByTerminalId(_ tenvySessionId: String) -> ClaudeSession? {
-    if let tree = splitTree, let s = tree.allSessions.first(where: { $0.tenvySessionId == tenvySessionId }) {
-      return s
-    }
-    if selectedSession?.tenvySessionId == tenvySessionId { return selectedSession }
-    return appModel.activatedSessions.values.first(where: { $0.tenvySessionId == tenvySessionId })
-  }
-
-  /// Handle a session dragged to the "New Window" drop zone.
-  /// Transfers the host view to a new window without restarting the process.
-  ///
-  /// Mirrors Ghostty's `ghosttySurfaceDragEndedNoTarget` pattern:
-  /// 1. Extract host view from source cache
-  /// 2. Create new window with pre-configured ViewModel (host view already loaded)
-  /// 3. THEN remove session from source split tree
-  /// This ensures the host view is owned by the new ViewModel before SwiftUI
-  /// destroys the old wrapper in the source window's re-render.
-  func handleDragToNewWindow(sessionId: String) {
-    guard let session = appModel.activatedSessions[sessionId] else { return }
-
-    // 1. Extract host view from source cache (without modifying split tree yet)
-    let hostView = ghosttyHostViews.removeValue(forKey: session.tenvySessionId)
-
-    // 2. Create new ViewModel pre-loaded with session and host view
-    let newVM = ContentViewModel(appModel: appModel)
-    newVM.preloadForTransfer(session: session, hostView: hostView, isPlainTerminal: isPlainTerminal(session.tenvySessionId))
-
-    // 3. Create new window using AppKit (like Ghostty's TerminalController.newWindow)
-    let rootView = ContentView(viewModel: newVM)
-      .environment(appModel)
-      .databaseContext(.readOnly { AppDatabase.shared.databaseReader })
-    let hostingController = NSHostingController(rootView: rootView)
-    let window = NSWindow(
-      contentRect: .zero,
-      styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-      backing: .buffered,
-      defer: false
-    )
-    window.contentViewController = hostingController
-    window.titlebarAppearsTransparent = true
-    window.titleVisibility = .visible
-    window.isOpaque = false
-    window.backgroundColor = .clear
-    window.title = session.title
-
-    // Size to match source window
-    if let sourceFrame = currentWindow?.frame {
-      window.setFrame(sourceFrame, display: false)
-    } else {
-      window.setContentSize(NSSize(width: 800, height: 600))
-    }
-
-    window.makeKeyAndOrderFront(nil)
-
-    // 4. NOW remove from source split tree (safe — host view is in new ViewModel)
-    removePaneFromSource(sessionId: sessionId)
-  }
-
-  /// Pre-load a session and host view for a cross-window transfer.
-  /// Called on the destination ViewModel before the window is shown.
-  func preloadForTransfer(session: ClaudeSession, hostView: GhosttyHostView?, isPlainTerminal: Bool) {
-    selectedSession = session
-    appModel.activateSession(session)
-    if let hostView {
-      ghosttyHostViews[session.tenvySessionId] = hostView
-    }
-    if isPlainTerminal {
-      plainTerminalIds.insert(session.tenvySessionId)
-      if let surface = hostView?.surface {
-        titleCancellables[session.tenvySessionId] = surface.titlePublisher
-          .receive(on: DispatchQueue.main)
-          .sink { [weak self] newTitle in
-            self?.plainTerminalTitles[session.tenvySessionId] = newTitle.isEmpty ? "Terminal" : newTitle
-          }
-      }
-    }
-  }
-
-  /// Remove a session from this window's split tree / selection after transfer.
-  private func removePaneFromSource(sessionId: String) {
-    if isInSplitMode && splitTree?.contains(sessionId: sessionId) == true {
-      let wasSelected = selectedSession?.id == sessionId
-      let wasPrimary = currentWindow?.sessionId == sessionId
-
-      if let newTree = splitTree?.removing(sessionId: sessionId) {
-        let remaining = newTree.allSessions
-        if remaining.count <= 1 {
-          splitTree = nil
-          if wasSelected { selectedSession = remaining.first ?? primarySession }
-        } else {
-          splitTree = newTree
-          if wasSelected { selectedSession = primarySession ?? remaining.first }
-        }
-      } else {
-        splitTree = nil
-        if wasSelected { selectedSession = nil }
-      }
-
-      if wasPrimary {
-        bindWindowToSession(splitTree?.allSessions.first ?? selectedSession)
-      }
-    } else {
-      selectedSession = nil
-      bindWindowToSession(nil)
-    }
-
-    // Close the now-empty window (unless it's the last visible one)
-    if selectedSession == nil && !isInSplitMode, let window = currentWindow {
-      let visibleWindows = NSApp.windows.filter { $0.isVisible && $0 != window }
-      if !visibleWindows.isEmpty {
-        window.close()
-      }
-    }
-  }
-
-  /// Create and select a new session
-  /// Note: We don't add to sessionDiscovery.sessions because Claude CLI will create
-  /// its own session file with a different ID. The DirectoryMonitor will pick it up
-  /// automatically when Claude creates the file.
-  func createNewSession(_ session: ClaudeSession) {
-    // Check if the selected folder is under git control
-    if let repoRoot = WorktreeService.findRepoRoot(from: session.workingDirectory) {
-      let branches = GitBranchService.listLocalBranches(at: session.workingDirectory)
-      let currentBranch = GitBranchService.currentBranch(at: session.workingDirectory) ?? "main"
-
-      let dateFormatter = DateFormatter()
-      dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm"
-      let defaultBranchName = "\(dateFormatter.string(from: Date()))-\(session.title)"
-        .replacingOccurrences(of: " ", with: "-")
-        .lowercased()
-
-      pendingSplit = PendingSplitRequest(
-        direction: .right,
-        sourceSession: session,
-        hasGitRepo: true,
-        isNewSessionFlow: true
-      )
-
-      let form = WorktreeSplitFormData(
-        baseBranch: currentBranch,
-        newBranchName: defaultBranchName,
-        worktreePath: "",
-        forkSession: false,
-        availableBranches: branches,
-        sourceSessionId: session.id,
-        sourceIsNewSession: true,
-        repoRoot: repoRoot,
-        hasSubmodules: WorktreeService.hasSubmodules(repoRoot: repoRoot)
-      )
-      worktreeSplitForm = form
-      worktreeSplitForm?.worktreePath = WorktreeService.defaultWorktreePath(repoRoot: repoRoot, branchName: defaultBranchName, sessionId: form.tenvySessionId)
-      return
-    }
-
-    // No git repo — show dialog so user can choose plain terminal or proceed
-    let workDir = session.workingDirectory
-    let dateFormatter = DateFormatter()
-    dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm"
-    let defaultBranchName = "\(dateFormatter.string(from: Date()))-\(session.title)"
-      .replacingOccurrences(of: " ", with: "-")
-      .lowercased()
-
-    pendingSplit = PendingSplitRequest(
-      direction: .right,
-      sourceSession: session,
-      hasGitRepo: false,
-      isNewSessionFlow: true
-    )
-
-    let form2 = WorktreeSplitFormData(
-      baseBranch: "main",
-      newBranchName: defaultBranchName,
-      worktreePath: "",
-      availableBranches: ["main"],
-      sourceSessionId: session.id,
-      sourceIsNewSession: true,
-      repoRoot: workDir,
-      hasSubmodules: false
-    )
-    worktreeSplitForm = form2
-    worktreeSplitForm?.worktreePath = WorktreeService.defaultWorktreePath(repoRoot: workDir, branchName: defaultBranchName, sessionId: form2.tenvySessionId)
-  }
-
-  /// Activates a new session in the current window or a new tab.
-  private func activateNewSession(_ session: ClaudeSession) {
-    // If there's already a session in this window, open new session in a new tab
-    if selectedSession != nil {
-      appModel.activateSession(session)
-      windowRegistry.pendingSessionForNewTab = session
-      currentWindow?.selectNextTab(nil)
-      NSApp.sendAction(#selector(NSWindow.newWindowForTab(_:)), to: nil, from: nil)
-      return
-    }
-
-    // No session in this window, open here
-    appModel.activateSession(session)
-    setSelectedSession(session)
-  }
-
   /// Clear diff selection (return to terminal)
   func clearDetailSelection() {
     selectedDiffFile = nil
-  }
-
-  /// Called when the user requests a split from Ghostty's context menu.
-  /// Intercepts the split to show a worktree dialog instead of immediately splitting.
-  func handleSplitRequested(direction: SplitDirection = .right) {
-    guard let focused = selectedSession ?? primarySession else { return }
-
-    // Plain terminal splits skip the git dialog — just show shell init script
-    if isPlainTerminal(focused.tenvySessionId) {
-      pendingSplit = PendingSplitRequest(
-        direction: direction,
-        sourceSession: focused,
-        hasGitRepo: false,
-        isPlainTerminalSplit: true
-      )
-      worktreeSplitForm = WorktreeSplitFormData(
-        baseBranch: "main",
-        newBranchName: "",
-        worktreePath: "",
-        availableBranches: [],
-        sourceSessionId: focused.id,
-        sourceIsNewSession: true,
-        repoRoot: focused.workingDirectory,
-        hasSubmodules: false
-      )
-      return
-    }
-
-    let runtimeInfo = runtimeState.info(for: focused.id)
-    let hasGitRepo = runtimeInfo.gitBranch != nil
-
-    pendingSplit = PendingSplitRequest(
-      direction: direction,
-      sourceSession: focused,
-      hasGitRepo: hasGitRepo
-    )
-
-    if hasGitRepo {
-      let branches = GitBranchService.listLocalBranches(at: focused.workingDirectory)
-      let currentBranch = runtimeInfo.gitBranch ?? "main"
-      let repoRoot = WorktreeService.findRepoRoot(from: focused.workingDirectory) ?? focused.workingDirectory
-
-      let dateFormatter = DateFormatter()
-      dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm"
-      let defaultBranchName = "\(dateFormatter.string(from: Date()))-\(focused.title)"
-        .replacingOccurrences(of: " ", with: "-")
-        .lowercased()
-
-      let splitForm = WorktreeSplitFormData(
-        baseBranch: currentBranch,
-        newBranchName: defaultBranchName,
-        worktreePath: "",
-        availableBranches: branches,
-        sourceSessionId: focused.id,
-        sourceIsNewSession: focused.isNewSession,
-        repoRoot: repoRoot,
-        hasSubmodules: WorktreeService.hasSubmodules(repoRoot: repoRoot)
-      )
-      worktreeSplitForm = splitForm
-      worktreeSplitForm?.worktreePath = WorktreeService.defaultWorktreePath(repoRoot: repoRoot, branchName: defaultBranchName, sessionId: splitForm.tenvySessionId)
-    } else {
-      // No git repo — still populate form for the unified dialog
-      let workDir = focused.workingDirectory
-      let dateFormatter2 = DateFormatter()
-      dateFormatter2.dateFormat = "MM-dd-yyyy-HH-mm"
-      let defaultBranchName = "\(dateFormatter2.string(from: Date()))-\(focused.title)"
-        .replacingOccurrences(of: " ", with: "-")
-        .lowercased()
-
-      let splitForm2 = WorktreeSplitFormData(
-        baseBranch: "main",
-        newBranchName: defaultBranchName,
-        worktreePath: "",
-        availableBranches: ["main"],
-        sourceSessionId: focused.id,
-        sourceIsNewSession: focused.isNewSession,
-        repoRoot: workDir,
-        hasSubmodules: false
-      )
-      worktreeSplitForm = splitForm2
-      worktreeSplitForm?.worktreePath = WorktreeService.defaultWorktreePath(repoRoot: workDir, branchName: defaultBranchName, sessionId: splitForm2.tenvySessionId)
-    }
-  }
-
-  /// Single entry point for the "Start" button in the unified dialog.
-  /// Dispatches to the appropriate action based on form state.
-  func confirmNewSessionDialog() {
-    guard let pending = pendingSplit,
-          let form = worktreeSplitForm else { return }
-
-    let hasGitRepo = pending.hasGitRepo
-    let needsGitInit = !hasGitRepo && form.initGit
-    let needsBranch = form.createBranch && form.gitMode == .branch
-    let needsWorktree = form.gitMode == .worktree && (hasGitRepo || (form.initGit && form.createBranch) || (!pending.isNewSessionFlow && form.initGit))
-
-    // No git ops needed — just open the session
-    if !hasGitRepo && !form.initGit {
-      let session = pending.sourceSession
-      insertSessionRecord(session: session)
-      splitInitScripts[session.tenvySessionId] = form.initScript
-      dismissSplitDialog()
-      if pending.isNewSessionFlow {
-        activateNewSession(session)
-      }
-      return
-    }
-
-    // Git initialized, branch tab, no new branch — open as-is on current branch
-    if hasGitRepo && !needsBranch && !needsWorktree {
-      let session = pending.sourceSession
-      insertSessionRecord(session: session, branchName: form.baseBranch)
-      splitInitScripts[session.tenvySessionId] = form.initScript
-      dismissSplitDialog()
-      if pending.isNewSessionFlow {
-        activateNewSession(session)
-      }
-      return
-    }
-
-    if needsWorktree {
-      confirmWorktreeSplit()
-    } else if needsBranch {
-      confirmBranchCreation()
-    } else if needsGitInit {
-      // Just git init, no branch/worktree
-      isCreatingWorktree = true
-      worktreeError = nil
-      Task {
-        do {
-          try WorktreeService.initGitRepo(at: form.repoRoot)
-          isCreatingWorktree = false
-          let session = pending.sourceSession
-          insertSessionRecord(session: session)
-          splitInitScripts[session.tenvySessionId] = form.initScript
-          dismissSplitDialog()
-          if pending.isNewSessionFlow {
-            activateNewSession(session)
-          }
-          appModel.refreshGitBranches()
-        } catch {
-          isCreatingWorktree = false
-          worktreeError = error.localizedDescription
-        }
-      }
-    }
-  }
-
-  /// Creates a worktree, optionally initializing git first.
-  private func confirmWorktreeSplit() {
-    guard let pending = pendingSplit,
-          let form = worktreeSplitForm else { return }
-
-    isCreatingWorktree = true
-    worktreeError = nil
-
-    Task {
-      do {
-        // Initialize git if needed (no-git flow)
-        if !pending.hasGitRepo && form.initGit {
-          try WorktreeService.initGitRepo(at: form.repoRoot)
-        }
-
-        try WorktreeService.createWorktree(
-          repoPath: form.repoRoot,
-          newBranch: form.newBranchName,
-          baseBranch: form.baseBranch,
-          destinationPath: form.worktreePath,
-          initSubmodules: form.initSubmodules,
-          symlinkBuildArtifacts: form.symlinkBuildArtifacts
-        )
-        isCreatingWorktree = false
-
-        // Compute subfolder offset: if the source session was in a subfolder of the repo,
-        // the worktree session should start in the equivalent subfolder of the worktree.
-        let sessionWorkDir = Self.worktreeWorkingDirectory(
-          worktreePath: form.worktreePath,
-          repoRoot: form.repoRoot,
-          sourceWorkingDirectory: pending.sourceSession.workingDirectory
-        )
-
-        if pending.isNewSessionFlow {
-          let newSession = ClaudeSession(
-            id: UUID().uuidString,
-            title: "New Session",
-            projectPath: form.worktreePath,
-            workingDirectory: sessionWorkDir,
-            lastModified: Date(),
-            filePath: nil,
-            isNewSession: true,
-            tenvySessionId: form.tenvySessionId
-          )
-          insertSessionRecord(session: newSession, branchName: form.newBranchName, worktreePath: form.worktreePath)
-          splitInitScripts[newSession.tenvySessionId] = form.initScript
-          dismissSplitDialog()
-          activateNewSession(newSession)
-        } else {
-          performSplitWithWorktree(
-            direction: pending.direction,
-            worktreePath: form.worktreePath,
-            workingDirectory: sessionWorkDir,
-            branchName: form.newBranchName,
-            forkSession: form.forkSession,
-            sourceSession: pending.sourceSession,
-            initScript: form.initScript,
-            tenvySessionId: form.tenvySessionId
-          )
-          dismissSplitDialog()
-        }
-        appModel.refreshGitBranches()
-      } catch {
-        isCreatingWorktree = false
-        worktreeError = error.localizedDescription
-      }
-    }
-  }
-
-  /// Creates a new branch and opens the session at the same working directory.
-  private func confirmBranchCreation() {
-    guard let pending = pendingSplit,
-          let form = worktreeSplitForm else { return }
-
-    isCreatingWorktree = true
-    worktreeError = nil
-
-    Task {
-      do {
-        // Initialize git if needed (no-git flow)
-        if !pending.hasGitRepo && form.initGit {
-          try WorktreeService.initGitRepo(at: form.repoRoot)
-        }
-
-        try WorktreeService.createBranch(
-          repoPath: form.repoRoot,
-          newBranch: form.newBranchName,
-          baseBranch: form.baseBranch
-        )
-        isCreatingWorktree = false
-        let session = pending.sourceSession
-        insertSessionRecord(session: session, branchName: form.newBranchName)
-        splitInitScripts[session.tenvySessionId] = form.initScript
-        dismissSplitDialog()
-        if pending.isNewSessionFlow {
-          activateNewSession(session)
-        }
-        appModel.refreshGitBranches()
-      } catch {
-        isCreatingWorktree = false
-        worktreeError = error.localizedDescription
-      }
-    }
-  }
-
-  /// Called when user chooses "Plain Terminal" in split or new session flow.
-  /// When `asPlainTerminal` is true, opens a plain shell; otherwise opens a Claude session.
-  func openPlainTerminalSplit(initScript: String? = nil, asPlainTerminal: Bool = false) {
-    guard let pending = pendingSplit else { return }
-
-    if pending.isNewSessionFlow {
-      if asPlainTerminal {
-        // New session flow: open as plain terminal
-        let newSession = ClaudeSession(
-          id: UUID().uuidString,
-          title: "Terminal",
-          projectPath: pending.sourceSession.projectPath,
-          workingDirectory: pending.sourceSession.workingDirectory,
-          lastModified: Date(),
-          filePath: nil,
-          isNewSession: true
-        )
-        insertSessionRecord(session: newSession, isPlainTerminal: true)
-        plainTerminalIds.insert(newSession.tenvySessionId)
-        if let initScript {
-          splitInitScripts[newSession.tenvySessionId] = initScript
-        }
-        dismissSplitDialog()
-        activateNewSession(newSession)
-      } else {
-        // New session flow: open as Claude session (skip worktree)
-        let session = pending.sourceSession
-        insertSessionRecord(session: session)
-        if let initScript {
-          splitInitScripts[session.tenvySessionId] = initScript
-        }
-        dismissSplitDialog()
-        activateNewSession(session)
-      }
-      return
-    }
-
-    // Split flow: create plain terminal pane
-    let newSession = ClaudeSession(
-      id: UUID().uuidString,
-      title: "Terminal",
-      projectPath: pending.sourceSession.projectPath,
-      workingDirectory: pending.sourceSession.workingDirectory,
-      lastModified: Date(),
-      filePath: nil,
-      isNewSession: true
-    )
-    insertSessionRecord(session: newSession, isPlainTerminal: true)
-    plainTerminalIds.insert(newSession.tenvySessionId)
-    if let initScript {
-      splitInitScripts[newSession.tenvySessionId] = initScript
-    }
-    appModel.activateSession(newSession)
-    insertSplitPane(newSession, at: pending.sourceSession.id, direction: pending.direction)
-    dismissSplitDialog()
-  }
-
-  /// Cancel the split dialog.
-  func cancelSplitDialog() {
-    dismissSplitDialog()
-  }
-
-  /// Whether a given terminal should launch as a plain shell (no claude).
-  func isPlainTerminal(_ tenvySessionId: String) -> Bool {
-    plainTerminalIds.contains(tenvySessionId)
-  }
-
-
-  /// Returns and consumes the source session ID for fork, if applicable.
-  func forkSourceSessionId(for tenvySessionId: String) -> String? {
-    pendingForkSessions.removeValue(forKey: tenvySessionId)
-  }
-
-  /// Returns and consumes the per-split init script override, if any.
-  func initScript(for tenvySessionId: String) -> String? {
-    splitInitScripts.removeValue(forKey: tenvySessionId)
-  }
-
-  // MARK: - Worktree Split Helpers
-
-  private func performSplitWithWorktree(
-    direction: SplitDirection,
-    worktreePath: String,
-    workingDirectory: String,
-    branchName: String? = nil,
-    forkSession: Bool,
-    sourceSession: ClaudeSession,
-    initScript: String? = nil,
-    tenvySessionId: String? = nil
-  ) {
-    let newSession = ClaudeSession(
-      id: UUID().uuidString,
-      title: "New Session",
-      projectPath: worktreePath,
-      workingDirectory: workingDirectory,
-      lastModified: Date(),
-      filePath: nil,
-      isNewSession: !forkSession,
-      tenvySessionId: tenvySessionId
-    )
-    insertSessionRecord(
-      session: newSession,
-      branchName: branchName,
-      worktreePath: worktreePath,
-      forkSourceSessionId: forkSession ? sourceSession.id : nil
-    )
-    if forkSession {
-      pendingForkSessions[newSession.tenvySessionId] = sourceSession.id
-    }
-    if let initScript {
-      splitInitScripts[newSession.tenvySessionId] = initScript
-    }
-    appModel.activateSession(newSession)
-    insertSplitPane(newSession, at: sourceSession.id, direction: direction)
-  }
-
-  /// Inserts a SessionRecord into the persistent database for a newly created session.
-  /// Called at each session creation site where we have full context.
-  private func insertSessionRecord(
-    session: ClaudeSession,
-    isPlainTerminal: Bool = false,
-    branchName: String? = nil,
-    worktreePath: String? = nil,
-    forkSourceSessionId: String? = nil
-  ) {
-    // Merge global + project permissions for Claude sessions (not plain terminals)
-    let mergedPermissions: ClaudePermissionSettings? = isPlainTerminal
-      ? nil
-      : ClaudeSettingsService.mergeForNewSession(projectPath: session.projectPath)
-
-    let record = SessionRecord(
-      tenvySessionId: session.tenvySessionId,
-      workingDirectory: session.workingDirectory,
-      projectPath: session.projectPath,
-      title: session.title,
-      branchName: branchName,
-      worktreePath: worktreePath,
-      isPlainTerminal: isPlainTerminal,
-      isActive: true,
-      forkSourceSessionId: forkSourceSessionId,
-      createdAt: Date(),
-      lastModifiedAt: Date(),
-      permissionSettings: mergedPermissions.flatMap { SessionRecord.encode($0) }
-    )
-    try? appModel.sessionStore.insertSession(record)
-  }
-
-  /// Computes the working directory for a worktree session, preserving any subfolder offset.
-  /// For example, if source is `/repo/project/ios` and repoRoot is `/repo`, the worktree
-  /// session should start in `<worktreePath>/project/ios` instead of just `<worktreePath>`.
-  ///
-  /// When the source is itself inside a worktree (e.g. `/repo/.claude/worktrees/feat-x/src`),
-  /// the offset is computed relative to the **worktree root**, not the repo root — otherwise
-  /// the entire worktree path would be appended, creating a nested path.
-  static func worktreeWorkingDirectory(
-    worktreePath: String,
-    repoRoot: String,
-    sourceWorkingDirectory: String
-  ) -> String {
-    let normalizedSource = (sourceWorkingDirectory as NSString).standardizingPath
-    let normalizedRoot = (repoRoot as NSString).standardizingPath
-
-    guard normalizedSource.hasPrefix(normalizedRoot),
-          normalizedSource.count > normalizedRoot.count else {
-      return worktreePath
-    }
-
-    let relativeToRepo = String(normalizedSource.dropFirst(normalizedRoot.count + 1)) // strip leading /
-
-    // If source is inside a worktree (<repoRoot>/.claude/worktrees/<name>/...),
-    // compute offset relative to that worktree root, not the repo root.
-    let worktreePrefix = ".claude/worktrees/"
-    if relativeToRepo.hasPrefix(worktreePrefix) {
-      let afterPrefix = relativeToRepo.dropFirst(worktreePrefix.count)
-      // Skip the worktree name (first path component after the prefix)
-      if let slashIndex = afterPrefix.firstIndex(of: "/") {
-        let subfolderOffset = String(afterPrefix[afterPrefix.index(after: slashIndex)...])
-        if !subfolderOffset.isEmpty {
-          return (worktreePath as NSString).appendingPathComponent(subfolderOffset)
-        }
-      }
-      // Source is the worktree root itself — no subfolder offset
-      return worktreePath
-    }
-
-    return (worktreePath as NSString).appendingPathComponent(relativeToRepo)
-  }
-
-  private func insertSplitPane(_ newSession: ClaudeSession, at sourceId: String, direction: SplitDirection) {
-    if let tree = splitTree {
-      splitTree = tree.inserting(newSession, at: sourceId, direction: direction)
-    } else {
-      let primary = primarySession ?? (selectedSession ?? newSession)
-      let tree = PaneSplitTree(primary)
-      splitTree = tree.inserting(newSession, at: sourceId, direction: direction)
-    }
-    selectedSession = newSession
-  }
-
-  private func dismissSplitDialog() {
-    pendingSplit = nil
-    worktreeSplitForm = nil
-    worktreeError = nil
-    isCreatingWorktree = false
   }
 
   /// Update the ratio of a specific split node (called by the drag divider).
@@ -1151,51 +349,6 @@ final class ContentViewModel {
       if currentWindow?.sessionId == id, let newPrimary = remaining.first {
         bindWindowToSession(newPrimary)
       }
-    }
-  }
-
-  /// Move a pane from one position to another (same-window rearrange or cross-window transfer).
-  func movePaneToSplit(sourceTerminalId: String, destinationTerminalId: String, zone: PaneDropZone) {
-    guard sourceTerminalId != destinationTerminalId else { return }
-
-    let direction = zone.splitDirection
-
-    // Find destination session (must be in this window)
-    let localSessions: [ClaudeSession]
-    if let tree = splitTree {
-      localSessions = tree.allSessions
-    } else if let session = selectedSession {
-      localSessions = [session]
-    } else {
-      return
-    }
-    guard let destSession = localSessions.first(where: { $0.tenvySessionId == destinationTerminalId }) else { return }
-
-    // Check if source is in this window
-    if let sourceSession = localSessions.first(where: { $0.tenvySessionId == sourceTerminalId }) {
-      // Same-window move within split tree
-      guard let tree = splitTree else { return }
-      guard let newTree = tree.moving(sessionId: sourceSession.id, toDestination: destSession.id, direction: direction) else {
-        return
-      }
-      let remaining = newTree.allSessions
-      if remaining.count <= 1 {
-        splitTree = nil
-        selectedSession = remaining.first
-        bindWindowToSession(remaining.first)
-      } else {
-        splitTree = newTree
-        selectedSession = sourceSession
-      }
-    } else {
-      // Cross-window: source is in another window
-      guard let sourceSession = appModel.activatedSessions.values.first(where: { $0.tenvySessionId == sourceTerminalId }) else { return }
-
-      // Release from source window (deposits host view on AppModel)
-      appModel.releaseSessionForTransfer(sessionId: sourceSession.id)
-
-      // Receive into this window alongside the destination
-      receiveTransferredSession(sourceSession, alongside: destSession.id, direction: direction)
     }
   }
 
@@ -1325,60 +478,6 @@ final class ContentViewModel {
     sessionToRename = nil
   }
 
-  // MARK: - File Drop
-
-  /// Terminal ID currently being hovered with a file drag (drives header highlight).
-  /// Set by AppKit drag callbacks (split mode) or SwiftUI isTargeted (single-pane).
-  var fileDropTargetTerminalId: String?
-
-  /// Focuses the pane with the given terminal ID — used when files are dropped on a non-focused pane.
-  func focusPane(tenvySessionId: String) {
-    guard let session = findSessionByTerminalId(tenvySessionId),
-          selectedSession?.tenvySessionId != tenvySessionId else { return }
-    selectedSession = session
-    ghosttyHostView(for: tenvySessionId)?.makeFocused()
-  }
-
-  /// Handles file drop in single-pane mode (SwiftUI fallback).
-  /// GhosttyHostView's AppKit drag handler doesn't fire in single-pane because
-  /// SwiftUI's hosting layer intercepts drags before they reach child NSViews.
-  func handleSinglePaneFileDrop(providers: [NSItemProvider], tenvySessionId: String) -> Bool {
-    guard let hostView = ghosttyHostView(for: tenvySessionId) else { return false }
-
-    let group = DispatchGroup()
-    var urls: [URL] = []
-    let lock = NSLock()
-
-    for provider in providers {
-      group.enter()
-      _ = provider.loadObject(ofClass: URL.self) { url, _ in
-        defer { group.leave() }
-        guard let url else { return }
-        lock.lock()
-        urls.append(url)
-        lock.unlock()
-      }
-    }
-
-    group.notify(queue: .main) {
-      guard !urls.isEmpty else { return }
-      let text = urls
-        .map { GhosttyHostView.shellEscape($0.path) }
-        .joined(separator: " ")
-      hostView.surface?.sendText(text)
-    }
-    return true
-  }
-
-  /// Handler for split-pane terminals that also auto-closes when the claude process ends.
-  func handleSplitTerminalAction(_ action: TerminalAction, for session: ClaudeSession) {
-    handleTerminalAction(action, for: session)
-    if case .stateChanged(let info) = action,
-       primarySession?.id != session.id && info.state == .inactive {
-      closeSplitPane(id: session.id)
-    }
-  }
-
   /// Handle "Close Session" from the context menu.
   /// For active Claude sessions, shows a confirmation alert before terminating.
   /// For plain terminals or split panes, closes directly.
@@ -1388,16 +487,7 @@ final class ContentViewModel {
     let isActive = !isPlain && runtimeInfo.state != .inactive
 
     if isActive {
-      // Show confirmation for active Claude sessions
-      let alert = NSAlert()
-      alert.messageText = "Close Session?"
-      alert.informativeText = "This will terminate the active Claude session \"\(session.title)\"."
-      alert.alertStyle = .warning
-      let terminateButton = alert.addButton(withTitle: "Terminate")
-      terminateButton.hasDestructiveAction = true
-      alert.addButton(withTitle: "Cancel")
-
-      guard alert.runModal() == .alertFirstButtonReturn else { return }
+      guard NSAlert.confirmTerminateSession(title: session.title) else { return }
 
       // Kill the claude process
       let pid = runtimeInfo.shellPid > 0 ? runtimeInfo.shellPid : runtimeInfo.pid
@@ -1511,7 +601,7 @@ final class ContentViewModel {
   // MARK: - Private
 
   /// Set selected session and handle registration
-  private func setSelectedSession(_ session: ClaudeSession?) {
+  func setSelectedSession(_ session: ClaudeSession?) {
     let oldSession = selectedSession
 
     // If same session ID, just update the reference without re-registering
@@ -1532,7 +622,7 @@ final class ContentViewModel {
   /// Single point of truth for window-session binding.
   /// Unregisters the previous session (if different) and registers the new one.
   /// Pass `nil` to unbind the window entirely.
-  private func bindWindowToSession(_ session: ClaudeSession?) {
+  func bindWindowToSession(_ session: ClaudeSession?) {
     guard let window = currentWindow else { return }
     // Unregister old session if it differs from the new one
     if let oldId = window.sessionId, oldId != session?.id {

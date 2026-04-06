@@ -247,14 +247,14 @@ struct InspectorPanelView: View {
 
   private func loadBranches() {
     let path = session.workingDirectory
-    let all = GitBranchService.listLocalBranches(at: path)
-    let worktree = GitBranchService.worktreeBranches(at: path)
+    let all = appModel.gitService.listLocalBranches(at: path)
+    let worktree = appModel.gitService.worktreeBranches(at: path)
     let current = runtimeInfo.gitBranch ?? ""
     availableBranches = all.filter { $0 != current && !worktree.contains($0) }
   }
 
   private func switchBranch(to branch: String) {
-    let error = GitBranchService.checkoutBranch(branch, at: session.workingDirectory)
+    let error = appModel.gitService.checkoutBranch(branch, at: session.workingDirectory)
     if let error {
       branchError = error
       showBranchError = true

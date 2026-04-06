@@ -305,7 +305,7 @@ struct NewSessionDialogView: View {
           // Auto-update worktree path when branch name changes (only in worktree mode)
           if form.wrappedValue.gitMode == .worktree, let formData = viewModel.worktreeSplitForm {
             viewModel.worktreeSplitForm?.worktreePath =
-              WorktreeService.defaultWorktreePath(repoRoot: formData.repoRoot, branchName: newName, sessionId: formData.tenvySessionId)
+              viewModel.appModel.gitService.defaultWorktreePath(repoRoot: formData.repoRoot, branchName: newName, sessionId: formData.tenvySessionId)
           }
         }
     }

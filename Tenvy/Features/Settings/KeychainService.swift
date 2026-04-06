@@ -23,12 +23,24 @@
 import Foundation
 import Security
 
+/// Abstraction for keychain operations — injectable for testing.
+protocol KeychainServiceProtocol {
+  @discardableResult func save<T: Encodable>(_ value: T, account: String) -> Bool
+  func load<T: Decodable>(_ type: T.Type, account: String) -> T?
+  @discardableResult func delete(account: String) -> Bool
+}
+
 /// Stores and retrieves sensitive data from the macOS Keychain.
-enum KeychainService {
-  private static let service = "com.rostmen.Tenvy"
+struct KeychainService: KeychainServiceProtocol {
+  private let service: String
+
+  init(service: String = "com.rostmen.Tenvy") {
+    self.service = service
+  }
 
   /// Saves a JSON-encodable value to the Keychain under the given account key.
-  static func save<T: Encodable>(_ value: T, account: String) -> Bool {
+  @discardableResult
+  func save<T: Encodable>(_ value: T, account: String) -> Bool {
     guard let data = try? JSONEncoder().encode(value) else { return false }
 
     // Delete any existing item first
@@ -52,7 +64,7 @@ enum KeychainService {
   }
 
   /// Loads a JSON-decodable value from the Keychain for the given account key.
-  static func load<T: Decodable>(_ type: T.Type, account: String) -> T? {
+  func load<T: Decodable>(_ type: T.Type, account: String) -> T? {
     let query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
@@ -70,7 +82,7 @@ enum KeychainService {
 
   /// Deletes a Keychain item for the given account key.
   @discardableResult
-  static func delete(account: String) -> Bool {
+  func delete(account: String) -> Bool {
     let query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,

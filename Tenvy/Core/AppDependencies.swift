@@ -44,5 +44,18 @@ extension DependencyValues {
     get { self[HookEventsFilePathKey.self] }
     set { self[HookEventsFilePathKey.self] = newValue }
   }
+
+  /// Git service for worktree, branch, and repo operations.
+  var gitService: GitService {
+    get { self[GitServiceKey.self] }
+    set { self[GitServiceKey.self] = newValue }
+  }
+}
+
+// MARK: - GitService
+
+private struct GitServiceKey: DependencyKey {
+  static let liveValue = GitService(settings: AppSettings.shared)
+  static let testValue = GitService(settings: AppSettings.shared)
 }
 

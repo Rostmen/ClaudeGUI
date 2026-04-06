@@ -25,7 +25,11 @@ Tenvy/
 │   ├── TenvyApp.swift              # App entry + AppDelegate + WindowAccessor + DatabaseContext
 │   ├── AppState.swift              # Shared singleton (sessions, runtime, registry)
 │   ├── ContentView.swift           # Main layout (UI only, uses @Query for DB-backed state)
-│   ├── ContentViewModel.swift      # Session selection & window coordination
+│   ├── ContentViewModel.swift      # Session selection, split pane mgmt, action handlers, lifecycle
+│   ├── ContentViewModel+SessionCreation.swift  # New session, worktree/branch creation, plain terminals
+│   ├── ContentViewModel+DragAndDrop.swift      # Drag/drop transfer, file drop, cross-window pane moves
+│   ├── PendingSplitRequest.swift   # Pending split request data
+│   ├── WorktreeSplitFormData.swift # Worktree dialog form data
 │   ├── NotificationService.swift   # macOS notifications (UNUserNotificationCenter)
 │   └── NotificationPermissionPromptView.swift  # In-app permission prompt
 ├── Features/
@@ -78,8 +82,7 @@ Tenvy/
 │   │   ├── GitChangedFileTreeNode.swift  # Recursive tree node
 │   │   ├── GitChangedFileRow.swift # Git file row
 │   │   ├── DiffView.swift          # Git diff viewer
-│   │   ├── GitBranchService.swift  # Branch detection & listing (filesystem, no subprocess)
-│   │   ├── WorktreeService.swift    # Git worktree creation, branch creation & git init
+│   │   ├── GitService.swift         # Unified git service: worktree ops, branch mgmt, repo inspection (DI: AppSettings, FileManager)
 │   │   └── NewSessionDialogView.swift # Unified dialog for new sessions and splits (git/no-git)
 │   ├── Settings/                   # Settings
 │   │   ├── AppSettings.swift       # User preferences (UserDefaults) + AppearanceMode
@@ -97,7 +100,9 @@ Tenvy/
 │   ├── AppModel.swift              # Shared singleton (sessions, runtime, registry)
 │   ├── ClaudeSessionModel.swift    # Observable facade: ClaudeSession + SessionRuntimeInfo
 │   └── Extensions/
-│       └── ClaudeSessionModel+Preview.swift  # Preview mocks for ClaudeSessionModel
+│       ├── ClaudeSessionModel+Preview.swift  # Preview mocks for ClaudeSessionModel
+│       ├── DateFormatter+BranchName.swift    # Branch name date formatting + String helper
+│       └── NSAlert+Confirmation.swift        # Destructive session-close alert factory
 ├── Shared/                         # Shared components
 │   ├── WindowSessionRegistry.swift # Window-session mapping
 │   ├── SessionGroupingService.swift # Session grouping & filtering
