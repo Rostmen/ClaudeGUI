@@ -23,6 +23,7 @@
 import Dependencies
 import SwiftUI
 import UniformTypeIdentifiers
+import GRDBQuery
 
 /// Actions emitted by the session list sidebar.
 /// Handled by `ContentViewModel.handleSessionListAction(_:)`.
@@ -66,6 +67,17 @@ struct SessionListView: View {
   @State private var importError: String?
   @State private var showImportError = false
 
+  // Scheduled tasks — observed reactively via GRDBQuery.
+  @Query(AllScheduledTasksRequest()) private var scheduledTasks: [ScheduledTaskRecord]
+  /// All persisted session records. Used to supplement `sessionManager.sessions` with
+  /// DB-only sessions — e.g. scheduled-task runs whose `.jsonl` doesn't yet have user/
+  /// assistant content (which would cause `SessionManager` to filter it out).
+  @Query(AllSessionsRequest()) private var dbSessions: [SessionRecord]
+  @AppStorage("sidebar.scheduledSectionExpanded") private var scheduledSectionExpanded: Bool = true
+  /// When non-nil, the sidebar pushes into a task-detail view.
+  @State private var navigatedScheduledTaskId: String?
+  @State private var showingCreateScheduledTask = false
+
   /// Active sessions shown at the top (includes optimistic new sessions)
   private var activeSessions: [ClaudeSession] {
     // Build list of active sessions, preferring sessionManager's version if available
@@ -84,10 +96,46 @@ struct SessionListView: View {
     return sessions.sorted { $0.lastModified > $1.lastModified }
   }
 
-  /// Group non-active sessions by day, most recent first
+  /// DB-only sessions that aren't represented in the filesystem scan yet. Scheduled-task
+  /// runs sit here until their `.jsonl` is populated with user/assistant content (which
+  /// is what makes `SessionManager` include them). We surface them here so every session
+  /// the app knows about appears in the sidebar — scheduled or not.
+  private var supplementarySessions: [ClaudeSession] {
+    let filesystemClaudeIds = Set(sessionManager.sessions.map(\.id))
+    return dbSessions.compactMap { record -> ClaudeSession? in
+      // Skip records the filesystem scan already covers (matched by Claude session id).
+      if let claudeId = record.claudeSessionId, filesystemClaudeIds.contains(claudeId) {
+        return nil
+      }
+      // Skip plain terminals — they were never Claude sessions and don't belong in the
+      // session list.
+      if record.isPlainTerminal { return nil }
+      let id = record.claudeSessionId ?? record.tenvySessionId
+      return ClaudeSession(
+        id: id,
+        title: record.title,
+        projectPath: record.projectPath,
+        workingDirectory: record.workingDirectory,
+        lastModified: record.lastModifiedAt,
+        filePath: record.sessionFilePath.flatMap(URL.init(fileURLWithPath:)),
+        isNewSession: false,
+        tenvySessionId: record.tenvySessionId
+      )
+    }
+  }
+
+  /// Group non-active sessions by day, most recent first. Combines the filesystem scan
+  /// with DB-only orphans (see `supplementarySessions`).
   private var groupedSessions: [SessionGroupingService.SessionGroup] {
-    let nonActiveSessions = sessionManager.sessions.filter { !activeSessionIds.contains($0.id) }
-    return SessionGroupingService.groupByDate(nonActiveSessions)
+    // Active sessions can be keyed by either tempUUID or claudeSessionId; the stable
+    // identifier across that swap is `tenvySessionId`. We need both views to dedupe
+    // correctly against the DB supplementary list.
+    let activeTenvyIds = Set(activatedSessions.values.map(\.tenvySessionId))
+    let filesystemNonActive = sessionManager.sessions.filter { !activeSessionIds.contains($0.id) }
+    let supplementaryNonActive = supplementarySessions.filter {
+      !activeTenvyIds.contains($0.tenvySessionId)
+    }
+    return SessionGroupingService.groupByDate(filesystemNonActive + supplementaryNonActive)
   }
 
   private func isExpanded(_ folder: String) -> Binding<Bool> {
@@ -152,6 +200,29 @@ struct SessionListView: View {
   /// Session list content - extracted to simplify type checking
   private var sessionList: some View {
     List(selection: $localSelection) {
+      // Scheduled tasks section (above active sessions). Hidden when empty —
+      // creation is initiated from the toolbar's "+" menu. Inlined directly so the
+      // List recognises it as a Section (wrapping in a custom View struct breaks the
+      // sidebar-style disclosure parsing).
+      if !scheduledTasks.isEmpty {
+        Section(isExpanded: $scheduledSectionExpanded) {
+          ForEach(scheduledTasks) { task in
+            ScheduledTaskRowView(task: task)
+              .contentShape(Rectangle())
+              .onTapGesture { navigatedScheduledTaskId = task.id }
+          }
+        } header: {
+          HStack(spacing: 6) {
+            Label("Scheduled", systemImage: "clock.badge")
+              .font(.caption)
+              .foregroundColor(ClaudeTheme.accent)
+            Text("(\(scheduledTasks.count))")
+              .font(.caption)
+              .foregroundColor(ClaudeTheme.textSecondary)
+          }
+        }
+      }
+
       // Active Sessions section at the top
       if !activeSessions.isEmpty {
         Section(isExpanded: isExpanded("__active__")) {
@@ -189,8 +260,25 @@ struct SessionListView: View {
     }
   }
 
+  @ViewBuilder
+  private var primaryContent: some View {
+    if let id = navigatedScheduledTaskId {
+      ScheduledTaskDetailView(
+        taskId: id,
+        selectedSession: $selectedSession,
+        onBack: { navigatedScheduledTaskId = nil },
+        onMissing: { navigatedScheduledTaskId = nil }
+      )
+    } else {
+      sessionList
+    }
+  }
+
   var body: some View {
-    sessionList
+    primaryContent
+    .sheet(isPresented: $showingCreateScheduledTask) {
+      CreateScheduledTaskView()
+    }
     .listStyle(.sidebar)
     .scrollContentBackground(.hidden)
     .alert("Rename Session", isPresented: $showingRenameAlert) {
@@ -219,8 +307,13 @@ struct SessionListView: View {
     }
     .toolbar {
       ToolbarItem(placement: .primaryAction) {
-        Button(action: createNewSession) {
-          Label("New Session", systemImage: "plus")
+        Menu {
+          Button("New Session", action: createNewSession)
+          Button("New Scheduled Task") { showingCreateScheduledTask = true }
+        } label: {
+          Label("New", systemImage: "plus")
+        } primaryAction: {
+          createNewSession()
         }
       }
     }

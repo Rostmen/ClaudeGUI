@@ -106,6 +106,12 @@ final class ContentViewModel {
   @ObservationIgnored
   var splitInitScripts: [String: String] = [:]
 
+  /// Initial user prompts to feed Claude as a positional `claude "<prompt>"` argument.
+  /// Used by scheduled tasks. Keyed by `tenvySessionId`. Consumed on first access so
+  /// the prompt is never re-submitted on accidental re-renders.
+  @ObservationIgnored
+  private var initialPrompts: [String: String] = [:]
+
   /// Observer for pane drag-ended-outside-window notifications.
   @ObservationIgnored
   private var paneDragObserver: NSObjectProtocol?
@@ -137,6 +143,20 @@ final class ContentViewModel {
     if let paneDragObserver {
       NotificationCenter.default.removeObserver(paneDragObserver)
     }
+  }
+
+  // MARK: - Initial Prompt (scheduled tasks)
+
+  /// Records an initial prompt for a session. The next `ClaudeSessionTerminalView`
+  /// `makeNSView` for this `tenvySessionId` will append it as a positional argument
+  /// to the `claude` CLI invocation.
+  func setInitialPrompt(tenvySessionId: String, prompt: String) {
+    initialPrompts[tenvySessionId] = prompt
+  }
+
+  /// Returns and consumes the initial prompt for a session, if any.
+  func initialPrompt(for tenvySessionId: String) -> String? {
+    initialPrompts.removeValue(forKey: tenvySessionId)
   }
 
   // MARK: - GhosttyHostView Cache

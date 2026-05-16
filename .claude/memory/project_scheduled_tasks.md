@@ -1,0 +1,142 @@
+# Scheduled Tasks
+
+> Authoritative design lives at `scheduled-tasks.md` (repo root). This memory file is a
+> quick orientation for future conversations and a cross-link to the long-form spec.
+
+## What it is
+
+Recurring Claude Code "tasks" the user defines once. Each firing opens a fresh background
+window with a Claude session pre-seeded with a user-provided prompt, running in its own
+git worktree.
+
+## Surface area
+
+- New tables (GRDB migrations v4 + v5):
+  - `scheduledTask` — task definitions.
+  - `sessionRecord.scheduledTaskId` — optional FK from sessions to their parent task.
+- New files under `Tenvy/Features/Scheduled/`:
+  - `ScheduledTask.swift` — value types (`Frequency`, `Weekday`, `PromptKind`, `RunStatus`),
+    `nextRunAt` algorithm, branch/slug naming helpers.
+  - `ScheduledTaskScheduler.swift` — fixed 5-second tick loop, missed-run reconciliation.
+  - `ScheduledTaskExecutor.swift` — worktree creation, session insert, background window,
+    overlap rule (§4.4), failure handling. Also resolves the prompt (text/file) and hands
+    it to the new window's `ContentViewModel` via `setInitialPrompt(tenvySessionId:prompt:)`.
+  - `ScheduledTaskRowView.swift` — sidebar row (status icon + countdown). The
+    section is rendered inline in `SessionListView` (no wrapper struct — wrapping
+    `Section(isExpanded:)` in a `View` struct broke `List`'s sidebar parsing).
+  - `ScheduledTaskDetailView.swift` — push view: compact header + expandable disclosure
+    + session sub-list. Enable/disable toggle. Delete button opens the delete dialog.
+  - `CreateScheduledTaskView.swift` + `ScheduledTaskFormModel` — creation form.
+  - `DeleteScheduledTaskConfirmationView.swift` + `DeleteScheduledFlowModel` — stateful
+    delete dialog with cleanup progress.
+  - `ScheduledTaskCountdownFormatter.swift` — "in 3m 45s" etc.
+- New files under `Tenvy/Core/`:
+  - `ScheduledTaskRecord.swift` — GRDB record + `@Query` request types.
+  - `ScheduledTaskStore.swift` — sole writer for the `scheduledTask` table.
+- `AppModel` now owns `scheduledTaskStore`, `scheduledTaskScheduler`, and
+  `scheduledTaskExecutor`. `wireScheduledTasks()` builds them and assigns
+  `scheduler.onTaskDue` to the executor's `execute(_:)`. There is **no** prompt-
+  injector class anymore — the prompt is a positional CLI arg, so the executor
+  hands it directly to the spawned window's `ContentViewModel`.
+
+## Core runtime invariants
+
+- **One window per task at a time.** Enforced by the overlap rule, not by any registry.
+- **Overlap rule** (§4.4): previous session in `waiting` → auto-close and proceed;
+  previous in any other non-ended state → skip the new run; previous gone → proceed.
+  The `started` / nil / unknown states count as "still occupying" — defensive.
+- **Missed runs while app closed** are skipped on launch. The scheduler only rolls
+  `nextRunAt` forward; it does not fire backlog.
+- **No catch-up loops, no retries.** The next scheduled slot is the only retry.
+- **First run waits for the first natural slot.** Saving a task never fires immediately.
+- **Re-enable uses a fresh anchor** (`Date()` at re-enable time), not the original
+  schedule anchor.
+- **Auto-disable on failure.** Worktree creation, file-prompt I/O, SessionStart timeout,
+  and any other run error flips `enabled = false` and posts a failure notification.
+
+## Window opening
+
+Spawned sessions open as a **new NSWindow built directly via `NSHostingController`**
+(mirrors `ContentViewModel.handleDragToNewWindow`), but **without** `makeKeyAndOrderFront`
+— `orderFront(nil)` so the window is visible but does not steal focus from the user's
+active app. The window's `ContentViewModel` is preloaded with the session via
+`preloadForTransfer(session:hostView:nil:isPlainTerminal:false)`; the regular
+`shouldRenderTerminal` gate then triggers `makeNSView` once the window mounts.
+
+## Prompt injection mechanism
+
+The prompt is passed to Claude as the **trailing positional argument** of the launch
+command (`claude [options] "<prompt>"`). The Claude CLI's `[prompt]` arg starts an
+interactive session with that text submitted as the first user message — no need to
+hook into `SessionStart`/`Stop` events or simulate `sendText`+Enter timing.
+
+Flow:
+1. Executor resolves the prompt up front (text or file, 1 MB cap on files). File errors
+   surface as a `failed` run *before* any worktree or window is created.
+2. Executor stashes the prompt on the new window's `ContentViewModel` via
+   `setInitialPrompt(tenvySessionId:prompt:)`.
+3. `ClaudeSessionTerminalView.makeNSView` consumes the prompt via
+   `viewModel.initialPrompt(for:)` and appends it to the args list — *only* when the
+   launch is fresh (no `--resume`, no `--fork-session`), so reopening a session from
+   the by-date list later does not re-submit the prompt.
+4. `TerminalEnvironment.shellArgs` already single-quote-escapes each argument, so
+   multi-line text passes through cleanly.
+
+No hook-based injection, no timing windows, no failure-prone Enter simulation.
+
+### Variadic-flag gotcha (don't regress)
+
+Claude's `--allowedTools <tools...>` and `--disallowedTools <tools...>` are declared
+variadic in the CLI's commander schema. With the space-separated argv form
+(`--allowedTools 'Edit Write Bash(*)' 'How do you do?'`) the parser greedily eats
+the prompt as another tool name, and Claude opens with no first message.
+
+`ClaudeSessionTerminalView.makeNSView` therefore emits permission flags as
+`--flag=value` (single argv entry per flag — including `--permission-mode=...`
+for symmetry). This binds the value to the flag and leaves the trailing prompt
+arg untouched. If a future change reverts these to separate `--flag` / `value`
+args, scheduled tasks will silently lose their prompts again.
+
+## Worktree naming
+
+- Branch: `tenvy/scheduled/<slug>/<YYYYMMDD-HHMMSS>` (UTC timestamp).
+- Worktree dir name: `<slug>-<YYYYMMDD-HHMMSS>` (flat, no slashes).
+- On branch collision: append `-1`…`-9`. Beyond that → fail the run.
+- `customWorktreeBase` overrides the default `<repo>/.claude/worktrees` parent.
+- **Worktrees are retained until the task itself is deleted** (per design decision).
+  Disk-growth implications were explicitly accepted in §13 risks.
+
+## Sidebar surface
+
+A collapsible "Scheduled" section sits **above** the existing Active / by-date groups in
+`SessionListView`. The section is hidden entirely when no tasks exist. State persisted in
+`@AppStorage("sidebar.scheduledSectionExpanded")`. **Creation is initiated from the
+sidebar toolbar's `+` button** (a split menu: default action → New Session; menu item →
+New Scheduled Task). Tapping a row sets `navigatedScheduledTaskId`, which makes
+`SessionListView` swap its `primaryContent` to `ScheduledTaskDetailView` (back chevron
+returns to the flat list).
+
+Status icon + relative countdown only. Format: `"in 12s"`, `"in 3m 45s"`, `"in 3 days"`,
+`"due now"`. `TimelineView(.periodic(...))` re-renders at an interval scaled to the
+remaining time (1s → 15s → 60s → 600s).
+
+## Decisions explicitly out of scope
+
+- No edit (delete + recreate).
+- No "Run Now" button.
+- No affiliation surfaced on regular session rows or in the inspector for
+  scheduled-spawned sessions.
+- No skipped/failed entries in the sub-list — only real sessions.
+- No global "Scheduled" sidebar tab — section in the Sessions tab only.
+
+## Where to look first
+
+- For semantics: `scheduled-tasks.md`.
+- For runtime entry point: `AppModel.wireScheduledTasks()` and
+  `ScheduledTaskScheduler.tick`.
+- For overlap rule: `ScheduledTaskExecutor.decideOverlap`.
+- For UI: the inline `Section` in `SessionListView` (anchored on
+  `@AppStorage("sidebar.scheduledSectionExpanded")`), `ScheduledTaskRowView`,
+  `ScheduledTaskDetailView`, `CreateScheduledTaskView`.
+- For the `--allowedTools` prompt-swallow gotcha: "Variadic-flag gotcha" section
+  above and the comment block in `ClaudeSessionTerminalView.makeNSView`.

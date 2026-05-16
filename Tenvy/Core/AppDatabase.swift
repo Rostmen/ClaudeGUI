@@ -116,6 +116,54 @@ struct AppDatabase {
       }
     }
 
+    migrator.registerMigration("v4_createScheduledTask") { db in
+      try db.create(table: "scheduledTask") { t in
+        t.primaryKey("id", .text)
+        t.column("name", .text).notNull()
+        t.column("workingDirectory", .text).notNull()
+        t.column("customWorktreeBase", .text)
+        t.column("pendingGitInit", .boolean).notNull().defaults(to: false)
+        t.column("frequencyUnit", .text).notNull()
+        t.column("frequencyValue", .integer).notNull()
+        t.column("timeOfDayHour", .integer)
+        t.column("timeOfDayMinute", .integer)
+        t.column("weekdays", .text)
+        t.column("promptKind", .text).notNull()
+        t.column("promptText", .text)
+        t.column("promptFilePath", .text)
+        t.column("permissionSettings", .text).notNull().defaults(to: "{}")
+        t.column("enabled", .boolean).notNull().defaults(to: true)
+        t.column("createdAt", .datetime).notNull()
+        t.column("lastRunAt", .datetime)
+        t.column("lastRunStatus", .text)
+        t.column("lastRunMessage", .text)
+        t.column("lastRunSessionId", .text)
+        t.column("nextRunAt", .datetime).notNull()
+      }
+      try db.create(
+        index: "scheduledTask_nextRunAt_idx",
+        on: "scheduledTask",
+        columns: ["enabled", "nextRunAt"]
+      )
+    }
+
+    migrator.registerMigration("v5_addScheduledTaskIdToSessionRecord") { db in
+      // Defensive: only add if missing (avoids errors on schema-erase rebuilds in DEBUG).
+      let columns = try Row.fetchAll(db, sql: "PRAGMA table_info(sessionRecord)")
+      let hasColumn = columns.contains { $0["name"] as String == "scheduledTaskId" }
+      if !hasColumn {
+        try db.alter(table: "sessionRecord") { t in
+          t.add(column: "scheduledTaskId", .text)
+        }
+      }
+      try db.create(
+        index: "sessionRecord_scheduledTaskId_idx",
+        on: "sessionRecord",
+        columns: ["scheduledTaskId"],
+        options: .ifNotExists
+      )
+    }
+
     return migrator
   }
 

@@ -31,6 +31,11 @@ struct ClaudeSessionTerminalView: NSViewRepresentable {
   let isSelected: Bool
   var forkSourceSessionId: String? = nil
   var initScript: String? = nil
+  /// Provider for an initial user prompt to seed the session with. Invoked exactly once
+  /// inside `makeNSView` so consume-on-read storage isn't consumed by body re-evaluations
+  /// that happen before mount. Appended as the trailing positional argument to `claude`.
+  /// Only honored for fresh (non-resumed) sessions. Used by scheduled tasks.
+  var initialPromptProvider: (() -> String?)? = nil
   let onAction: (TerminalAction) -> Void
   let existingHostView: GhosttyHostView?
   let onHostViewCreated: ((GhosttyHostView) -> Void)?
@@ -65,6 +70,12 @@ struct ClaudeSessionTerminalView: NSViewRepresentable {
       // - Tools removed by the user → pass as --disallowedTools (deny overrides allow)
       // - Tools added by the user → pass as --allowedTools
       // - Explicit deny list → also passed as --disallowedTools
+      //
+      // IMPORTANT: `--allowedTools`/`--disallowedTools` are variadic flags (`<tools...>`)
+      // that greedily consume every subsequent positional argument until the next flag —
+      // including the trailing `[prompt]` we use for scheduled tasks. Always pass them
+      // as a single `--flag=value` arg so the parser binds the value to the flag and
+      // leaves the prompt alone.
       if let tenvySessionId = session?.tenvySessionId,
          let record = try? AppDatabase.shared.databaseReader.read({ db in
            try SessionRecord.fetchOne(db, key: tenvySessionId)
@@ -81,17 +92,16 @@ struct ClaudeSessionTerminalView: NSViewRepresentable {
           }
         }
 
-        args.append(contentsOf: ["--permission-mode", permSettings.permissionMode.rawValue])
+        args.append("--permission-mode=\(permSettings.permissionMode.rawValue)")
 
         // Compute what was inherited so we can detect removals
         let inherited = ClaudeSettingsService.mergeForNewSession(
           projectPath: session?.projectPath ?? ""
         )
 
-        // Tools the user explicitly allows (pass as --allowedTools)
+        // Tools the user explicitly allows (pass as --allowedTools=value, single arg)
         if !permSettings.permissions.allow.isEmpty {
-          args.append("--allowedTools")
-          args.append(permSettings.permissions.allow.joined(separator: " "))
+          args.append("--allowedTools=\(permSettings.permissions.allow.joined(separator: " "))")
         }
 
         // Tools to deny: explicit deny list + tools removed from inherited allow list.
@@ -101,9 +111,21 @@ struct ClaudeSessionTerminalView: NSViewRepresentable {
           .subtracting(permSettings.permissions.allow)
         let allDenied = Set(permSettings.permissions.deny).union(removedFromAllow)
         if !allDenied.isEmpty {
-          args.append("--disallowedTools")
-          args.append(allDenied.joined(separator: " "))
+          args.append("--disallowedTools=\(allDenied.joined(separator: " "))")
         }
+      }
+
+      // Trailing positional prompt — only on fresh launches, never on resume. Claude
+      // treats this as the first user message and starts processing immediately. The
+      // provider is invoked exactly once here so consume-on-read storage isn't drained
+      // by SwiftUI body re-evaluations before the view actually mounts. Permission
+      // flags above MUST use `--flag=value` form — variadic `<tools...>` would otherwise
+      // swallow this trailing arg as a tool name.
+      let isFreshLaunch = forkSourceSessionId == nil && (session?.isNewSession ?? true)
+      if isFreshLaunch,
+         let promptText = initialPromptProvider?()?.trimmingCharacters(in: .whitespacesAndNewlines),
+         !promptText.isEmpty {
+        args.append(promptText)
       }
 
       let launch = TerminalEnvironment.shellArgs(executable: claudePath, args: args, currentDirectory: session?.workingDirectory ?? NSHomeDirectory(), initScript: initScript)

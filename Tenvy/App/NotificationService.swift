@@ -239,6 +239,25 @@ final class NotificationService: NSObject {
     NSApplication.shared.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
   }
 
+  /// Post a transient notification for a scheduled-task lifecycle event (run started,
+  /// skipped, or failed). No dedup, no actions — just informational.
+  func notifyScheduledTaskEvent(title: String, body: String, identifier: String) {
+    let content = UNMutableNotificationContent()
+    content.title = title
+    content.body = body
+    content.sound = .default
+    let request = UNNotificationRequest(
+      identifier: identifier,
+      content: content,
+      trigger: nil
+    )
+    UNUserNotificationCenter.current().add(request) { error in
+      if let error {
+        print("Failed to schedule scheduled-task notification: \(error)")
+      }
+    }
+  }
+
   /// Clear pending notification for a session (e.g., when user starts typing)
   func clearNotification(for sessionId: String) {
     pendingNotifications.remove(sessionId)

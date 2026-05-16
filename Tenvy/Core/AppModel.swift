@@ -72,6 +72,15 @@ final class AppModel {
 
   let gitService: GitService
 
+  // MARK: - Scheduled tasks
+
+  let scheduledTaskStore: ScheduledTaskStore
+  let scheduledTaskScheduler: ScheduledTaskScheduler
+
+  /// Created in `wireScheduledTasks()` once `self` is fully initialized — it needs `self`.
+  @ObservationIgnored
+  private(set) var scheduledTaskExecutor: ScheduledTaskExecutor?
+
   // MARK: - Host View Transfer (cross-window session moves)
 
   /// Temporary store for GhosttyHostViews being transferred between windows.
@@ -132,6 +141,19 @@ final class AppModel {
     for ref in registeredViewModels {
       ref.value?.syncSessionFromHookEvent(tenvySessionId: tenvySessionId, claudeSessionId: claudeSessionId)
     }
+  }
+
+  /// Walks all registered ViewModels to find a cached `GhosttyHostView` for the given
+  /// `tenvySessionId`. Used by the scheduled-task prompt injector to reach into a
+  /// background-spawned window without owning a direct reference.
+  func findGhosttyHostView(for tenvySessionId: String) -> GhosttyHostView? {
+    registeredViewModels.removeAll { $0.value == nil }
+    for ref in registeredViewModels {
+      if let view = ref.value?.ghosttyHostView(for: tenvySessionId) {
+        return view
+      }
+    }
+    return nil
   }
 
   // MARK: - Session models (observable list of facades)
@@ -200,6 +222,8 @@ final class AppModel {
     terminalInput: any TerminalInput,
     runtimeRegistry: SessionRuntimeRegistry,
     sessionStore: SessionStore,
+    scheduledTaskStore: ScheduledTaskStore,
+    scheduledTaskScheduler: ScheduledTaskScheduler,
     gitService: GitService = GitService(settings: AppSettings.shared)
   ) {
     self.sessionDiscovery = sessionDiscovery
@@ -211,6 +235,8 @@ final class AppModel {
     self.terminalInput = terminalInput
     self.runtimeRegistry = runtimeRegistry
     self.sessionStore = sessionStore
+    self.scheduledTaskStore = scheduledTaskStore
+    self.scheduledTaskScheduler = scheduledTaskScheduler
     self.gitService = gitService
 
     // Inject session store into discovery service for DB upserts
@@ -220,11 +246,14 @@ final class AppModel {
 
     wireCallbacks()
     setupWindowObservers()
+    wireScheduledTasks()
   }
 
   /// Convenience live-app init. All expressions here run on `@MainActor` because the
   /// class is `@MainActor`, so constructing service instances is safe.
   convenience init() {
+    let database = AppDatabase.shared
+    let scheduledStore = ScheduledTaskStore(database: database)
     self.init(
       sessionDiscovery: SessionManager(),
       hookMonitor: HookEventService(),
@@ -234,7 +263,9 @@ final class AppModel {
       windowRegistry: WindowSessionRegistry(),
       terminalInput: TerminalRegistry(),
       runtimeRegistry: SessionRuntimeRegistry(),
-      sessionStore: SessionStore(database: .shared)
+      sessionStore: SessionStore(database: database),
+      scheduledTaskStore: scheduledStore,
+      scheduledTaskScheduler: ScheduledTaskScheduler(store: scheduledStore)
     )
   }
 
@@ -353,6 +384,7 @@ final class AppModel {
         } else {
           self.notifications.clearNotification(for: sessionId)
         }
+
       }
     }
 
@@ -372,6 +404,19 @@ final class AppModel {
     }
 
     hookMonitor.startMonitoring()
+  }
+
+  /// Wire scheduled-task execution. The executor builds the worktree, opens a background
+  /// window, and inserts a session record for each firing. The prompt is passed directly
+  /// to `claude` as a positional argument (see `ClaudeSessionTerminalView.initialPrompt`),
+  /// so no separate injection step is needed.
+  private func wireScheduledTasks() {
+    let executor = ScheduledTaskExecutor(appModel: self)
+    scheduledTaskExecutor = executor
+    scheduledTaskScheduler.onTaskDue = { [weak executor] task in
+      await executor?.execute(task)
+    }
+    scheduledTaskScheduler.start()
   }
 
   /// Restart sessions that are safely idle (waiting for user input, not actively working).
