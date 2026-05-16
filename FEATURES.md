@@ -8,15 +8,16 @@ A native macOS application for managing and resuming Claude Code CLI sessions wi
 
 1. [Overview](#overview)
 2. [Session Management](#session-management)
-3. [Multi-Window & Tab System](#multi-window--tab-system)
-4. [Terminal Integration](#terminal-integration)
-5. [File Browser](#file-browser)
-6. [IDE Integration](#ide-integration)
-7. [Git Integration](#git-integration)
-8. [Process Management](#process-management)
-9. [UI Components](#ui-components)
-10. [Settings & Preferences](#settings--preferences)
-11. [Architecture Patterns](#architecture-patterns)
+3. [Scheduled Tasks](#scheduled-tasks)
+4. [Multi-Window & Tab System](#multi-window--tab-system)
+5. [Terminal Integration](#terminal-integration)
+6. [File Browser](#file-browser)
+7. [IDE Integration](#ide-integration)
+8. [Git Integration](#git-integration)
+9. [Process Management](#process-management)
+10. [UI Components](#ui-components)
+11. [Settings & Preferences](#settings--preferences)
+12. [Architecture Patterns](#architecture-patterns)
 
 ---
 
@@ -90,6 +91,88 @@ Sessions automatically reload when files change:
 - 0.5 second latency batches rapid events
 - Additional 0.3 second debounce prevents duplicate reloads
 - Memory-safe with `Unmanaged` retain/release
+
+---
+
+## Scheduled Tasks
+
+Recurring Claude Code "tasks" that run on a fixed schedule (minutes / hours / days / weeks), each firing as its own background window with a fresh Claude session pre-seeded with a user-provided prompt.
+
+> Full design and decision log: [`scheduled-tasks.md`](./scheduled-tasks.md).
+
+### Creating a task
+
+The sidebar toolbar's existing **+** button is a split menu: clicking it directly opens the regular New Session flow, and its dropdown adds a **New Scheduled Task** item that opens `CreateScheduledTaskView`. The form collects:
+
+- **Name** — used for session titles, branch slugs, and sidebar rows.
+- **Working folder** — required. If it isn't a git repo, the user must opt in to a "git init on first run" checkbox.
+- **Worktree base** (optional) — defaults to `<repo>/.claude/worktrees`.
+- **Frequency** — unit (Minutes/Hours/Days/Weeks) + value (1–999). Days and weeks additionally take a time-of-day; weeks add a multi-select weekday picker.
+- **Prompt** — segmented Text / File. Text is stored inline; file paths are re-read on every execution.
+- **Permissions** — embedded `PermissionEditorView`, pre-filled from `ClaudeSettingsService.mergeForNewSession(...)`.
+
+Saving validates the form, computes the first `nextRunAt` from the configured frequency, and inserts via `ScheduledTaskStore`. The first run waits for the first natural slot — it never fires immediately.
+
+### Sidebar
+
+A collapsible "Scheduled" section sits above the Active and by-date groups in the Sessions tab. Each row shows:
+
+- A status icon (clock for waiting-next, play for running, slash for skipped, xmark for failed, pause for disabled).
+- The task name.
+- A relative-only countdown ("in 12s", "in 3m 45s", "in 3 days") that ticks live via a `TimelineView` whose refresh cadence scales to the remaining time.
+
+Tapping a row pushes the sidebar into `ScheduledTaskDetailView`. The back chevron returns to the flat list. Expanded/collapsed state is persisted in `@AppStorage`.
+
+### Task detail (push view)
+
+`ScheduledTaskDetailView` shows a compact header (back chevron, task name, frequency summary, enable toggle, delete button), an expandable "Details" disclosure (folder, worktree base, permissions summary, prompt preview, last-run info), and the list of sessions ever spawned by this task. Tapping a session navigates to it normally.
+
+### Execution
+
+When the in-app scheduler decides a task is due, the executor:
+
+1. Runs the **overlap rule** — see below.
+2. Resolves the prompt up front (text is used as-is; file prompts are re-read each firing, 1 MB cap).
+3. Detects or initializes the git repo, creates a fresh worktree under `tenvy/scheduled/<slug>/<YYYYMMDD-HHMMSS>` (worktree dir name uses the same slug+timestamp).
+4. Inserts a new `SessionRecord` linked to the scheduled task, with a title of the form `"<Task name> — yyyy-MM-dd HH:mm"` and the task's snapshotted permission settings.
+5. Registers a power assertion (`ScheduledTaskPowerGuard`) so macOS won't idle-sleep or start the screen saver while the session is alive. Released (1-second debounce) when the session is deactivated.
+6. Opens a new `NSWindow` via `NSHostingController<ContentView>` and calls `orderFront(nil)` — **without** `makeKeyAndOrderFront`. The window appears but doesn't steal focus from the user's foreground app.
+7. Stashes the prompt on the new window's `ContentViewModel`; `ClaudeSessionTerminalView.makeNSView` appends it as the trailing `[prompt]` positional CLI argument so Claude treats it as the first user message. Permission flags use `--flag=value` form to avoid being swallowed by Claude's variadic `<tools...>` parser.
+8. Updates the task's `lastRunAt`, `lastRunStatus = .running`, `lastRunSessionId`, and the next computed `nextRunAt`.
+9. Posts a "Scheduled task started" macOS notification.
+
+### Overlap rule (one window per task at a time)
+
+Before doing any work for a firing, the executor inspects the prior spawned session:
+
+| Prior session state | Action |
+|---|---|
+| `waiting` (Stop hook fired — Claude is idle) | Auto-close the prior window/process, then proceed. |
+| `processing`, `thinking`, `waitingPermission` | **Skip** the new run; record `.skipped` with reason. |
+| `started` or no hook state yet | **Skip** (race-window guard — prior session might still be booting). |
+| `ended` / prior session not active anymore | Proceed. |
+
+Skipped runs do not appear in the sub-list (they didn't create a session), but they do surface on the task row as the current status with the reason text.
+
+### Failures and missed runs
+
+- Any error in the pipeline (folder missing, worktree creation failed, file prompt unreadable, `SessionStart` timed out at 60 s, etc.) marks the run as failed, flips `enabled = false` on the task, and posts a notification with the reason. The user must manually re-enable after fixing the cause.
+- If the app was closed when a slot was due, the scheduler **does not** fire the missed run on launch — it only rolls `nextRunAt` forward to the next valid slot. Tasks never fire while Tenvy isn't running.
+
+### Disable / re-enable / delete
+
+- The detail view's toggle disables the task. If a session is currently running, a sheet asks the user whether to stop the running session or let it finish naturally before disabling.
+- Re-enabling uses **a fresh anchor from re-enable time** — it does not preserve the original schedule.
+- Editing is **not** supported. To change frequency, prompt, folder, or permissions, the user deletes and recreates.
+- Deleting opens a stateful confirmation dialog that lists the task, the spawned session records, and the worktree directories that will be removed. Both "delete sessions" and "delete worktrees" are independently opt-in checkboxes (default on). On confirm the dialog enters a "Cleaning up…" state with a progress bar and per-step status text; it cannot be dismissed during this phase. On success it shows a checkmark and auto-closes. On partial failure it lists the items that couldn't be removed.
+
+### Worktree retention
+
+Spawned worktrees are **kept forever until the task itself is deleted** (decided trade-off — disk usage grows linearly with runs). The delete dialog is the canonical bulk-cleanup mechanism.
+
+### Notifications
+
+Every run start, every skip, and every failure dispatches a transient macOS notification via `NotificationService.notifyScheduledTaskEvent(...)`. Identifiers are unique per event so the OS doesn't dedupe across historical runs.
 
 ---
 

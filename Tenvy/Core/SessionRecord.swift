@@ -85,6 +85,11 @@ struct SessionRecord: Codable, FetchableRecord, PersistableRecord, Identifiable 
   /// the user has made changes that require a restart.
   var launchedPermissionsHash: String?
 
+  /// If this session was spawned by a scheduled task, the task's id.
+  /// Nil for normal user-created sessions. No SQL FK constraint — orphan rows are allowed
+  /// when a task is deleted with "keep sessions" selected.
+  var scheduledTaskId: String? = nil
+
   static let databaseTableName = "sessionRecord"
 
   /// Resolved HookState from the stored raw string.

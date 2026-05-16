@@ -519,6 +519,9 @@ private struct PaneLeafView: View {
         isSelected: viewModel.selectedSession?.id == session.id,
         forkSourceSessionId: viewModel.forkSourceSessionId(for: session.tenvySessionId),
         initScript: viewModel.initScript(for: session.tenvySessionId),
+        initialPromptProvider: { [weak viewModel] in
+          viewModel?.initialPrompt(for: session.tenvySessionId)
+        },
         onAction: { action in
           handleAction(action)
         },

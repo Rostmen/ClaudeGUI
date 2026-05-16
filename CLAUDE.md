@@ -7,6 +7,7 @@ macOS app for managing and resuming Claude Code CLI sessions with a native trans
 ## Quick Overview
 
 - **Session Management**: Browse, resume, rename, and delete Claude Code sessions
+- **Scheduled Tasks**: Recurring sessions with a user-provided prompt that run on a fixed schedule (minutes/hours/days/weeks) inside fresh worktrees, supervised by Tenvy
 - **Embedded Terminal**: Ghostty terminal with CPU-based state monitoring
 - **Split Panes**: Tree-based split layout (Ghostty-style) — splitting only divides the focused pane, not all panes. Both splits and new session creation intercept to offer git worktree creation for parallel branch work
 - **Multi-Window Support**: Each session runs in isolated window/tab with single process
@@ -84,6 +85,16 @@ Tenvy/
 │   │   ├── DiffView.swift          # Git diff viewer
 │   │   ├── GitService.swift         # Unified git service: worktree ops, branch mgmt, repo inspection (DI: AppSettings, FileManager)
 │   │   └── NewSessionDialogView.swift # Unified dialog for new sessions and splits (git/no-git)
+│   ├── Scheduled/                  # Scheduled tasks (recurring sessions)
+│   │   ├── ScheduledTask.swift           # Value types (Frequency, Weekday, PromptKind, RunStatus), nextRunAt, slug/branch naming
+│   │   ├── ScheduledTaskScheduler.swift  # 5s tick loop, missed-run reconciliation
+│   │   ├── ScheduledTaskExecutor.swift   # Overlap rule, worktree, background window, session insert, failure handling
+│   │   ├── ScheduledTaskCountdownFormatter.swift  # "in 3m 45s" relative-only countdown
+│   │   ├── ScheduledTaskRowView.swift    # Sidebar row: status icon + countdown
+│   │   ├── ScheduledTaskDetailView.swift # Push view: header + expandable disclosure + sessions sub-list
+│   │   ├── CreateScheduledTaskView.swift # Creation form (+ ScheduledTaskFormModel)
+│   │   ├── DeleteScheduledTaskConfirmationView.swift  # Stateful delete dialog with cleanup progress
+│   │   └── ScheduledTaskPowerGuard.swift # IOPMAssertion holder — prevents idle sleep / screen saver while any scheduled session is alive
 │   ├── Settings/                   # Settings
 │   │   ├── AppSettings.swift       # User preferences (UserDefaults) + AppearanceMode
 │   │   ├── ClaudeThemeSync.swift   # Writes theme to ~/.claude.json on appearance change
@@ -97,7 +108,9 @@ Tenvy/
 │   ├── AppDatabase.swift           # GRDB DatabasePool setup + migrations
 │   ├── SessionRecord.swift         # GRDB model + @Query request types
 │   ├── SessionStore.swift          # Sole DB write service (ViewModels/services → DB)
-│   ├── AppModel.swift              # Shared singleton (sessions, runtime, registry)
+│   ├── ScheduledTaskRecord.swift   # GRDB model + @Query request types for scheduled tasks
+│   ├── ScheduledTaskStore.swift    # Sole writer for the scheduledTask table
+│   ├── AppModel.swift              # Shared singleton (sessions, runtime, registry, scheduler)
 │   ├── ClaudeSessionModel.swift    # Observable facade: ClaudeSession + SessionRuntimeInfo
 │   └── Extensions/
 │       ├── ClaudeSessionModel+Preview.swift  # Preview mocks for ClaudeSessionModel
@@ -377,6 +390,24 @@ Two-level permission management: global (App Settings) and per-session (Inspecto
 - On success: opens `/Applications/Tenvy.app` then terminates current process
 - `isUpdating: Bool` flag bypasses quit/close confirmation dialogs when brew sends terminate signal
 - Release notes fetched from GitHub release body and shown in a dark `NSWindow` on first launch of a new version
+
+### Scheduled Tasks
+
+Full design and decision log lives at [scheduled-tasks.md](./scheduled-tasks.md). Quick reference for implementation invariants:
+
+- **DB**: `scheduledTask` table (migration v4) + `sessionRecord.scheduledTaskId` foreign-key column (migration v5). Spawned sessions look identical to normal sessions plus the `scheduledTaskId` link.
+- **Scheduler**: `ScheduledTaskScheduler` runs a single `Timer` every **5 seconds**. On launch it rolls `nextRunAt` forward for any task whose due time was missed while the app was closed — missed runs are **never** fired (decision: skip-missed).
+- **One window per task** is enforced by the **overlap rule** in `ScheduledTaskExecutor.decideOverlap`, not by any registry: previous session in `waiting` → auto-close and proceed; previous in any other non-ended state → skip; previous gone / ended → proceed. The `started` / nil hook states count as still-running for safety.
+- **Window opening**: each firing creates a fresh `NSWindow` via `NSHostingController<ContentView>` (same pattern as `handleDragToNewWindow`), then calls `orderFront(nil)` — **not** `makeKeyAndOrderFront` — so the window appears without stealing focus from the user's foreground app. Dock icon may still bounce; that's accepted.
+- **Prompt injection**: the prompt is passed to Claude as the **trailing positional argument** (`claude [options] "<prompt>"`). The executor resolves the prompt up front, then calls `ContentViewModel.setInitialPrompt(tenvySessionId:prompt:)` on the spawned window's view model before the terminal mounts. `ClaudeSessionTerminalView.makeNSView` consumes the prompt via `viewModel.initialPrompt(for:)` and appends it to `args` — but only on fresh launches (no `--resume`, no `--fork-session`), so resumed sessions don't re-submit. `TerminalEnvironment.shellArgs` already shell-escapes each arg, so multi-line text passes through cleanly. No hook listener, no `sendText` timing dance.
+- **Variadic CLI flag gotcha**: `--allowedTools` and `--disallowedTools` are declared as variadic (`<tools...>`) in Claude's commander parser, so they greedily consume **every** subsequent positional arg until the next flag — including the trailing prompt. `--permission-mode` is single-arg but defensively gets the same treatment. All three are emitted as `--flag=value` (single argv entry) in `ClaudeSessionTerminalView.makeNSView`, which binds the value to the flag and leaves the prompt arg alone. Symptom if this regresses: scheduled-task windows open and Claude starts, but no prompt is submitted because it was swallowed as a tool name.
+- **Idle sleep / screen saver**: `ScheduledTaskPowerGuard` (`Tenvy/Features/Scheduled/`) holds `IOPMAssertion`s (`PreventUserIdleSystemSleep` + `PreventUserIdleDisplaySleep`) while at least one scheduled-task session is alive. Registered by `ScheduledTaskExecutor.execute` after `openBackgroundWindow`; unregistered (1-second debounce) from `AppModel.deactivateSession`. Tracking is keyed by `tenvySessionId` so it survives the temp-UUID → Claude session-ID swap in `syncSessionFromHookEvent` — the debounce is what keeps the assertion stable across that transient deactivate-then-activate. IOKit auto-releases on process exit if we crash; explicit release happens when the active set drains.
+- **Worktree naming**: `tenvy/scheduled/<slug>/<YYYYMMDD-HHMMSS>` branch + `<slug>-<YYYYMMDD-HHMMSS>` directory. Collisions append `-1`…`-9`. Worktrees are **retained until the task is deleted** (no per-run cleanup).
+- **Failure handling**: any error in the executor pipeline (folder missing, worktree create failure, file prompt unreadable, SessionStart timeout, etc.) flips `enabled = false` and posts a macOS notification with the reason. The user must manually re-enable after fixing the cause.
+- **No edit / no Run Now**: the task is immutable after creation. Frequency, prompt, folder changes require delete + recreate. Disabling and re-enabling uses **a fresh anchor from re-enable time**, not the original schedule.
+- **Sidebar**: collapsible "Scheduled" section at the top of the Sessions tab (`@AppStorage("sidebar.scheduledSectionExpanded")`), hidden when empty. Creation is initiated from the sidebar toolbar's `+` (menu: "New Session" default / "New Scheduled Task"), which opens `CreateScheduledTaskView`. Tapping a row sets `navigatedScheduledTaskId` in `SessionListView`, which swaps `primaryContent` to `ScheduledTaskDetailView` (back chevron returns).
+- **Notifications**: every run start + every skip + every failure goes through `NotificationService.notifyScheduledTaskEvent(...)` (added to the `SessionNotifying` protocol). Identifiers include the task id and timestamp so they don't dedupe across runs.
+- **Write discipline**: `ScheduledTaskStore` is the sole writer to the `scheduledTask` table. Views observe via GRDBQuery `@Query` and never write directly.
 
 ### Inspector Panel
 

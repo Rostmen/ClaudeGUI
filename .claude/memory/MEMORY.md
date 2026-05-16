@@ -21,6 +21,7 @@
 - [project_ide_detection.md](project_ide_detection.md) — IDE detection via NSWorkspace bundle IDs, IDEHeaderButton in pane header, supported IDEs
 - [project_session_store.md](project_session_store.md) — GRDB-backed SQLite DB for persistent sessions, TENVY_SESSION_ID mapping, write discipline
 - [project_permission_config.md](project_permission_config.md) — Two-level permission management, shared PermissionEditorView, --settings CLI flag
+- [project_scheduled_tasks.md](project_scheduled_tasks.md) — Scheduled tasks: tables, scheduler, executor, overlap rule, prompt injection, sidebar UX. Spec lives at /scheduled-tasks.md.
 
 ## Feedback
 - [feedback_commits.md](feedback_commits.md) — Never commit/push without explicit user approval

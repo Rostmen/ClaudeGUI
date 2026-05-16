@@ -74,6 +74,11 @@ protocol SessionNotifying: AnyObject {
 
   /// Hide the in-app prompt permanently (stored in UserDefaults)
   func dismissPromptPermanently()
+
+  /// Post a transient (non-action) notification for a scheduled-task lifecycle event.
+  /// `identifier` should be unique per event so the OS doesn't dedupe historical entries
+  /// (e.g. `scheduled-<taskId>-started-<timestamp>`).
+  func notifyScheduledTaskEvent(title: String, body: String, identifier: String)
 }
 
 // MARK: - Conformance
