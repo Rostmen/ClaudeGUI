@@ -156,6 +156,67 @@ final class AppModel {
     return nil
   }
 
+  /// Find the window that currently owns the given session — either as the window's
+  /// primary (via `WindowRegistering`) or as a pane inside its split tree.
+  /// `WindowRegistering` only tracks the primary pane per window, so a sidebar click
+  /// on a split-pane session would otherwise miss the existing window and duplicate
+  /// the session into a new pane. Walk all registered ViewModels as a fallback.
+  func findWindowOwningSession(_ sessionId: String) -> NSWindow? {
+    if let window = windowRegistry.window(for: sessionId) { return window }
+    registeredViewModels.removeAll { $0.value == nil }
+    for ref in registeredViewModels {
+      guard let vm = ref.value, vm.ownsSession(sessionId), let window = vm.currentWindow else { continue }
+      return window
+    }
+    return nil
+  }
+
+  /// Bring the window that owns the given session to the front and focus the pane.
+  /// Returns true if a window was found and surfaced. Used by `selectSession` so a
+  /// sidebar click on an already-active split pane switches to its window rather
+  /// than spawning a duplicate session in the current one.
+  func surfaceWindowForSession(_ sessionId: String, excluding excludedWindow: NSWindow?) -> Bool {
+    guard let window = findWindowOwningSession(sessionId),
+          window.windowNumber != excludedWindow?.windowNumber else { return false }
+    window.makeKeyAndOrderFront(nil)
+    NSApplication.shared.activate(ignoringOtherApps: true)
+    // Ask the owning VM to focus the pane (so a click on a split-pane session lands
+    // on the correct surface, not the window's primary).
+    registeredViewModels.removeAll { $0.value == nil }
+    for ref in registeredViewModels {
+      guard let vm = ref.value, vm.ownsSession(sessionId), vm.currentWindow == window else { continue }
+      vm.handleFocusGained(for: sessionId)
+      break
+    }
+    return true
+  }
+
+  /// Terminate a session's running process and remove its window/pane.
+  /// Mirrors `ScheduledTaskExecutor.closePriorSession`: kills the PID and deactivates
+  /// FIRST so `WindowDelegate.windowShouldClose` no longer sees an active session and
+  /// skips the confirmation alert. Handles primary-pane sessions (close the window)
+  /// and split-pane sessions (ask the owning VM to close just that pane).
+  func terminateAndCloseSession(_ sessionId: String) {
+    let runtimeInfo = runtimeRegistry.info(for: sessionId)
+    let pid = runtimeInfo.shellPid > 0 ? runtimeInfo.shellPid : runtimeInfo.pid
+    if pid > 0 {
+      ProcessManager.shared.terminateProcess(pid: pid)
+    }
+    deactivateSession(sessionId)
+
+    if let window = windowRegistry.window(for: sessionId) {
+      window.close()
+      return
+    }
+    // Split pane — ask its owning VM to close the pane only.
+    registeredViewModels.removeAll { $0.value == nil }
+    for ref in registeredViewModels {
+      guard let vm = ref.value, vm.ownsSession(sessionId) else { continue }
+      vm.closeSplitPane(id: sessionId)
+      break
+    }
+  }
+
   // MARK: - Session models (observable list of facades)
 
   /// Stable `ClaudeSessionModel` instances keyed by `tenvySessionId` — allows the

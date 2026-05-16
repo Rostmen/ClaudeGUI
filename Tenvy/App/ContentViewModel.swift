@@ -280,9 +280,11 @@ final class ContentViewModel {
       return
     }
 
-    // Check if session is already open in another window
-    if windowRegistry.selectSession(session.id, currentWindow: currentWindow) {
-      // Session was opened in another window, we switched to it
+    // Check if session is already open in another window — including as a split
+    // pane (which `WindowRegistering` doesn't track on its own). Without this,
+    // clicking a split-pane session from the sidebar would duplicate it into the
+    // current window and crash on double-activation.
+    if appModel.surfaceWindowForSession(session.id, excluding: currentWindow) {
       return
     }
 

@@ -56,15 +56,15 @@ final class DeleteScheduledFlowModel {
       for record in sessions {
         let tenvyId = record.tenvySessionId
         let title = record.title
-        let isActive = record.isActive
         steps.append(Step(label: "Removing session: \(title)", work: { [appModel] in
-          if isActive {
-            if let session = appModel.activatedSessions.values.first(where: { $0.tenvySessionId == tenvyId }) {
-              if let window = appModel.windowRegistry.window(for: session.id) {
-                window.close()
-              }
-              appModel.deactivateSession(session.id)
-            }
+          // Resolve current state at execution time — `record.isActive` is a snapshot
+          // from when the dialog opened and may be stale.
+          if let session = appModel.activatedSessions.values.first(where: { $0.tenvySessionId == tenvyId }) {
+            // Terminate the claude process and deactivate BEFORE closing the window
+            // so `WindowDelegate.windowShouldClose` doesn't show the confirmation
+            // alert. Also handles split-pane sessions (closes the pane only, not
+            // the whole window). Same pattern as `ScheduledTaskExecutor.closePriorSession`.
+            appModel.terminateAndCloseSession(session.id)
           }
           do {
             try appModel.sessionStore.deleteSession(tenvySessionId: tenvyId)
