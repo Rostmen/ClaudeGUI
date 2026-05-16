@@ -132,12 +132,14 @@ Tapping a row pushes the sidebar into `ScheduledTaskDetailView`. The back chevro
 When the in-app scheduler decides a task is due, the executor:
 
 1. Runs the **overlap rule** — see below.
-2. Detects or initializes the git repo, creates a fresh worktree under `tenvy/scheduled/<slug>/<YYYYMMDD-HHMMSS>` (worktree dir name uses the same slug+timestamp).
-3. Inserts a new `SessionRecord` linked to the scheduled task, with a title of the form `"<Task name> — yyyy-MM-dd HH:mm"` and the task's snapshotted permission settings.
-4. Opens a new `NSWindow` via `NSHostingController<ContentView>` and calls `orderFront(nil)` — **without** `makeKeyAndOrderFront`. The window appears but doesn't steal focus from the user's foreground app.
-5. Registers a one-shot prompt-injection listener; when the spawned session emits its `SessionStart` hook event, the injector resolves the window's `GhosttyHostView` and calls `surface.sendText(prompt)` followed by Enter 150 ms later.
-6. Updates the task's `lastRunAt`, `lastRunStatus = .running`, `lastRunSessionId`, and the next computed `nextRunAt`.
-7. Posts a "Scheduled task started" macOS notification.
+2. Resolves the prompt up front (text is used as-is; file prompts are re-read each firing, 1 MB cap).
+3. Detects or initializes the git repo, creates a fresh worktree under `tenvy/scheduled/<slug>/<YYYYMMDD-HHMMSS>` (worktree dir name uses the same slug+timestamp).
+4. Inserts a new `SessionRecord` linked to the scheduled task, with a title of the form `"<Task name> — yyyy-MM-dd HH:mm"` and the task's snapshotted permission settings.
+5. Registers a power assertion (`ScheduledTaskPowerGuard`) so macOS won't idle-sleep or start the screen saver while the session is alive. Released (1-second debounce) when the session is deactivated.
+6. Opens a new `NSWindow` via `NSHostingController<ContentView>` and calls `orderFront(nil)` — **without** `makeKeyAndOrderFront`. The window appears but doesn't steal focus from the user's foreground app.
+7. Stashes the prompt on the new window's `ContentViewModel`; `ClaudeSessionTerminalView.makeNSView` appends it as the trailing `[prompt]` positional CLI argument so Claude treats it as the first user message. Permission flags use `--flag=value` form to avoid being swallowed by Claude's variadic `<tools...>` parser.
+8. Updates the task's `lastRunAt`, `lastRunStatus = .running`, `lastRunSessionId`, and the next computed `nextRunAt`.
+9. Posts a "Scheduled task started" macOS notification.
 
 ### Overlap rule (one window per task at a time)
 

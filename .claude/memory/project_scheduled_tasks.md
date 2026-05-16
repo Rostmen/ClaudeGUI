@@ -24,6 +24,9 @@ git worktree.
   - `ScheduledTaskRowView.swift` — sidebar row (status icon + countdown). The
     section is rendered inline in `SessionListView` (no wrapper struct — wrapping
     `Section(isExpanded:)` in a `View` struct broke `List`'s sidebar parsing).
+  - `ScheduledTaskPowerGuard.swift` — holds `IOPMAssertion`s (system + display)
+    while any scheduled session is alive; prevents idle sleep / screen saver
+    mid-run. Debounced unregister survives the temp-UUID → claudeId sync swap.
   - `ScheduledTaskDetailView.swift` — push view: compact header + expandable disclosure
     + session sub-list. Enable/disable toggle. Delete button opens the delete dialog.
   - `CreateScheduledTaskView.swift` + `ScheduledTaskFormModel` — creation form.
@@ -33,11 +36,15 @@ git worktree.
 - New files under `Tenvy/Core/`:
   - `ScheduledTaskRecord.swift` — GRDB record + `@Query` request types.
   - `ScheduledTaskStore.swift` — sole writer for the `scheduledTask` table.
-- `AppModel` now owns `scheduledTaskStore`, `scheduledTaskScheduler`, and
-  `scheduledTaskExecutor`. `wireScheduledTasks()` builds them and assigns
-  `scheduler.onTaskDue` to the executor's `execute(_:)`. There is **no** prompt-
-  injector class anymore — the prompt is a positional CLI arg, so the executor
-  hands it directly to the spawned window's `ContentViewModel`.
+- `AppModel` now owns `scheduledTaskStore`, `scheduledTaskScheduler`,
+  `scheduledTaskExecutor`, and `scheduledTaskPowerGuard`. `wireScheduledTasks()`
+  builds them and assigns `scheduler.onTaskDue` to the executor's `execute(_:)`.
+  There is **no** prompt-injector class anymore — the prompt is a positional CLI
+  arg, so the executor hands it directly to the spawned window's
+  `ContentViewModel`. The power guard is registered by the executor (after
+  `openBackgroundWindow`) and unregistered (1-second debounce) by
+  `AppModel.deactivateSession` so the assertion stays stable across the
+  deactivate-then-activate hop inside `syncSessionFromHookEvent`.
 
 ## Core runtime invariants
 

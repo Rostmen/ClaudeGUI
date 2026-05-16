@@ -105,6 +105,10 @@ final class ScheduledTaskExecutor {
         nextRunAt: nextRunAt
       )
 
+      // Keep macOS awake while this scheduled session is alive. Released
+      // (debounced) when the session is deactivated — see `AppModel.deactivateSession`.
+      appModel.scheduledTaskPowerGuard.register(tenvySessionId: session.tenvySessionId)
+
       openBackgroundWindow(for: session, initialPrompt: promptText)
       handleStarted(task: task)
     } catch {

@@ -81,6 +81,11 @@ final class AppModel {
   @ObservationIgnored
   private(set) var scheduledTaskExecutor: ScheduledTaskExecutor?
 
+  /// Holds `IOPMAssertion`s while any scheduled-task session is alive, so macOS
+  /// doesn't sleep or start the screen saver mid-run. Registered by the executor
+  /// when a session spawns; unregistered (debounced) from `deactivateSession`.
+  let scheduledTaskPowerGuard = ScheduledTaskPowerGuard()
+
   // MARK: - Host View Transfer (cross-window session moves)
 
   /// Temporary store for GhosttyHostViews being transferred between windows.
@@ -351,6 +356,10 @@ final class AppModel {
 
     activatedSessions.removeValue(forKey: sessionId)
     runtimeRegistry.info(for: sessionId).reset()
+
+    // Release the power assertion (debounced) if this was a scheduled-task session.
+    // No-op for non-scheduled sessions and for ids the guard never saw.
+    scheduledTaskPowerGuard.unregister(tenvySessionId: tenvySessionId)
   }
 
   /// True if a session currently has a running terminal.
