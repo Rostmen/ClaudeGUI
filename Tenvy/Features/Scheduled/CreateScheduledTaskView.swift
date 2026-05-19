@@ -23,14 +23,25 @@
 import SwiftUI
 import AppKit
 
-/// Form for creating a scheduled task. Built around `ScheduledTaskFormModel`, which
-/// validates every field and produces a `ScheduledTaskRecord` ready to insert.
+/// Form for creating or editing a scheduled task. Built around `ScheduledTaskFormModel`,
+/// which validates every field and produces a `ScheduledTaskRecord` ready to insert or
+/// update. When `editing` is supplied, the form is pre-populated from that record and
+/// "Save" performs an update that preserves run-lifecycle fields (`createdAt`, `lastRun*`)
+/// while re-anchoring `nextRunAt` from now using the (possibly new) frequency.
 struct CreateScheduledTaskView: View {
   @Environment(\.dismiss) private var dismiss
   @Environment(AppModel.self) private var appModel
 
-  @State private var model = ScheduledTaskFormModel()
+  /// Existing task being edited, or nil for create mode.
+  let editing: ScheduledTaskRecord?
+
+  @State private var model: ScheduledTaskFormModel
   @State private var errorMessage: String?
+
+  init(editing: ScheduledTaskRecord? = nil) {
+    self.editing = editing
+    _model = State(initialValue: editing.map(ScheduledTaskFormModel.init(record:)) ?? ScheduledTaskFormModel())
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -43,6 +54,12 @@ struct CreateScheduledTaskView: View {
     }
     .frame(minWidth: 520, idealWidth: 560)
     .background(ClaudeTheme.surface)
+    .onAppear {
+      // Folder git status isn't part of the persisted record — recompute from disk.
+      if editing != nil, !model.workingDirectory.isEmpty {
+        model.refreshGitStatus(using: appModel.gitService)
+      }
+    }
   }
 
   // MARK: - Header / Footer
@@ -50,7 +67,7 @@ struct CreateScheduledTaskView: View {
   @ViewBuilder
   private var header: some View {
     HStack {
-      Text("New Scheduled Task")
+      Text(editing == nil ? "New Scheduled Task" : "Edit Scheduled Task")
         .font(.title3)
         .bold()
       Spacer()
@@ -289,8 +306,13 @@ struct CreateScheduledTaskView: View {
 
   private func save() {
     do {
-      let record = try model.makeRecord()
-      try appModel.scheduledTaskStore.insert(record)
+      if let editing {
+        let updated = try model.makeUpdatedRecord(from: editing)
+        try appModel.scheduledTaskStore.update(updated)
+      } else {
+        let record = try model.makeRecord()
+        try appModel.scheduledTaskStore.insert(record)
+      }
       dismiss()
     } catch {
       errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -326,6 +348,29 @@ final class ScheduledTaskFormModel {
   var promptFilePath: String = ""
 
   var permissionSettings: ClaudePermissionSettings = .empty
+
+  init() {}
+
+  /// Pre-fills every editable field from an existing record. Folder git-status is not
+  /// persisted, so callers should invoke `refreshGitStatus` after init to populate
+  /// `folderIsGitRepo` (and re-evaluate the git-init affordance).
+  init(record: ScheduledTaskRecord) {
+    self.name = record.name
+    self.workingDirectory = record.workingDirectory
+    self.customWorktreeBase = record.customWorktreeBase ?? ""
+    self.useWorktree = record.useWorktree
+    self.frequencyUnit = record.resolvedFrequencyUnit ?? .hour
+    self.frequencyValue = record.frequencyValue
+    self.timeOfDay = Self.dateFromTimeOfDay(record.resolvedTimeOfDay)
+    self.weekdays = record.resolvedWeekdays
+    self.promptKind = record.resolvedPromptKind ?? .text
+    self.promptText = record.promptText ?? ""
+    self.promptFilePath = record.promptFilePath ?? ""
+    self.permissionSettings = record.decodedPermissionSettings
+    // Will be corrected by `refreshGitStatus`. Default to true so the editor doesn't
+    // momentarily show the git-init prompt when the form opens for an existing repo.
+    self.folderIsGitRepo = true
+  }
 
   enum FormError: LocalizedError {
     case missingName
@@ -436,6 +481,43 @@ final class ScheduledTaskFormModel {
     )
   }
 
+  /// Builds an updated record by overlaying the form's editable fields onto an existing
+  /// record. Run-lifecycle fields (`createdAt`, `lastRunAt`, `lastRunStatus`,
+  /// `lastRunMessage`, `lastRunSessionId`, `enabled`) are preserved. `nextRunAt` is
+  /// re-anchored from `now` using the (possibly updated) frequency — mirrors the
+  /// re-enable semantics.
+  func makeUpdatedRecord(from existing: ScheduledTaskRecord, now: Date = Date()) throws -> ScheduledTaskRecord {
+    if let err = validate() { throw err }
+    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    let frequency = makeFrequency()
+    let next = frequency.nextRunAt(createdAt: existing.createdAt, from: now)
+
+    return ScheduledTaskRecord(
+      id: existing.id,
+      name: trimmed,
+      workingDirectory: workingDirectory,
+      customWorktreeBase: useWorktree && !customWorktreeBase.isEmpty ? customWorktreeBase : nil,
+      pendingGitInit: useWorktree && !folderIsGitRepo,
+      useWorktree: useWorktree,
+      frequencyUnit: frequencyUnit.rawValue,
+      frequencyValue: frequencyValue,
+      timeOfDayHour: frequencyUnit.requiresTimeOfDay ? hourOfTimeOfDay : nil,
+      timeOfDayMinute: frequencyUnit.requiresTimeOfDay ? minuteOfTimeOfDay : nil,
+      weekdays: frequencyUnit.requiresWeekdays ? ScheduledTaskWeekday.encode(weekdays) : nil,
+      promptKind: promptKind.rawValue,
+      promptText: promptKind == .text ? promptText : nil,
+      promptFilePath: promptKind == .file ? promptFilePath : nil,
+      permissionSettings: ScheduledTaskRecord.encode(permissionSettings),
+      enabled: existing.enabled,
+      createdAt: existing.createdAt,
+      lastRunAt: existing.lastRunAt,
+      lastRunStatus: existing.lastRunStatus,
+      lastRunMessage: existing.lastRunMessage,
+      lastRunSessionId: existing.lastRunSessionId,
+      nextRunAt: next
+    )
+  }
+
   private func makeFrequency() -> ScheduledTaskFrequency {
     ScheduledTaskFrequency(
       unit: frequencyUnit,
@@ -464,5 +546,13 @@ final class ScheduledTaskFormModel {
     comps.hour = 9
     comps.minute = 0
     return Calendar.current.date(from: comps) ?? Date()
+  }
+
+  private static func dateFromTimeOfDay(_ tod: ScheduledTaskTimeOfDay?) -> Date {
+    guard let tod else { return defaultTimeOfDay() }
+    var comps = DateComponents()
+    comps.hour = tod.hour
+    comps.minute = tod.minute
+    return Calendar.current.date(from: comps) ?? defaultTimeOfDay()
   }
 }

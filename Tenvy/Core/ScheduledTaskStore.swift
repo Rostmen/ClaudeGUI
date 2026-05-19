@@ -43,6 +43,14 @@ final class ScheduledTaskStore: Sendable {
     }
   }
 
+  /// Update an existing task record. Caller is responsible for preserving run-lifecycle
+  /// fields (`createdAt`, `lastRun*`) and recomputing `nextRunAt` when the schedule changes.
+  func update(_ record: ScheduledTaskRecord) throws {
+    try writer.write { db in
+      try record.update(db)
+    }
+  }
+
   /// Hard-delete a task. Spawned sessions are left orphaned unless the caller deletes them
   /// separately (see `SessionStore.deleteSession`).
   func delete(id: String) throws {

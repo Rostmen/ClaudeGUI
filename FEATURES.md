@@ -164,7 +164,7 @@ Skipped runs do not appear in the sub-list (they didn't create a session), but t
 
 - The detail view's toggle disables the task. If a session is currently running, a sheet asks the user whether to stop the running session or let it finish naturally before disabling.
 - Re-enabling uses **a fresh anchor from re-enable time** — it does not preserve the original schedule.
-- Editing is **not** supported. To change frequency, prompt, folder, or permissions, the user deletes and recreates.
+- The detail view's pencil button opens the same dialog used for creation, pre-filled from the existing task. Saving preserves the task id, creation time, enable state, and last-run history; the next run is re-anchored from "now" with the (possibly updated) frequency. Edits only affect future runs — an already-running session keeps the prompt, folder, and permissions it was launched with.
 - Deleting opens a stateful confirmation dialog that lists the task, the spawned session records, and the worktree directories that will be removed. Both "delete sessions" and "delete worktrees" are independently opt-in checkboxes (default on). On confirm the dialog enters a "Cleaning up…" state with a progress bar and per-step status text; it cannot be dismissed during this phase. On success it shows a checkmark and auto-closes. On partial failure it lists the items that couldn't be removed.
 
 ### Worktree retention
