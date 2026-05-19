@@ -96,12 +96,22 @@ struct SessionListView: View {
     return sessions.sorted { $0.lastModified > $1.lastModified }
   }
 
-  /// DB-only sessions that aren't represented in the filesystem scan yet. Scheduled-task
-  /// runs sit here until their `.jsonl` is populated with user/assistant content (which
-  /// is what makes `SessionManager` include them). We surface them here so every session
-  /// the app knows about appears in the sidebar — scheduled or not.
+  /// DB-only sessions that aren't represented in the filesystem scan yet but are still
+  /// genuinely resumable. In-flight scheduled-task runs are surfaced via `activeSessions`
+  /// (the second branch picks them up from `activatedSessions` even before `SessionManager`
+  /// sees the `.jsonl`); this list catches the narrower window where a record has a real
+  /// Claude session id and a `.jsonl` on disk but no conversation content yet, so the
+  /// filesystem scan filters it out (`SessionManager.parseSessionFile` requires user/
+  /// assistant/summary lines).
+  ///
+  /// Records without a `claudeSessionId` or with a missing `.jsonl` are excluded — they
+  /// are unresumable ghosts (failed scheduled-task runs, externally deleted session
+  /// files, etc.). Clicking such a row would launch `claude --resume <bogus-id>`, which
+  /// immediately exits with "No conversation found with session ID: …". Failed scheduled
+  /// runs remain reachable through `ScheduledTaskDetailView`'s run history.
   private var supplementarySessions: [ClaudeSession] {
     let filesystemClaudeIds = Set(sessionManager.sessions.map(\.id))
+    let fm = FileManager.default
     return dbSessions.compactMap { record -> ClaudeSession? in
       // Skip records the filesystem scan already covers (matched by Claude session id).
       if let claudeId = record.claudeSessionId, filesystemClaudeIds.contains(claudeId) {
@@ -110,14 +120,18 @@ struct SessionListView: View {
       // Skip plain terminals — they were never Claude sessions and don't belong in the
       // session list.
       if record.isPlainTerminal { return nil }
-      let id = record.claudeSessionId ?? record.tenvySessionId
+      // Resumability gate: Claude can only `--resume` a real session id whose `.jsonl`
+      // still exists. Drop anything that fails either check.
+      guard let claudeId = record.claudeSessionId,
+            let filePath = record.sessionFilePath,
+            fm.fileExists(atPath: filePath) else { return nil }
       return ClaudeSession(
-        id: id,
+        id: claudeId,
         title: record.title,
         projectPath: record.projectPath,
         workingDirectory: record.workingDirectory,
         lastModified: record.lastModifiedAt,
-        filePath: record.sessionFilePath.flatMap(URL.init(fileURLWithPath:)),
+        filePath: URL(fileURLWithPath: filePath),
         isNewSession: false,
         tenvySessionId: record.tenvySessionId
       )
