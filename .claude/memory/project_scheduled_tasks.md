@@ -74,6 +74,31 @@ active app. The window's `ContentViewModel` is preloaded with the session via
 `preloadForTransfer(session:hostView:nil:isPlainTerminal:false)`; the regular
 `shouldRenderTerminal` gate then triggers `makeNSView` once the window mounts.
 
+### Window delegate gotcha (don't regress)
+
+`WindowDelegate` (which runs the close confirmation and deactivates the session in
+`windowShouldClose`) is attached by `AppDelegate` in **two** places:
+1. `applicationDidFinishLaunching` iterates `NSApp.windows` once on launch.
+2. `handleWindowBecameKey` observes `NSWindow.didBecomeKeyNotification` and lazily
+   assigns the delegate the first time a window becomes key.
+
+Background-spawned scheduled windows hit **neither** path: they are created after
+launch, and `orderFront(nil)` does not make them key. Without the delegate the
+default close behavior runs — the X button just orders the window out
+(`isReleasedWhenClosed = false` means it isn't released), so `windowShouldClose`
+never fires. The session stays in `activatedSessions`, claude keeps running, and
+the `WindowSessionRegistry` entry persists. Clicking the session in the sidebar
+finds the hidden window via `WindowSessionRegistry.window(for:)` and
+`makeKeyAndOrderFront`s it back — *that* call finally triggers the lazy delegate
+assignment, so the next close finally shows the termination prompt.
+
+Fix: `ScheduledTaskExecutor.openBackgroundWindow` explicitly attaches
+`AppDelegate.windowDelegate` to the new window right after construction. The
+property was bumped from `private lazy` to `internal lazy` to allow this. If you
+ever add another path that creates an `NSWindow` without `makeKeyAndOrderFront`,
+apply the same explicit `window.delegate = …` assignment or sessions will leak
+the same way.
+
 ## Prompt injection mechanism
 
 The prompt is passed to Claude as the **trailing positional argument** of the launch
