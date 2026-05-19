@@ -33,6 +33,10 @@ struct ScheduledTaskDetailView: View {
   let taskId: String
   var onBack: () -> Void
   var onMissing: () -> Void
+  /// Fires when the user taps a session row. Wired to the sidebar's `onAction(.select(...))`
+  /// so the session goes through `ContentViewModel.selectSession` (window registry, runtime,
+  /// activation) — setting the `selectedSession` binding alone does not open the session.
+  var onSessionSelect: (ClaudeSession) -> Void
 
   @Environment(AppModel.self) private var appModel
   @Query<ScheduledTaskByIdRequest> private var task: ScheduledTaskRecord?
@@ -49,11 +53,13 @@ struct ScheduledTaskDetailView: View {
     taskId: String,
     selectedSession: Binding<ClaudeSession?>,
     onBack: @escaping () -> Void,
-    onMissing: @escaping () -> Void = {}
+    onMissing: @escaping () -> Void = {},
+    onSessionSelect: @escaping (ClaudeSession) -> Void = { _ in }
   ) {
     self.taskId = taskId
     self.onBack = onBack
     self.onMissing = onMissing
+    self.onSessionSelect = onSessionSelect
     self._selectedSession = selectedSession
     self._task = Query(constant: ScheduledTaskByIdRequest(id: taskId))
     self._sessions = Query(constant: SessionsByScheduledTaskRequest(scheduledTaskId: taskId))
@@ -150,8 +156,14 @@ struct ScheduledTaskDetailView: View {
       VStack(alignment: .leading, spacing: 6) {
         if let task {
           detailRow("Folder", value: task.workingDirectory)
-          if let worktreeBase = task.customWorktreeBase, !worktreeBase.isEmpty {
-            detailRow("Worktree base", value: worktreeBase)
+          if task.useWorktree {
+            if let worktreeBase = task.customWorktreeBase, !worktreeBase.isEmpty {
+              detailRow("Worktree base", value: worktreeBase)
+            } else {
+              detailRow("Worktree", value: "Fresh worktree per run")
+            }
+          } else {
+            detailRow("Worktree", value: "Off — runs in folder")
           }
           detailRow("Permissions", value: permissionsSummary(task.decodedPermissionSettings))
           detailRow("Prompt", value: promptPreview(task: task))
@@ -208,16 +220,21 @@ struct ScheduledTaskDetailView: View {
       List {
         Section {
           ForEach(sessions) { record in
-            let session = buildSession(from: record)
+            // Prefer the live activated session — its `id` matches the runtime registry
+            // key (temp UUID before hook sync, Claude session id after), so the row sees
+            // PID/CPU/MEM/hookState. Fall back to the DB record for inactive history rows.
+            let active = activatedSession(for: record)
+            let session = active ?? buildSession(from: record)
+            let isActive = active != nil
             SessionRowView(
               sessionModel: ClaudeSessionModel(
                 session: session,
                 runtime: appModel.runtimeRegistry.info(for: session.id)
               ),
-              isActive: record.isActive
+              isActive: isActive
             )
             .contentShape(Rectangle())
-            .onTapGesture { selectedSession = session }
+            .onTapGesture { onSessionSelect(session) }
           }
         } header: {
           Text("Sessions (\(sessions.count))")
@@ -227,6 +244,14 @@ struct ScheduledTaskDetailView: View {
       }
       .listStyle(.sidebar)
       .scrollContentBackground(.hidden)
+    }
+  }
+
+  /// Look up the currently-activated session for a record by stable `tenvySessionId`.
+  /// Returns nil if the session isn't activated (either never opened or already closed).
+  private func activatedSession(for record: SessionRecord) -> ClaudeSession? {
+    appModel.activatedSessions.values.first {
+      $0.tenvySessionId == record.tenvySessionId
     }
   }
 

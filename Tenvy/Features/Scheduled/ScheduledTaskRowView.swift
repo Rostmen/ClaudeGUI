@@ -133,7 +133,7 @@ struct ScheduledTaskRowView: View {
   ScheduledTaskRowView(
     task: ScheduledTaskRecord(
       id: "1", name: "Refresh PRs", workingDirectory: "/tmp",
-      pendingGitInit: false, frequencyUnit: "hour", frequencyValue: 1,
+      pendingGitInit: false, useWorktree: false, frequencyUnit: "hour", frequencyValue: 1,
       timeOfDayHour: nil, timeOfDayMinute: nil, weekdays: nil,
       promptKind: "text", promptText: nil, promptFilePath: nil,
       permissionSettings: "{}", enabled: true,
@@ -148,7 +148,7 @@ struct ScheduledTaskRowView: View {
   ScheduledTaskRowView(
     task: ScheduledTaskRecord(
       id: "1", name: "Refresh PRs", workingDirectory: "/tmp",
-      pendingGitInit: false, frequencyUnit: "hour", frequencyValue: 1,
+      pendingGitInit: false, useWorktree: false, frequencyUnit: "hour", frequencyValue: 1,
       timeOfDayHour: nil, timeOfDayMinute: nil, weekdays: nil,
       promptKind: "text", promptText: nil, promptFilePath: nil,
       permissionSettings: "{}", enabled: true,
@@ -163,7 +163,7 @@ struct ScheduledTaskRowView: View {
   ScheduledTaskRowView(
     task: ScheduledTaskRecord(
       id: "1", name: "Daily summary", workingDirectory: "/tmp",
-      pendingGitInit: false, frequencyUnit: "day", frequencyValue: 1,
+      pendingGitInit: false, useWorktree: false, frequencyUnit: "day", frequencyValue: 1,
       timeOfDayHour: 9, timeOfDayMinute: 0, weekdays: nil,
       promptKind: "text", promptText: nil, promptFilePath: nil,
       permissionSettings: "{}", enabled: true,
