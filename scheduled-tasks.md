@@ -168,14 +168,17 @@ For each task:
 
 ### 4.2 Scheduler engine
 
-`ScheduledTaskScheduler` is a singleton owned by `AppModel`. It owns one shared `Timer` that fires every **5 seconds** while the app is running.
+`ScheduledTaskScheduler` is a singleton owned by `AppModel`. It is **event-driven** — there is no polling tick.
 
-- On each tick: query `scheduled_tasks WHERE enabled = true AND nextRunAt <= now` and for each candidate, hand it to `ScheduledTaskExecutor.execute(taskId:)`.
-- Ticks happen on the main actor; execution work is dispatched asynchronously, so a slow execution can't delay the next tick.
-- On app launch: start the timer, then immediately scan for tasks whose `nextRunAt < now` (i.e. missed-while-closed). For each such task, **recompute** `nextRunAt = nextSlotAfter(now)` and write it back. **Do not run** the missed slot (decision: skip missed). The recomputation is the only "catch-up" behavior.
-- On app shutdown: stop the timer cleanly. No persistence of timer state is needed because `nextRunAt` is recomputed from scratch on every launch.
+- A GRDB `ValueObservation` watches `scheduled_tasks WHERE enabled = true ORDER BY nextRunAt ASC` and re-emits on every DB change.
+- On each observation emission: cancel any pending one-shot `Timer`; fire any task whose `nextRunAt <= now`; then schedule a single new one-shot `Timer` for the earliest future `nextRunAt`. When that timer fires it just calls the same reschedule-and-fire routine.
+- Hand-off to `ScheduledTaskExecutor.execute(taskId:)` happens through the observation chain — the executor's writes (`markRunStarted`, `setNextRunAt`, etc.) round-trip through the same observation, which advances the schedule automatically. No "tick" concept exists.
+- An in-flight `Set<String>` guards against re-firing a task whose first firing hasn't yet written `nextRunAt` forward.
+- All observation callbacks and timer fires happen on the main actor; the executor itself is `@MainActor` and dispatches its async work via `Task`.
+- On app launch: scan for tasks whose `nextRunAt < now` (missed-while-closed). For each, **recompute** `nextRunAt = nextSlotAfter(now)` and write it back. **Do not run** the missed slot (decision: skip missed). Then start the observation. The recomputation is the only "catch-up" behavior.
+- On app shutdown: cancel the observation and invalidate the pending timer. No persistence of scheduler state is needed because `nextRunAt` is recomputed from scratch on every launch.
 
-The 5-second tick is good enough — minute-frequency tasks may fire up to 5s late, which is acceptable. We explicitly chose this over a dispatch-source per task because (a) it's far simpler, (b) the number of tasks will be small, (c) it gives us a single audit point for "what's scheduled right now".
+Why event-driven rather than a 5-second polling tick? Polling does a DB read every interval whether anything is scheduled or not, multiplies SQL trace noise (especially with multiple windows holding `@Query` observers that wake up on the polling writes), and adds 0–5s of jitter to every minute-frequency task. The observation costs one query when the DB changes and one cheap timer reschedule; an idle app with no scheduled tasks issues zero queries.
 
 ### 4.3 Computing `nextRunAt`
 
@@ -391,7 +394,7 @@ Tenvy/
     └── Scheduled/
         ├── ScheduledTask.swift                       # Value types: ScheduledTask (domain),
         │                                             # Frequency, Weekday, PromptKind, RunStatus
-        ├── ScheduledTaskScheduler.swift              # 5s timer, drives executor
+        ├── ScheduledTaskScheduler.swift              # GRDB ValueObservation + one-shot Timer, drives executor
         ├── ScheduledTaskExecutor.swift               # Builds branch/worktree, opens window, injects prompt
         ├── ScheduledTaskPromptInjector.swift         # SessionStart-hook listener + sendText
         ├── ScheduledTaskSidebarSection.swift         # Collapsible section header + rows
@@ -429,10 +432,10 @@ Tenvy/
 
 ## 8. Concurrency, threading, and invariants
 
-- All scheduler ticks and DB writes happen on the **main actor**. GRDB writes inside `ScheduledTaskStore` are synchronous and brief.
+- All scheduler observation callbacks, timer fires, and DB writes happen on the **main actor**. GRDB writes inside `ScheduledTaskStore` are synchronous and brief.
 - `ScheduledTaskExecutor.execute(taskId:)` is `@MainActor async`. It awaits worktree creation (which shells out via `Process` — already main-safe in `WorktreeService`).
 - Hook-event injection is best-effort: if the user closes the window before the SessionStart hook arrives, the injection listener is canceled.
-- We never spawn a Task to "re-fire later if conditions clear." The scheduler tick is the only retry mechanism. Skipped runs are not re-queued; the next regular slot is the next chance.
+- We never spawn a Task to "re-fire later if conditions clear." Re-firing only happens when the DB changes and the `ValueObservation` re-emits, or when the next one-shot timer fires. Skipped runs are not re-queued; the next regular slot is the next chance.
 - App quit while a scheduled session is running: the existing process-cleanup signal handlers tear it down (same as a manual session). On next launch, the session record's `isActive` is reset by the normal startup path; the task's `lastRunStatus` may still read `running` — startup reconciliation marks it `completed` if there is no longer an active session matching `lastRunSessionId`.
 
 ---
@@ -453,7 +456,7 @@ Tenvy/
 | 10 | Permissions JSON in the task is corrupt at execution time | Treat as inherit-defaults; log a warning. Do not fail the run for this. |
 | 11 | The SessionStart hook never fires (Claude crashed at launch) | 60s injection timeout → run fails → auto-disable. The launched window stays — user can investigate. |
 | 12 | User closes the spawned window while injection is pending | Cancel injection. Mark `lastRunStatus = completed` (window-close = end-of-run). |
-| 13 | Two tasks fire on the same tick | They execute serially (main actor + async/await). Each gets its own window. |
+| 13 | Two tasks come due at the same instant | The observation emits the sorted list; both pass the `nextRunAt <= now` filter in `rescheduleAndFire`. They execute serially (main actor + async/await). Each gets its own window. |
 | 14 | The Scheduled section's collapsed/expanded state | Persisted in `@AppStorage` so it survives app launches. |
 | 15 | User deletes a task while a confirmation dialog for another task is open | The dialog operates on a captured task id; the row simply disappears under it. We accept this minor visual glitch. |
 | 16 | Sub-list session was created by a now-deleted task (orphan path) | Sessions list still shows them normally; they just can't be filtered via the deleted task anymore. |

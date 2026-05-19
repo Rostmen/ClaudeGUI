@@ -21,34 +21,41 @@
 // SOFTWARE.
 
 import Foundation
+import GRDB
 
-/// Fixed 5-second tick loop that drives execution of due scheduled tasks.
+/// Event-driven scheduler for due scheduled tasks.
 ///
 /// Owned by `AppModel`. Wires a closure (`onTaskDue`) that the executor implements.
-/// The scheduler itself is intentionally dumb — it queries the DB on each tick,
-/// guards against re-entrancy with an in-process `inFlight` set, and hands off.
+///
+/// **No polling.** A GRDB `ValueObservation` watches enabled tasks ordered by
+/// `nextRunAt`. Whenever the DB changes (a task is added, edited, disabled, or
+/// fired), the observation re-emits the current list and we re-schedule a single
+/// one-shot `Timer` for the earliest future deadline. When the timer fires, any
+/// task whose `nextRunAt` has passed is handed off to the executor; the executor's
+/// writes (`markRunStarted`, etc.) trigger the same observation, which advances
+/// the schedule for the next slot.
 ///
 /// On `start()` it also performs missed-run reconciliation: any enabled task whose
-/// `nextRunAt` is in the past gets rolled forward to the next valid slot without firing
-/// the missed runs (per design — see `scheduled-tasks.md` §4.2).
+/// `nextRunAt` is in the past gets rolled forward to the next valid slot without
+/// firing the missed runs (per design — see `scheduled-tasks.md` §4.2).
 @MainActor
 final class ScheduledTaskScheduler {
   private let store: ScheduledTaskStore
+  private let databaseReader: any DatabaseReader
 
   /// Set by `AppModel` after the executor exists. Receives a due task and runs the full
   /// execution flow (overlap check → worktree → window → session → prompt injection).
   var onTaskDue: ((ScheduledTaskRecord) async -> Void)?
 
-  /// Tick interval, in seconds. Exposed for tests; production callers use the default.
-  let tickInterval: TimeInterval
-
-  private var timer: Timer?
+  private var observationCancellable: AnyDatabaseCancellable?
+  private var nextFireTimer: Timer?
+  private var latestEnabledTasks: [ScheduledTaskRecord] = []
   private var isStarted = false
   private var inFlight: Set<String> = []
 
-  init(store: ScheduledTaskStore, tickInterval: TimeInterval = 5) {
+  init(store: ScheduledTaskStore, databaseReader: any DatabaseReader) {
     self.store = store
-    self.tickInterval = tickInterval
+    self.databaseReader = databaseReader
   }
 
   // MARK: - Lifecycle
@@ -57,33 +64,77 @@ final class ScheduledTaskScheduler {
     guard !isStarted else { return }
     isStarted = true
     reconcileMissedRuns()
-    let timer = Timer(timeInterval: tickInterval, repeats: true) { [weak self] _ in
-      // Timer callback fires on the run loop's thread (main, since we add to .main).
-      // Dispatch into the main actor to keep the type system happy.
-      Task { @MainActor in self?.tick() }
-    }
-    RunLoop.main.add(timer, forMode: .common)
-    self.timer = timer
+    subscribeToEnabledTasks()
   }
 
   func stop() {
-    timer?.invalidate()
-    timer = nil
+    observationCancellable?.cancel()
+    observationCancellable = nil
+    nextFireTimer?.invalidate()
+    nextFireTimer = nil
+    latestEnabledTasks = []
     isStarted = false
   }
 
-  // MARK: - Tick
+  // MARK: - Observation
 
-  /// Internal — exposed for test-driven manual ticking.
-  func tick(now: Date = Date()) {
-    guard let due = try? store.fetchDue(asOf: now), !due.isEmpty else { return }
-    for task in due {
-      guard !inFlight.contains(task.id) else { continue }
-      inFlight.insert(task.id)
-      Task { @MainActor [weak self] in
-        defer { self?.inFlight.remove(task.id) }
-        await self?.onTaskDue?(task)
+  private func subscribeToEnabledTasks() {
+    let observation = ValueObservation.tracking { db in
+      try ScheduledTaskRecord
+        .filter(Column("enabled") == true)
+        .order(Column("nextRunAt").asc)
+        .fetchAll(db)
+    }
+    observationCancellable = observation.start(
+      in: databaseReader,
+      scheduling: .async(onQueue: .main),
+      onError: { _ in /* swallow — observation will re-fire on next write */ },
+      onChange: { [weak self] tasks in
+        Task { @MainActor [weak self] in
+          self?.didReceiveTasks(tasks)
+        }
       }
+    )
+  }
+
+  private func didReceiveTasks(_ tasks: [ScheduledTaskRecord]) {
+    latestEnabledTasks = tasks
+    rescheduleAndFire()
+  }
+
+  // MARK: - Fire
+
+  /// Fires any tasks whose deadline has passed and schedules a single one-shot timer
+  /// for the earliest future deadline. Invoked from `didReceiveTasks` (DB change) and
+  /// from the timer callback (deadline reached).
+  private func rescheduleAndFire() {
+    nextFireTimer?.invalidate()
+    nextFireTimer = nil
+
+    let now = Date()
+
+    // Fire anything already due. The executor's writes will trigger the observation
+    // to re-emit with updated `nextRunAt`, which advances the schedule.
+    for task in latestEnabledTasks where task.nextRunAt <= now {
+      fireTask(task)
+    }
+
+    // Schedule a single one-shot timer for the earliest future deadline.
+    guard let next = latestEnabledTasks.first(where: { $0.nextRunAt > now }) else { return }
+    let interval = max(0, next.nextRunAt.timeIntervalSinceNow)
+    let timer = Timer(timeInterval: interval, repeats: false) { [weak self] _ in
+      Task { @MainActor in self?.rescheduleAndFire() }
+    }
+    RunLoop.main.add(timer, forMode: .common)
+    nextFireTimer = timer
+  }
+
+  private func fireTask(_ task: ScheduledTaskRecord) {
+    guard !inFlight.contains(task.id) else { return }
+    inFlight.insert(task.id)
+    Task { @MainActor [weak self] in
+      defer { self?.inFlight.remove(task.id) }
+      await self?.onTaskDue?(task)
     }
   }
 
