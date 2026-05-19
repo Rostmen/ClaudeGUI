@@ -16,7 +16,6 @@ Let a user define a **recurring Claude Code task** that fires on a fixed schedul
 
 ## 2. Non-goals (v1)
 
-- Editing an existing scheduled task. (Delete + recreate is the only way to change a task. This is intentional — it keeps the data model immutable, prevents weird "what does the next run look like after the user edited the frequency" semantics, and lets us ship faster.)
 - Manual "Run now" trigger. The schedule is the only execution source.
 - Cron-style expressions. We expose a curated frequency picker only.
 - Catching up missed runs after an app close. We skip them.
@@ -268,7 +267,7 @@ A scheduled-spawned session is a normal `SessionRecord` plus one new column `sch
 
 ### 5.2 Permission inheritance
 
-The task stores its own `permissionSettings` (defaults from `ClaudeSettingsService.mergeForNewSession()` at task creation, then user-editable in the create form). At execution time the task's `permissionSettings` is copied to the session record. Live edits to the task's permissions only affect *future* runs; the running session keeps the permissions it was launched with — same restart-required semantics as today, except there is no "restart with new permissions" button on scheduled tasks (decided: no edit in v1).
+The task stores its own `permissionSettings` (defaults from `ClaudeSettingsService.mergeForNewSession()` at task creation, then user-editable in the create/edit form). At execution time the task's `permissionSettings` is copied to the session record. Live edits to the task's permissions only affect *future* runs; the already-running session keeps the permissions it was launched with — there is no "restart with new permissions" button on scheduled tasks.
 
 ### 5.3 Prompt injection
 
@@ -493,10 +492,10 @@ When the implementation lands, the following must be updated in the same PR:
 - `CLAUDE.md`:
   - Quick Overview: add a "Scheduled Tasks" bullet.
   - Architecture diagram: add the new `Features/Scheduled/` directory.
-  - Critical Implementation Details: add a "Scheduled Tasks" section summarizing the runtime invariants (overlap rule, missed-run policy, prompt injection mechanism, no edit / no run-now).
+  - Critical Implementation Details: add a "Scheduled Tasks" section summarizing the runtime invariants (overlap rule, missed-run policy, prompt injection mechanism, no run-now).
 - `FEATURES.md`: full feature write-up mirroring §3 of this doc.
 - `.claude/memory/`:
-  - New file: `project_scheduled_tasks.md` — overlap rule, missed-run policy, frequency model, prompt injection, worktree retention, no-edit decision.
+  - New file: `project_scheduled_tasks.md` — overlap rule, missed-run policy, frequency model, prompt injection, worktree retention.
   - Index it in `MEMORY.md`.
 - `.claude/rules/`:
   - No new permanent rules; the doc above is the spec.
@@ -549,7 +548,7 @@ Every product-shaping decision agreed during planning. Use this as a reference w
 | 7 | Permission default | Inherit global, editable per task | Bypass default; force pick |
 | 8 | Non-git folder | Offer git init + worktree | Allow in-place; block |
 | 9 | First run timing | First scheduled slot | Immediate; checkbox |
-| 10 | Management actions | Enable/disable + Delete only | + Edit + Run Now; + Duplicate |
+| 10 | Management actions | Enable/disable + Edit + Delete | + Run Now; + Duplicate |
 | 11 | Delete cascade | Confirmation dialog with worktree cleanup + progress animation | Always keep history; always cascade |
 | 12 | File prompt re-read | Re-read each execution | Snapshot at creation; per-task toggle |
 | 13 | Window mode | New separate window, background | New separate window, foreground; tab |

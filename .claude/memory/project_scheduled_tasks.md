@@ -159,9 +159,30 @@ hook state as the main list. Two gotchas to preserve:
    found, it passes that session's `id` to the runtime registry and `isActive: true` to
    `SessionRowView`. Falls back to the DB record only for history rows.
 
+## Editing
+
+Tasks are editable via the pencil button in `ScheduledTaskDetailView`'s
+header. The same `CreateScheduledTaskView` is reused with an `editing:`
+initializer that pre-fills the form via `ScheduledTaskFormModel.init(record:)`.
+Saving calls `ScheduledTaskStore.update(_:)` (a new method alongside `insert`).
+
+Update semantics:
+- Preserves `id`, `createdAt`, `enabled`, and every `lastRun*` field on the
+  record.
+- Re-anchors `nextRunAt` from "now" using the (possibly new) frequency —
+  mirrors `setEnabled(true, …)` re-anchor semantics, so the scheduler always
+  has a consistent forward-looking timestamp regardless of how the frequency
+  changed.
+- `folderIsGitRepo` is not persisted, so the form re-evaluates it on appear
+  via `model.refreshGitStatus(using: appModel.gitService)`. The initial value
+  defaults to `true` so the git-init checkbox doesn't briefly appear when
+  editing an established repo task.
+- Edits do not affect an already-running session — it keeps the prompt,
+  folder, and permissions it launched with. Only future fires use the new
+  task data.
+
 ## Decisions explicitly out of scope
 
-- No edit (delete + recreate).
 - No "Run Now" button.
 - No affiliation surfaced on regular session rows or in the inspector for
   scheduled-spawned sessions.

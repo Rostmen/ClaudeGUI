@@ -47,6 +47,7 @@ struct ScheduledTaskDetailView: View {
   @State private var showPromptSheet = false
   @State private var showDisableConfirmation = false
   @State private var showDeleteFlow = false
+  @State private var showEditFlow = false
   @State private var errorMessage: String?
 
   init(
@@ -97,6 +98,11 @@ struct ScheduledTaskDetailView: View {
         )
       }
     }
+    .sheet(isPresented: $showEditFlow) {
+      if let task {
+        CreateScheduledTaskView(editing: task)
+      }
+    }
     .alert("Couldn't update task", isPresented: .constant(errorMessage != nil)) {
       Button("OK") { errorMessage = nil }
     } message: {
@@ -135,6 +141,14 @@ struct ScheduledTaskDetailView: View {
       .toggleStyle(.switch)
       .labelsHidden()
       .help(task?.enabled == true ? "Disable scheduled task" : "Enable scheduled task")
+
+      Button(action: { showEditFlow = true }) {
+        Image(systemName: "pencil")
+          .imageScale(.medium)
+      }
+      .buttonStyle(.borderless)
+      .disabled(task == nil)
+      .help("Edit scheduled task")
 
       Button(action: { showDeleteFlow = true }) {
         Image(systemName: "trash")
