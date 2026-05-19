@@ -331,7 +331,10 @@ final class AppModel {
       runtimeRegistry: SessionRuntimeRegistry(),
       sessionStore: SessionStore(database: database),
       scheduledTaskStore: scheduledStore,
-      scheduledTaskScheduler: ScheduledTaskScheduler(store: scheduledStore)
+      scheduledTaskScheduler: ScheduledTaskScheduler(
+        store: scheduledStore,
+        databaseReader: database.databaseReader
+      )
     )
   }
 
