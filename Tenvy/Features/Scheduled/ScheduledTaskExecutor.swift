@@ -308,6 +308,14 @@ final class ScheduledTaskExecutor {
     window.title = session.title
     window.isReleasedWhenClosed = false
 
+    // Background windows opened with `orderFront(nil)` never become key, so
+    // `AppDelegate.handleWindowBecameKey` would never attach the close-confirmation
+    // delegate. Without it, clicking the red X just hides the window — the session,
+    // process, and registry entries leak. Attach the shared delegate explicitly here.
+    if let appDelegate = NSApp.delegate as? AppDelegate {
+      window.delegate = appDelegate.windowDelegate
+    }
+
     // Inherit size from the first existing app window, falling back to a sane default.
     let preferredSize: NSSize
     if let reference = NSApp.windows.first(where: { $0.isVisible && !$0.isSheet && $0.level == .normal }) {

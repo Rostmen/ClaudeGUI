@@ -103,7 +103,10 @@ struct TenvyApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate {
   let appModel = AppModel()
   private lazy var lifecycleCoordinator = AppLifecycleCoordinator(updater: appModel.updater)
-  private lazy var windowDelegate = WindowDelegate(
+  /// Accessed by `ScheduledTaskExecutor.openBackgroundWindow` to attach the close-confirmation
+  /// delegate to scheduled windows, which never become key (so `handleWindowBecameKey`
+  /// would otherwise never fire for them and `windowShouldClose` would be skipped on close).
+  lazy var windowDelegate = WindowDelegate(
     appModel: appModel,
     lifecycleCoordinator: lifecycleCoordinator
   )
