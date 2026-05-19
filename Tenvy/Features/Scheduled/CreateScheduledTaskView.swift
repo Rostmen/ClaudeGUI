@@ -113,11 +113,15 @@ struct CreateScheduledTaskView: View {
         Button("Choose…") { pickFolder() }
       }
 
+      Toggle("Create a fresh git worktree for every run", isOn: $model.useWorktree)
+        .toggleStyle(.checkbox)
+        .font(.caption)
+
       Text(model.gitStrategyDescription)
         .font(.caption2)
         .foregroundColor(.secondary)
 
-      if model.shouldOfferGitInit {
+      if model.useWorktree && model.shouldOfferGitInit {
         Toggle(
           "Initialize git in this folder on first run",
           isOn: $model.acknowledgeGitInit
@@ -126,14 +130,16 @@ struct CreateScheduledTaskView: View {
         .font(.caption)
       }
 
-      DisclosureGroup("Worktree location (optional)") {
-        HStack {
-          TextField("Default: <repo>/.claude/worktrees", text: $model.customWorktreeBase)
-            .textFieldStyle(.roundedBorder)
-          Button("Browse…") { pickWorktreeBase() }
+      if model.useWorktree {
+        DisclosureGroup("Worktree location (optional)") {
+          HStack {
+            TextField("Default: <repo>/.claude/worktrees", text: $model.customWorktreeBase)
+              .textFieldStyle(.roundedBorder)
+            Button("Browse…") { pickWorktreeBase() }
+          }
         }
+        .font(.caption)
       }
-      .font(.caption)
     }
   }
 
@@ -301,9 +307,13 @@ final class ScheduledTaskFormModel {
   var workingDirectory: String = ""
   var customWorktreeBase: String = ""
 
+  /// Default OFF: most tasks run in-place. Users opt in to per-run worktrees when
+  /// they want branch isolation.
+  var useWorktree: Bool = false
+
   /// Set by `refreshGitStatus` after the user picks a folder.
   private(set) var folderIsGitRepo: Bool = false
-  /// User must explicitly opt in to git init for non-git folders.
+  /// User must explicitly opt in to git init for non-git folders (only when useWorktree).
   var acknowledgeGitInit: Bool = false
 
   var frequencyUnit: ScheduledTaskFrequencyUnit = .hour
@@ -346,8 +356,11 @@ final class ScheduledTaskFormModel {
 
   var gitStrategyDescription: String {
     if workingDirectory.isEmpty { return "" }
+    if !useWorktree {
+      return "Runs directly in the folder. No git required."
+    }
     if folderIsGitRepo {
-      return "Git strategy: worktree (required)"
+      return "Each run creates a fresh worktree off the current branch."
     }
     return "Folder is not a git repository. Tenvy will run `git init` on first execution."
   }
@@ -371,7 +384,7 @@ final class ScheduledTaskFormModel {
     let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return .missingName }
     guard !workingDirectory.isEmpty else { return .missingFolder }
-    if !folderIsGitRepo && !acknowledgeGitInit { return .folderUnsupported }
+    if useWorktree && !folderIsGitRepo && !acknowledgeGitInit { return .folderUnsupported }
 
     switch promptKind {
     case .text:
@@ -401,8 +414,9 @@ final class ScheduledTaskFormModel {
       id: UUID().uuidString,
       name: trimmed,
       workingDirectory: workingDirectory,
-      customWorktreeBase: customWorktreeBase.isEmpty ? nil : customWorktreeBase,
-      pendingGitInit: !folderIsGitRepo,
+      customWorktreeBase: useWorktree && !customWorktreeBase.isEmpty ? customWorktreeBase : nil,
+      pendingGitInit: useWorktree && !folderIsGitRepo,
+      useWorktree: useWorktree,
       frequencyUnit: frequencyUnit.rawValue,
       frequencyValue: frequencyValue,
       timeOfDayHour: frequencyUnit.requiresTimeOfDay ? hourOfTimeOfDay : nil,

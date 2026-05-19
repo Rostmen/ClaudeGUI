@@ -164,6 +164,23 @@ struct AppDatabase {
       )
     }
 
+    migrator.registerMigration("v6_addUseWorktreeAndWipeScheduledTasks") { db in
+      // Scheduled tasks created before this migration assumed worktree-always; the new
+      // model has a per-task `useWorktree` flag with default OFF, so old rows would be
+      // semantically reinterpreted. Wipe them rather than try to migrate behavior.
+      try db.execute(sql: "DELETE FROM scheduledTask")
+      try db.execute(
+        sql: "UPDATE sessionRecord SET scheduledTaskId = NULL WHERE scheduledTaskId IS NOT NULL"
+      )
+      let columns = try Row.fetchAll(db, sql: "PRAGMA table_info(scheduledTask)")
+      let hasColumn = columns.contains { $0["name"] as String == "useWorktree" }
+      if !hasColumn {
+        try db.alter(table: "scheduledTask") { t in
+          t.add(column: "useWorktree", .boolean).notNull().defaults(to: false)
+        }
+      }
+    }
+
     return migrator
   }
 

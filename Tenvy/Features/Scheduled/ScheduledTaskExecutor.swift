@@ -93,7 +93,7 @@ final class ScheduledTaskExecutor {
       // unreadable, before we touch git or open a window.
       let promptText = try resolvePromptText(task: task)
 
-      let prepared = try prepareWorktree(task: task, firedAt: firedAt)
+      let prepared = try prepareWorkspace(task: task, firedAt: firedAt)
       let session = makeSession(task: task, prepared: prepared, firedAt: firedAt)
       try insertSessionRecord(task: task, session: session, prepared: prepared, firedAt: firedAt)
 
@@ -118,10 +118,15 @@ final class ScheduledTaskExecutor {
 
   // MARK: - Steps
 
-  private func prepareWorktree(task: ScheduledTaskRecord, firedAt: Date) throws -> Prepared {
+  private func prepareWorkspace(task: ScheduledTaskRecord, firedAt: Date) throws -> Prepared {
     let fm = FileManager.default
     guard fm.fileExists(atPath: task.workingDirectory) else {
       throw ScheduledTaskExecutorError.folderMissing(path: task.workingDirectory)
+    }
+
+    // In-place execution: skip git entirely and run claude in the working folder.
+    if !task.useWorktree {
+      return Prepared(repoRoot: task.workingDirectory, branchName: nil, worktreePath: nil)
     }
 
     let git = appModel.gitService
@@ -183,11 +188,12 @@ final class ScheduledTaskExecutor {
 
   private func makeSession(task: ScheduledTaskRecord, prepared: Prepared, firedAt: Date) -> ClaudeSession {
     let title = "\(task.name) — \(ScheduledTaskNaming.titleTimestamp(firedAt))"
+    let path = prepared.sessionPath
     return ClaudeSession(
       id: UUID().uuidString,
       title: title,
-      projectPath: prepared.worktreePath,
-      workingDirectory: prepared.worktreePath,
+      projectPath: path,
+      workingDirectory: path,
       lastModified: firedAt,
       filePath: nil,
       isNewSession: true,
@@ -202,10 +208,11 @@ final class ScheduledTaskExecutor {
     firedAt: Date
   ) throws {
     let permissionJSON = SessionRecord.encode(task.decodedPermissionSettings)
+    let path = prepared.sessionPath
     let record = SessionRecord(
       tenvySessionId: session.tenvySessionId,
-      workingDirectory: prepared.worktreePath,
-      projectPath: prepared.worktreePath,
+      workingDirectory: path,
+      projectPath: path,
       title: session.title,
       branchName: prepared.branchName,
       worktreePath: prepared.worktreePath,
@@ -431,8 +438,14 @@ final class ScheduledTaskExecutor {
 extension ScheduledTaskExecutor {
   fileprivate struct Prepared {
     let repoRoot: String
-    let branchName: String
-    let worktreePath: String
+    /// Nil when the task runs in-place (no worktree created).
+    let branchName: String?
+    /// Nil when the task runs in-place. When set, equals the worktree directory.
+    let worktreePath: String?
+
+    /// Working directory for the spawned session. Worktree path when one exists,
+    /// the chosen folder otherwise.
+    var sessionPath: String { worktreePath ?? repoRoot }
   }
 }
 

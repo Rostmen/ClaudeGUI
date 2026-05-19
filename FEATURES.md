@@ -105,8 +105,9 @@ Recurring Claude Code "tasks" that run on a fixed schedule (minutes / hours / da
 The sidebar toolbar's existing **+** button is a split menu: clicking it directly opens the regular New Session flow, and its dropdown adds a **New Scheduled Task** item that opens `CreateScheduledTaskView`. The form collects:
 
 - **Name** — used for session titles, branch slugs, and sidebar rows.
-- **Working folder** — required. If it isn't a git repo, the user must opt in to a "git init on first run" checkbox.
-- **Worktree base** (optional) — defaults to `<repo>/.claude/worktrees`.
+- **Working folder** — required. The folder does not have to be a git repository unless the task uses worktrees (see next field).
+- **Create a fresh git worktree for every run** — a checkbox, **default OFF**. When OFF, each firing runs claude directly in the working folder (no branch isolation, no git involvement). When ON, each firing creates a fresh `tenvy/scheduled/<slug>/<ts>` worktree off the folder's current branch; if the folder isn't yet a git repo, the user must additionally opt in to the "git init on first run" checkbox that appears below.
+- **Worktree base** (optional, only shown when worktree mode is ON) — defaults to `<repo>/.claude/worktrees`.
 - **Frequency** — unit (Minutes/Hours/Days/Weeks) + value (1–999). Days and weeks additionally take a time-of-day; weeks add a multi-select weekday picker.
 - **Prompt** — segmented Text / File. Text is stored inline; file paths are re-read on every execution.
 - **Permissions** — embedded `PermissionEditorView`, pre-filled from `ClaudeSettingsService.mergeForNewSession(...)`.
@@ -133,7 +134,7 @@ When the in-app scheduler decides a task is due, the executor:
 
 1. Runs the **overlap rule** — see below.
 2. Resolves the prompt up front (text is used as-is; file prompts are re-read each firing, 1 MB cap).
-3. Detects or initializes the git repo, creates a fresh worktree under `tenvy/scheduled/<slug>/<YYYYMMDD-HHMMSS>` (worktree dir name uses the same slug+timestamp).
+3. If the task has `useWorktree` enabled: detects or initializes the git repo and creates a fresh worktree under `tenvy/scheduled/<slug>/<YYYYMMDD-HHMMSS>`. Otherwise: skips all git work and uses `task.workingDirectory` directly.
 4. Inserts a new `SessionRecord` linked to the scheduled task, with a title of the form `"<Task name> — yyyy-MM-dd HH:mm"` and the task's snapshotted permission settings.
 5. Registers a power assertion (`ScheduledTaskPowerGuard`) so macOS won't idle-sleep or start the screen saver while the session is alive. Released (1-second debounce) when the session is deactivated.
 6. Opens a new `NSWindow` via `NSHostingController<ContentView>` and calls `orderFront(nil)` — **without** `makeKeyAndOrderFront`. The window appears but doesn't steal focus from the user's foreground app.
@@ -168,7 +169,7 @@ Skipped runs do not appear in the sub-list (they didn't create a session), but t
 
 ### Worktree retention
 
-Spawned worktrees are **kept forever until the task itself is deleted** (decided trade-off — disk usage grows linearly with runs). The delete dialog is the canonical bulk-cleanup mechanism.
+When a task has `useWorktree` enabled, spawned worktrees are **kept forever until the task itself is deleted** (decided trade-off — disk usage grows linearly with runs). The delete dialog is the canonical bulk-cleanup mechanism. In-place tasks (worktree off) leave nothing on disk between runs.
 
 ### Notifications
 

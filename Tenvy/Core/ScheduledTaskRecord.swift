@@ -37,11 +37,18 @@ struct ScheduledTaskRecord: Codable, FetchableRecord, PersistableRecord, Identif
   var workingDirectory: String
 
   /// Optional override of the worktree base directory. nil → `WorktreeService.defaultWorktreePath`.
+  /// Only consulted when `useWorktree == true`.
   var customWorktreeBase: String?
 
   /// True when the folder was not yet a git repo at creation time; the first execution
-  /// will `git init` the folder before creating the worktree.
+  /// will `git init` the folder before creating the worktree. Only meaningful when
+  /// `useWorktree == true`.
   var pendingGitInit: Bool
+
+  /// When true, every execution creates a fresh git worktree off the folder's current
+  /// branch. When false, executions run directly in `workingDirectory` with no git
+  /// involvement — the folder doesn't even need to be a git repository.
+  var useWorktree: Bool
 
   /// Frequency unit raw value: "minute"|"hour"|"day"|"week".
   var frequencyUnit: String

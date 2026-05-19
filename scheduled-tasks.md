@@ -2,7 +2,9 @@
 
 > Status: **Approved design, ready for implementation.**
 > Owner: Rostyslav.
-> Last updated: 2026-05-15.
+> Last updated: 2026-05-18.
+>
+> **Amendment 2026-05-18 (worktree-optional)**: Decision #5 ("Worktree only") was revised. Tasks now carry a `useWorktree` flag (default OFF). When OFF, the run executes directly in the chosen folder with no git involvement; `customWorktreeBase`, `pendingGitInit`, and the branch/worktree pipeline are skipped. The git-init checkbox in the create form is only shown when worktree is enabled. Migration v6 adds the column and wipes pre-existing scheduled tasks (their worktree-always semantics don't carry over cleanly).
 
 This document is the single source of truth for the Scheduled Tasks feature. It captures every product decision agreed during planning, the resulting data model, the runtime semantics, the UI surface, the edge cases, and the implementation order. Open it before writing any code in this feature; if you change a decision, change this file first.
 

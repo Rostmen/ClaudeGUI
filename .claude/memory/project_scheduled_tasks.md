@@ -6,14 +6,18 @@
 ## What it is
 
 Recurring Claude Code "tasks" the user defines once. Each firing opens a fresh background
-window with a Claude session pre-seeded with a user-provided prompt, running in its own
-git worktree.
+window with a Claude session pre-seeded with a user-provided prompt. By default the run
+executes directly in the chosen folder (no git involvement); when the task opts in to
+`useWorktree`, each firing creates a fresh git worktree off the folder's current branch
+instead.
 
 ## Surface area
 
-- New tables (GRDB migrations v4 + v5):
+- New tables (GRDB migrations v4 + v5 + v6):
   - `scheduledTask` — task definitions.
   - `sessionRecord.scheduledTaskId` — optional FK from sessions to their parent task.
+  - `scheduledTask.useWorktree` — per-task flag (migration v6). The same migration
+    wipes pre-v6 rows because they were created under the worktree-always assumption.
 - New files under `Tenvy/Features/Scheduled/`:
   - `ScheduledTask.swift` — value types (`Frequency`, `Weekday`, `PromptKind`, `RunStatus`),
     `nextRunAt` algorithm, branch/slug naming helpers.
@@ -104,14 +108,25 @@ for symmetry). This binds the value to the flag and leaves the trailing prompt
 arg untouched. If a future change reverts these to separate `--flag` / `value`
 args, scheduled tasks will silently lose their prompts again.
 
-## Worktree naming
+## Worktree mode (per task, default OFF)
 
-- Branch: `tenvy/scheduled/<slug>/<YYYYMMDD-HHMMSS>` (UTC timestamp).
-- Worktree dir name: `<slug>-<YYYYMMDD-HHMMSS>` (flat, no slashes).
-- On branch collision: append `-1`…`-9`. Beyond that → fail the run.
-- `customWorktreeBase` overrides the default `<repo>/.claude/worktrees` parent.
-- **Worktrees are retained until the task itself is deleted** (per design decision).
-  Disk-growth implications were explicitly accepted in §13 risks.
+Each task carries a `useWorktree: Bool` flag. The create form's "Create a fresh git
+worktree for every run" checkbox writes this flag; the default is **OFF**.
+
+- **OFF (in-place)**: `ScheduledTaskExecutor.prepareWorkspace` skips git entirely and
+  returns `Prepared(repoRoot: task.workingDirectory, branchName: nil, worktreePath: nil)`.
+  The session record's `branchName` and `worktreePath` are nil, so the delete dialog's
+  worktree-cleanup step naturally skips them. The folder is **not required** to be a git
+  repository in this mode — no `git init` prompt is offered.
+- **ON (worktree-per-run)**:
+  - Branch: `tenvy/scheduled/<slug>/<YYYYMMDD-HHMMSS>` (UTC timestamp).
+  - Worktree dir name: `<slug>-<YYYYMMDD-HHMMSS>` (flat, no slashes).
+  - On branch collision: append `-1`…`-9`. Beyond that → fail the run.
+  - `customWorktreeBase` overrides the default `<repo>/.claude/worktrees` parent.
+  - Non-git folders require the "Initialize git on first run" opt-in (gated by
+    `pendingGitInit` on the record).
+  - **Worktrees are retained until the task itself is deleted** (per design decision).
+    Disk-growth implications were explicitly accepted in §13 risks.
 
 ## Sidebar surface
 
@@ -126,6 +141,23 @@ returns to the flat list).
 Status icon + relative countdown only. Format: `"in 12s"`, `"in 3m 45s"`, `"in 3 days"`,
 `"due now"`. `TimelineView(.periodic(...))` re-renders at an interval scaled to the
 remaining time (1s → 15s → 60s → 600s).
+
+### Detail-view sub-list — resolving runtime state
+
+The sessions sub-list inside `ScheduledTaskDetailView` must show the same live PID/CPU/
+hook state as the main list. Two gotchas to preserve:
+
+1. **Tap action goes through `onSessionSelect` → `onAction(.select(...))`** on the parent
+   `SessionListView`, *not* by setting the `selectedSession` binding directly. Setting
+   the binding bypasses `ContentViewModel.selectSession` (window registry, activation,
+   runtime wiring), so the click would appear to do nothing.
+2. **Row data must come from the live activated session, not the DB record.** The DB
+   record's `isActive` flag is a snapshot that lags hook events, and its `claudeSessionId`
+   may not yet match the runtime registry key (the registry is keyed by the *current*
+   `session.id` — temp UUID before hook sync, Claude id after). The detail view looks up
+   the live session by stable `tenvySessionId` in `appModel.activatedSessions`; when
+   found, it passes that session's `id` to the runtime registry and `isActive: true` to
+   `SessionRowView`. Falls back to the DB record only for history rows.
 
 ## Decisions explicitly out of scope
 

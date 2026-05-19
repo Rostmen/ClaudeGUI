@@ -267,7 +267,8 @@ struct SessionListView: View {
         taskId: id,
         selectedSession: $selectedSession,
         onBack: { navigatedScheduledTaskId = nil },
-        onMissing: { navigatedScheduledTaskId = nil }
+        onMissing: { navigatedScheduledTaskId = nil },
+        onSessionSelect: { session in onAction(.select(session)) }
       )
     } else {
       sessionList

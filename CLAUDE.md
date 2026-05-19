@@ -7,7 +7,7 @@ macOS app for managing and resuming Claude Code CLI sessions with a native trans
 ## Quick Overview
 
 - **Session Management**: Browse, resume, rename, and delete Claude Code sessions
-- **Scheduled Tasks**: Recurring sessions with a user-provided prompt that run on a fixed schedule (minutes/hours/days/weeks) inside fresh worktrees, supervised by Tenvy
+- **Scheduled Tasks**: Recurring sessions with a user-provided prompt that run on a fixed schedule (minutes/hours/days/weeks). Each task optionally creates a fresh git worktree per run (off by default); when worktree is off, the run executes directly in the working folder with no git involvement
 - **Embedded Terminal**: Ghostty terminal with CPU-based state monitoring
 - **Split Panes**: Tree-based split layout (Ghostty-style) — splitting only divides the focused pane, not all panes. Both splits and new session creation intercept to offer git worktree creation for parallel branch work
 - **Multi-Window Support**: Each session runs in isolated window/tab with single process
@@ -395,7 +395,8 @@ Two-level permission management: global (App Settings) and per-session (Inspecto
 
 Full design and decision log lives at [scheduled-tasks.md](./scheduled-tasks.md). Quick reference for implementation invariants:
 
-- **DB**: `scheduledTask` table (migration v4) + `sessionRecord.scheduledTaskId` foreign-key column (migration v5). Spawned sessions look identical to normal sessions plus the `scheduledTaskId` link.
+- **DB**: `scheduledTask` table (migration v4) + `sessionRecord.scheduledTaskId` foreign-key column (migration v5) + `scheduledTask.useWorktree` column (migration v6, which also wipes pre-v6 rows because the worktree-always assumption was baked into the prior schema). Spawned sessions look identical to normal sessions plus the `scheduledTaskId` link.
+- **Worktree per run**: per-task `useWorktree` flag, default OFF. When ON, `ScheduledTaskExecutor.prepareWorkspace` builds a fresh `tenvy/scheduled/<slug>/<ts>` worktree exactly as before (git-init prompt for non-git folders applies). When OFF, the executor short-circuits past all git logic and runs claude in `task.workingDirectory` directly — the folder doesn't need to be a git repo. The session record's `branchName` and `worktreePath` are nil in the in-place case, so the delete dialog's worktree-cleanup step naturally skips them.
 - **Scheduler**: `ScheduledTaskScheduler` runs a single `Timer` every **5 seconds**. On launch it rolls `nextRunAt` forward for any task whose due time was missed while the app was closed — missed runs are **never** fired (decision: skip-missed).
 - **One window per task** is enforced by the **overlap rule** in `ScheduledTaskExecutor.decideOverlap`, not by any registry: previous session in `waiting` → auto-close and proceed; previous in any other non-ended state → skip; previous gone / ended → proceed. The `started` / nil hook states count as still-running for safety.
 - **Window opening**: each firing creates a fresh `NSWindow` via `NSHostingController<ContentView>` (same pattern as `handleDragToNewWindow`), then calls `orderFront(nil)` — **not** `makeKeyAndOrderFront` — so the window appears without stealing focus from the user's foreground app. Dock icon may still bounce; that's accepted.
